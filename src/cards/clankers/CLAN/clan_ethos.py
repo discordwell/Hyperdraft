@@ -709,9 +709,13 @@ def logic_lance_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_part_on_attach(obj, on_attach, description="Logic Lance: scry 1 on attach")]
 
 
+# BALANCE WAVE 3: power_bonus 2 → 3. Wave-2 universal-weak list flagged
+# Logic Lance as never seeing play; the scry 1 was load-bearing but the
+# +2 power floor wasn't enough to make it a real weapon. Bumping to +3
+# at 2 Compute gives ETHOS a competent attach payoff alongside the cantrip.
 LOGIC_LANCE = make_weapon(
     name="Logic Lance",
-    power_bonus=2,
+    power_bonus=3,
     compute_cost=2,
     weapon_slot_cost=1,
     text="When this attaches, scry 1.",
@@ -1041,10 +1045,15 @@ def containment_lance_setup(obj: GameObject, state: GameState) -> list[Intercept
     return [make_part_on_host_attack(obj, on_attack, description="Containment Lance: lockout opp ready")]
 
 
+# BALANCE WAVE 3: compute_cost 5 → 4. Wave-2 universal-weak list flagged
+# Containment Lance as too expensive for an attack-tax payoff — it's the
+# load-bearing answer to swarm decks (deny-next-boot lockout) but never
+# landed at 5 because ETHOS doesn't have the tempo. At 4 it's a credible
+# turn-4 play that buys the control deck the breathing room it needs.
 CONTAINMENT_LANCE = make_weapon(
     name="Containment Lance",
     power_bonus=5,
-    compute_cost=5,
+    compute_cost=4,
     weapon_slot_cost=1,
     text="When host attacks, the defender cannot ready exhausted add-ons next Boot.",
     rarity="rare",

@@ -157,20 +157,29 @@ SACRIFICIAL_PLATING = make_add_on(
 
 ### 2.4 Synchronize
 
-**Rules text.** *If you control two or more chassis with Synchronize, each
-Synchronize chassis you control has +1 power.*
+**Rules text (Wave 4B).** *If you control **2 or 3** chassis with Synchronize,
+each Synchronize chassis you control has +1 power. With 4+ Synchronize
+chassis the system over-couples and the Synchronize lord chain is **inert**
+(over-coupling penalty).*
 
 **Engine basis.** §7 capability #3 (static effects / lord). Each Synchronize
 chassis registers a TRANSFORM-priority interceptor on `CLANKERS_QUERY_POWER`
 whose filter checks (a) the queried chassis is its controller's, (b) the
 queried chassis itself has the `synchronize` keyword, and (c) the controller
-has `>= 2` chassis with `synchronize` on the Assembly Floor. The handler
-adds 1 to `payload["result"]`.
+has 2 or 3 chassis with `synchronize` on the Assembly Floor (the
+`_synchronize_lord_active` predicate in `clan_mirth.py`). The handler adds
+1 to `payload["result"]`.
 
 This is *the* swarm-deck lord effect. Two Synchronize chassis on the floor
-is a 2/2 trade up, three is a board state. The condition is symmetric (every
-qualifying chassis contributes the same bump), so the math works whichever
-chassis the engine queries first; the result is deterministic.
+is a 2/2 trade up, three is a board state. **Above three, you've
+over-coupled** and the lord chain goes inert — pure swarm decks running
+5-8 Synchronize bodies lose the snowball, while 2-3-of splashes still work
+fine. Wave 4B (2026-05-23) introduced this cap to break the
+mechanic-density imbalance that survived three rounds of card-level
+nerfing. Same gate also applies to the Synchronize global anthems
+(Affinity Coil +1 power, Iron Cluster +1 integrity, Hum-Swarm Alpha
++1 integrity to other Synchronize chassis). Per-host weapon / add-on
+buffs (Hum-Lance, Tinker's Frame) are NOT gated by this rule.
 
 **Sample card.**
 
@@ -279,7 +288,7 @@ add to 150 across the whole set (see §4).
 |---|---|
 | **Color/Identity** | Magenta + chrome (deeply ironic) |
 | **Strategy** | Many small chassis (1-2 power, 1-2 integrity, 1 Compute each) plus Self-Mobile weapons that don't need a host. Synchronize lord effects compound the swarm. "When a part attaches" payoffs fire frequently because you're constantly attaching cheap parts. Wants to flood the floor and overrun before the opponent assembles. |
-| **Gameplay loop** | T1–2 play 1-Compute chassis + Self-Mobile parts on the floor. T3–4 begin attaching parts to trigger on-attach effects; Synchronize comes online with the 2nd Linked Crawler. T5+ alpha strike — every chassis swings, anything that can't be blocked hits the Core. |
+| **Gameplay loop** | T1–2 play 1-Compute chassis + Self-Mobile parts on the floor. T3–4 begin attaching parts to trigger on-attach effects; Synchronize comes online with the 2nd Linked Crawler. T5+ alpha strike — every chassis swings, anything that can't be blocked hits the Core. (Post-Wave-4B: Synchronize lord chain over-couples and goes inert at 4+ chassis; the sweet spot is 2–3 active Synchronize bodies.) |
 | **Engine archetype tag** | `swarm` |
 | **Card count** | 37 (1 Core + 12 Chassis + 10 Weapons + 9 Add-Ons + 3 Transients + 2 Structures) |
 | **Anchored Core** | `MIRTHBOT-1` (workshop_integrity=23; passive: when a part attaches to one of your chassis, you may gain 1 scrap) |
@@ -385,7 +394,7 @@ Format: `| Name | Type | Compute | Power | Integrity | W-slots | A-slots | Arche
 | Whirring Initiate | Chassis | 1 | 1 | 2 | 0 | 2 | swarm | When this enters the floor, draw a card if you control another chassis. |
 | Magenta Buzzer | Chassis | 2 | 3 | 1 | 1 | 0 | swarm | Synchronize. |
 | Affection-Bot | Chassis | 2 | 2 | 2 | 1 | 1 | swarm | When a part attaches to Affection-Bot, gain 1 scrap. |
-| Crowd Marcher | Chassis | 3 | 3 | 3 | 1 | 1 | swarm | Synchronize. Synchronize bonus from Crowd Marcher is +2 power instead of +1 if you control 4+ Synchronize chassis. |
+| Crowd Marcher | Chassis | 3 | 3 | 3 | 1 | 1 | swarm | Synchronize. (Wave 4B: prior "+2 if 4+ Synchronize" clause removed — lord chain is intentionally inert at 4+.) |
 | Tinkerling | Chassis | 1 | 1 | 1 | 1 | 1 | swarm | When this enters the floor, you may attach a part on the Assembly Floor you control to a chassis you control with an open matching slot. |
 | Hum-Swarm Alpha | Chassis | 4 | 3 | 3 | 2 | 2 | swarm | Synchronize. Other Synchronize chassis you control have +1 integrity. |
 | Quickforge Drudge | Chassis | 2 | 2 | 2 | 1 | 1 | swarm | When this enters the floor, attach a Weapon you control to a chassis you control if you can. |

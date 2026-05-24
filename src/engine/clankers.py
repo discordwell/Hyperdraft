@@ -59,13 +59,26 @@ from src.engine.types import (
 
 CLANKERS_HAND_FLOOR = 7
 CLANKERS_DECK_SIZE = 60
-CLANKERS_STARTING_WORKSHOP_INTEGRITY = 25
+# BALANCE WAVE 4A (2026-05-23): 25 → 30. Wave-3 confirmed Synchronize-density
+# imbalance is structural; the first engine-level intervention is to lengthen
+# games by ~1 turn of damage absorption so control / Transient-engine decks
+# (ETHOS) and armor-stack decks (BULWARK) can assemble their plans before
+# MIRTH's swarm closes. This is the Cats snack-force-style lever: one rule
+# change is meant to ease three archetype gaps at once.
+CLANKERS_STARTING_WORKSHOP_INTEGRITY = 30
 CLANKERS_COMPUTE_POOL_BASE = 3
 CLANKERS_COMPUTE_CAP = 10
 CLANKERS_SCRAP_CAP = 10
 CLANKERS_MAX_STRUCTURES = 3
 CLANKERS_DEATHCLOCK_BASE = 2
 CLANKERS_DEATHCLOCK_MULTIPLIER = 2
+# BALANCE WAVE 4C (2026-05-23): deathclock activates earlier so deck-burn /
+# slow-win strategies (ETHOS Transient-mill, BULWARK armor-stack) have a
+# real closer. Was: both libraries empty AND active player drew. Now: either
+# library hits this threshold (5 cards). Speeds up the late game by ~2-3
+# turns. Combined with Wave-4A (Workshop Integrity 25 → 30) this is the
+# slow-deck reach lever.
+CLANKERS_DEATHCLOCK_TRIGGER_LIBRARY_SIZE = 5
 CLANKERS_DEFAULT_CHASSIS_WEAPON_SLOTS = 2
 CLANKERS_DEFAULT_CHASSIS_ADDON_SLOTS = 2
 CLANKERS_SOLO_PART_POWER = 1
@@ -781,12 +794,16 @@ def activate_deathclock_if_needed(state: GameState) -> list[Event]:
         return []
 
     if not state.clankers_containment_failure:
-        # Activation requires BOTH libraries empty.
-        all_empty = all(
-            not _ensure_zone(state, ZoneType.LIBRARY, pid).objects
+        # Wave-4C: activation now triggers when EITHER library hits the threshold
+        # (5 cards) instead of both libraries empty. This gives deck-burn / slow
+        # strategies (ETHOS Transient-mill, BULWARK armor-stack) a real closer
+        # ~2-3 turns earlier than the old "both empty" rule.
+        any_below = any(
+            len(_ensure_zone(state, ZoneType.LIBRARY, pid).objects)
+            <= CLANKERS_DEATHCLOCK_TRIGGER_LIBRARY_SIZE
             for pid in pids
         )
-        if not all_empty:
+        if not any_below:
             return []
         state.clankers_containment_failure = True
         state.clankers_containment_turn = 0

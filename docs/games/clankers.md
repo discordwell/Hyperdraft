@@ -251,21 +251,35 @@ Difficulty is selected at game start via `Game.set_ai_difficulty(player_id, 'eas
 
 ## 12. Engine Constants Reference (Quick-Lookup for Stages 1–4)
 
+Values reflect the Wave-4 balance pass (2026-05-23) — see
+`docs/sets/clan_balance_plan.md` for context.
+
 ```python
 CLANKERS_HAND_FLOOR = 7
 CLANKERS_DECK_SIZE = 60
-CLANKERS_STARTING_WORKSHOP_INTEGRITY = 25
+CLANKERS_STARTING_WORKSHOP_INTEGRITY = 30   # Wave 4A (was 25)
 CLANKERS_COMPUTE_POOL_BASE = 3
 CLANKERS_COMPUTE_CAP = 10
 CLANKERS_SCRAP_CAP = 10
 CLANKERS_MAX_STRUCTURES = 3
 CLANKERS_DEATHCLOCK_BASE = 2
 CLANKERS_DEATHCLOCK_MULTIPLIER = 2
+CLANKERS_DEATHCLOCK_TRIGGER_LIBRARY_SIZE = 5  # Wave 4C — was "both empty"
 CLANKERS_DEFAULT_CHASSIS_WEAPON_SLOTS = 2
 CLANKERS_DEFAULT_CHASSIS_ADDON_SLOTS = 2
 CLANKERS_SOLO_PART_POWER = 1
 CLANKERS_SOLO_PART_INTEGRITY = 1
 ```
+
+### Synchronize mechanic — over-coupling penalty (Wave 4B)
+
+Defined in `src/cards/clankers/CLAN/clan_mirth.py` (`_synchronize_lord_active`).
+The Synchronize lord chain (self +1 power on each Synchronize chassis, plus
+the Affinity Coil / Iron Cluster / Hum-Swarm Alpha global anthems) fires only
+when the controller has **2 or 3 Synchronize chassis** on the Assembly Floor.
+At 4+ the system "over-couples" and the lord chain goes inert. Per-host
+weapon / add-on buffs (Hum-Lance, Tinker's Frame) are NOT gated by this rule;
+they remain active regardless of count.
 
 ## 13. Pipeline Summary (/new-game build, 2026-05)
 

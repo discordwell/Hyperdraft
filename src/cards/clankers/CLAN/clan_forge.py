@@ -973,10 +973,15 @@ def _apex_coilgun_setup(obj: GameObject, state: GameState):
     )]
 
 
+# BALANCE WAVE 3: compute_cost 6 → 5. Wave-2 universal-weak list flagged
+# Apex Coilgun as uncastable in any deck except FORGE late-game (181 casts
+# total but never a finisher). At 5 Compute the +6 power Modular weapon
+# can actually land on T6 alongside a Heavy Assembly, giving brick a real
+# threat instead of a dead draw.
 APEX_COILGUN = make_weapon(
     name="Apex Coilgun",
     power_bonus=6,
-    compute_cost=6,
+    compute_cost=5,
     weapon_slot_cost=2,
     clankers_keywords=["modular"],
     text="Slot cost: 2. Modular.",

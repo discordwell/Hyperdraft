@@ -328,51 +328,51 @@ def build_clan_ethos() -> tuple[CardDefinition, list[CardDefinition]]:
 
 
 # =============================================================================
-# CLAN_mirth — MIRTHBOT-1 swarm deck (60 cards)
+# CLAN_mirth — MIRTHBOT-1 swarm deck (60 cards) — Synchronize-Max pinnacle
 # =============================================================================
-# Plan: 28 Chassis (cheap many), 14 Weapons (Self-Mobile bias), 10 Add-Ons,
-# 6 Transients, 2 Structures. Wants T1 Sparkbot/Skitterswarm + Self-Mobile
-# parts on the floor, T2 Linked Crawler #2 lighting Synchronize, T3-4 flood
-# and alpha strike with Wired Toolkit / Curiosity Routine attach-payoffs.
+# WAVE 3 UPDATE: pinnacle-deck principle. Wave-2 found CLAN_synchronize_max
+# (4× every Synchronize chassis + every Synchronize-payoff Add-On/Structure)
+# is the strongest expression of the swarm archetype, beating the prior
+# MIRTH starter 56.7% head-to-head. The deckbuilder builds the strongest;
+# Wave 3 then nerfs the cards (Joyful Walker, Iron Cluster, Affinity Coil)
+# that make that deck oppressive. The MIRTH starter mirrors the candidate
+# composition exactly.
 #
-# Composition: 28 / 14 / 10 / 6 / 2 = 60.
+# Composition: 25 / 14 / 12 / 6 / 3 = 60 — matches candidate_synchronize_max.
 
 def build_clan_mirth() -> tuple[CardDefinition, list[CardDefinition]]:
-    """MIRTHBOT-1 swarm: many small chassis + Self-Mobile parts + Synchronize."""
+    """MIRTHBOT-1 Synchronize-Max: pinnacle swarm — every Synchronize chassis 4×
+    plus every Synchronize payoff Add-On / Structure. Mirrors the wave-2
+    candidate ``CLAN_synchronize_max`` composition (this is the deckbuilder/
+    balance adversarial relationship made operational)."""
     deck: list[CardDefinition] = [
-        # --- Chassis (28) — Synchronize core + 1-drop swarm ---
-        LINKED_CRAWLER, LINKED_CRAWLER, LINKED_CRAWLER, LINKED_CRAWLER,       # 4× the lord-anchor (Key card)
-        SKITTERSWARM, SKITTERSWARM, SKITTERSWARM, SKITTERSWARM,               # 4× on-attach payoff (Key card)
-        SPARKBOT, SPARKBOT, SPARKBOT, SPARKBOT,                               # 4× 1-Compute vanilla 2/1
-        JOYFUL_WALKER, JOYFUL_WALKER, JOYFUL_WALKER, JOYFUL_WALKER,           # 4× Synchronize 2/2
-        MAGENTA_BUZZER, MAGENTA_BUZZER, MAGENTA_BUZZER,                       # 3× Synchronize 3/1
-        TINKERLING, TINKERLING, TINKERLING,                                   # 3× ETB attach trigger
-        AFFECTION_BOT, AFFECTION_BOT,                                         # 2× scrap on attach
-        WHIRRING_INITIATE, WHIRRING_INITIATE,                                 # 2× cheap loot ETB
-        HUM_SWARM_ALPHA,                                                      # 1× Synchronize +1 integ aura
-        CROWD_MARCHER,                                                        # 1× Synchronize scaling
+        # --- Chassis (25) — Synchronize maxed ---
+        LINKED_CRAWLER, LINKED_CRAWLER, LINKED_CRAWLER, LINKED_CRAWLER,       # 4× the lord-anchor
+        JOYFUL_WALKER, JOYFUL_WALKER, JOYFUL_WALKER, JOYFUL_WALKER,           # 4× Synchronize 2/2 (now 3 Compute post-nerf)
+        MAGENTA_BUZZER, MAGENTA_BUZZER, MAGENTA_BUZZER, MAGENTA_BUZZER,       # 4× Synchronize 3/1
+        CROWD_MARCHER, CROWD_MARCHER, CROWD_MARCHER, CROWD_MARCHER,           # 4× Synchronize scaling
+        HUM_SWARM_ALPHA, HUM_SWARM_ALPHA, HUM_SWARM_ALPHA, HUM_SWARM_ALPHA,   # 4× Synchronize +1 integ aura
+        # Cheap non-Synchronize filler to ensure 1-drops fire on T1
+        SPARKBOT, SPARKBOT, SPARKBOT,                                         # 3× 1-Compute vanilla 2/1
+        SKITTERSWARM, SKITTERSWARM,                                           # 2× on-attach payoff
 
-        # --- Weapons (14) — Self-Mobile bias for the swarm-without-a-host plan ---
-        SCOUT_DRONE, SCOUT_DRONE, SCOUT_DRONE, SCOUT_DRONE,                   # 4× the engine card (Key card)
+        # --- Weapons (14) — Synchronize-payoff bias ---
+        HUM_LANCE, HUM_LANCE, HUM_LANCE, HUM_LANCE,                           # 4× +3 if Synchronize host
+        SCOUT_DRONE, SCOUT_DRONE, SCOUT_DRONE, SCOUT_DRONE,                   # 4× Self-Mobile tempo
         JOYBUZZER, JOYBUZZER, JOYBUZZER,                                      # 3× cheap Self-Mobile
         STINGER_PACK, STINGER_PACK, STINGER_PACK,                             # 3× 1-Compute Self-Mobile
-        HUM_LANCE, HUM_LANCE,                                                 # 2× +3 if Synchronize host
-        MAGENTA_COIL,                                                         # 1× Self-Mobile +3/+1
-        SPARK_WHIP,                                                           # 1× +2 Self-Mobile
 
-        # --- Add-Ons (10) ---
-        WIRED_TOOLKIT, WIRED_TOOLKIT, WIRED_TOOLKIT, WIRED_TOOLKIT,           # 4× draw on attach (Key card)
-        CURIOSITY_ROUTINE, CURIOSITY_ROUTINE, CURIOSITY_ROUTINE,              # 3× chain-attach
-        AFFINITY_COIL, AFFINITY_COIL,                                         # 2× Synchronize +1 power aura
-        TINKERS_FRAME,                                                        # 1× Synchronize-scaled stats
+        # --- Add-Ons (12) — Synchronize multipliers ---
+        AFFINITY_COIL, AFFINITY_COIL, AFFINITY_COIL, AFFINITY_COIL,           # 4× Synchronize +1 power aura (now 4 Compute post-nerf)
+        TINKERS_FRAME, TINKERS_FRAME, TINKERS_FRAME, TINKERS_FRAME,           # 4× +1/+2 if Synchronize host
+        WIRED_TOOLKIT, WIRED_TOOLKIT, WIRED_TOOLKIT, WIRED_TOOLKIT,           # 4× draw on attach
 
         # --- Transients (6) ---
-        JOYBOMB, JOYBOMB, JOYBOMB,                                            # 3× anthem swing
-        SWARM_SURGE, SWARM_SURGE, SWARM_SURGE,                                # 3× Synchronize-only anthem
+        SWARM_SURGE, SWARM_SURGE, SWARM_SURGE, SWARM_SURGE,                   # 4× Synchronize-only +1/+1
+        JOYBOMB, JOYBOMB,                                                     # 2× all-chassis +1
 
-        # --- Structures (2) ---
-        IRON_CLUSTER,                                                         # 1× Synchronize +1 integ (Key card)
-        MASS_PRODUCTION_LINE,                                                 # 1× ≤2 cost +1/+0
+        # --- Structures (3) ---
+        IRON_CLUSTER, IRON_CLUSTER, IRON_CLUSTER,                             # 3× Synchronize +1 integrity (now 4 Compute post-nerf)
     ]
     assert len(deck) == 60, f"CLAN_mirth: {len(deck)}"
     return (MIRTHBOT_1, deck)

@@ -74,6 +74,32 @@ def _count_synchronize_chassis(state: GameState, player_id: str) -> int:
     return n
 
 
+# BALANCE WAVE 4B (2026-05-23): Synchronize over-coupling penalty.
+# Wave-3 confirmed Synchronize's value scales superlinearly with chassis count
+# (CLAN_synchronize_max held 77.9% post-card-nerfs). Card-level numerics can't
+# fix mechanic-density. The engine fix: the Synchronize lord chain (self-+1
+# power on each Synchronize chassis, plus Affinity Coil / Iron Cluster /
+# Hum-Swarm Alpha global anthems) fires ONLY at 2 or 3 chassis — at 4+ the
+# system "over-couples" and the lord chain goes inert. This preserves the
+# "lean in" payoff at the design sweet spot (2-3 chassis) and adds a steep
+# self-cost to going full-density (4+). Crowd Marcher's modal "+2 if 4+"
+# clause is repurposed: it now collapses to +0 at 4+ (consistent with the
+# rest of the Synchronize chain).
+_SYNCHRONIZE_LORD_MIN = 2
+_SYNCHRONIZE_LORD_MAX = 3
+
+
+def _synchronize_lord_active(state: GameState, player_id: str) -> bool:
+    """True when the Synchronize lord chain should fire for ``player_id``.
+
+    Active at 2 or 3 Synchronize chassis on the floor. Inert at 0, 1, or 4+
+    (over-coupling penalty). All Synchronize-keyed lord interceptors gate on
+    this predicate (Wave 4B engine change).
+    """
+    n = _count_synchronize_chassis(state, player_id)
+    return _SYNCHRONIZE_LORD_MIN <= n <= _SYNCHRONIZE_LORD_MAX
+
+
 def _make_temp_power_buff(
     obj: GameObject,
     state: GameState,
@@ -355,15 +381,17 @@ def _synchronize_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         if obj.zone != ZoneType.CLANKERS_ASSEMBLY_FLOOR:
             return False
         # Only the chassis that hosts THIS interceptor adds its own +1 once.
-        # The handler checks the count >= 2 condition (a single Synchronize
-        # chassis grants no bonus; two grants each +1).
-        return _count_synchronize_chassis(st, obj.controller) >= 2
+        # Wave-4B: lord fires only at 2 or 3 Synchronize chassis. At 4+ the
+        # system over-couples and the lord goes inert — pure swarm decks
+        # running 5-8 Synchronize bodies lose the snowball; 2-3-of splashes
+        # still work fine.
+        return _synchronize_lord_active(st, obj.controller)
 
     def handler(event: Event, st: GameState) -> InterceptorResult:
         # This source chassis only contributes +1 to queries against
         # ITSELF (lord granting itself), keeping the math symmetric:
         # each Synchronize chassis registers ONE +1 self-buff under the
-        # 2+ condition, and that's all. The other Synchronize chassis on
+        # 2-3 condition, and that's all. The other Synchronize chassis on
         # the floor get their +1 from THEIR own interceptors. No double-add.
         queried_id = event.payload.get("chassis_id")
         if queried_id != obj.id:
@@ -388,7 +416,7 @@ def _synchronize_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         priority=InterceptorPriority.TRANSFORM,
         filter=filter_fn,
         handler=handler,
-        description="Synchronize +1 power if 2+ Synchronize chassis",
+        description="Synchronize +1 power (active 2-3 chassis; over-coupled at 4+)",
         duration="while_on_battlefield",
     )]
 
@@ -475,11 +503,15 @@ SPARKBOT = make_chassis(
 
 
 # 2.4 Joyful Walker — Synchronize 2/2
+# BALANCE WAVE 3: compute_cost 2 → 3. Wave-2 found CLAN_synchronize_max
+# (79.2% adversarial winrate) used Joyful Walker as the curve enabler — a
+# 2-Compute 2/2 with Synchronize triggered the lord on T2-3 races. Bumping
+# to 3 stretches the swarm curve out by a turn without removing the card.
 JOYFUL_WALKER = make_chassis(
     name="Joyful Walker",
     power=2, integrity=2,
     weapon_slots=1, add_on_slots=1,
-    compute_cost=2,
+    compute_cost=3,
     text="Synchronize (if you control two or more chassis with Synchronize, "
          "each of them has +1 power).",
     rarity="common",
@@ -574,51 +606,19 @@ AFFECTION_BOT = make_chassis(
 )
 
 
-# 2.8 Crowd Marcher — Synchronize 3/3, +2 power instead if 4+ Synchronize chassis
+# 2.8 Crowd Marcher — Synchronize 3/3
+# BALANCE WAVE 4B (2026-05-23): the modal "+2 if 4+ Synchronize" clause is
+# repurposed to the new over-coupling regime. The Synchronize lord chain is
+# now active only at 2-3 chassis; at 4+ it goes inert. Crowd Marcher's "lean
+# in" bonus is therefore collapsed onto the standard Synchronize lord — it
+# behaves exactly like the other Synchronize chassis (self +1 power at 2-3
+# chassis, +0 at 4+). The card-text was updated to reflect this.
 def _crowd_marcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Synchronize with a scaling clause: +2 power if controller has 4+
-    Synchronize chassis (instead of the usual +1).
-
-    Implementation: a SINGLE TRANSFORM interceptor on CLANKERS_QUERY_POWER
-    targeting this chassis. Adds +1 if count >= 2, OR +2 if count >= 4.
-    The base Synchronize interceptor is NOT registered for Crowd Marcher —
-    this one supersedes it.
+    """Standard Synchronize lord, gated on the Wave-4B over-coupling window
+    (2-3 chassis). The old modal "+2 if 4+" clause is dropped since the lord
+    chain is now intentionally inert at 4+.
     """
-    def filter_fn(event: Event, st: GameState) -> bool:
-        if event.type != EventType.CLANKERS_QUERY_POWER:
-            return False
-        if event.payload.get("chassis_id") != obj.id:
-            return False
-        if obj.zone != ZoneType.CLANKERS_ASSEMBLY_FLOOR:
-            return False
-        return _count_synchronize_chassis(st, obj.controller) >= 2
-
-    def handler(event: Event, st: GameState) -> InterceptorResult:
-        count = _count_synchronize_chassis(st, obj.controller)
-        bonus = 2 if count >= 4 else 1
-        new_payload = dict(event.payload)
-        new_payload["result"] = int(new_payload.get("result", 0)) + bonus
-        return InterceptorResult(
-            action=InterceptorAction.TRANSFORM,
-            transformed_event=Event(
-                type=event.type,
-                payload=new_payload,
-                source=event.source,
-                controller=event.controller,
-                id=event.id,
-            ),
-        )
-
-    return [Interceptor(
-        id=f"{obj.id}_crowd_marcher_sync",
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.TRANSFORM,
-        filter=filter_fn,
-        handler=handler,
-        description="Crowd Marcher: +1 power (or +2 if 4+ Synchronize)",
-        duration="while_on_battlefield",
-    )]
+    return _synchronize_setup(obj, state)
 
 
 CROWD_MARCHER = make_chassis(
@@ -626,8 +626,8 @@ CROWD_MARCHER = make_chassis(
     power=3, integrity=3,
     weapon_slots=1, add_on_slots=1,
     compute_cost=3,
-    text="Synchronize. Synchronize bonus from Crowd Marcher is +2 power "
-         "instead of +1 if you control 4+ Synchronize chassis.",
+    text="Synchronize. (Synchronize lord chain is inert at 4+ Synchronize "
+         "chassis — over-coupling penalty.)",
     rarity="uncommon",
     clankers_archetype="swarm",
     setup_interceptors=_crowd_marcher_setup,
@@ -687,6 +687,7 @@ def _hum_swarm_alpha_setup(obj: GameObject, state: GameState) -> list[Intercepto
     sync_ic = _synchronize_setup(obj, state)[0]
 
     # 2. +1 integrity to OTHER Synchronize chassis we control.
+    # Wave-4B: gated on the over-coupling window (active 2-3 chassis, inert 4+).
     def integ_filter(event: Event, st: GameState) -> bool:
         if event.type != EventType.CLANKERS_QUERY_INTEGRITY:
             return False
@@ -702,7 +703,7 @@ def _hum_swarm_alpha_setup(obj: GameObject, state: GameState) -> list[Intercepto
             return False
         if obj.zone != ZoneType.CLANKERS_ASSEMBLY_FLOOR:
             return False
-        return True
+        return _synchronize_lord_active(st, obj.controller)
 
     def integ_handler(event: Event, st: GameState) -> InterceptorResult:
         new_payload = dict(event.payload)
@@ -1019,7 +1020,7 @@ def _hum_lance_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 HUM_LANCE = make_weapon(
     name="Hum-Lance",
     power_bonus=2,
-    compute_cost=2,
+    compute_cost=3,
     text="If host has Synchronize, this is +3 / +0 instead.",
     rarity="uncommon",
     clankers_archetype="swarm",
@@ -1354,7 +1355,7 @@ TINKERS_FRAME = make_add_on(
     name="Tinker's Frame",
     integrity_bonus=1,
     power_bonus=1,
-    compute_cost=2,
+    compute_cost=3,
     text="If host has Synchronize, this is +1 / +2 instead.",
     rarity="uncommon",
     clankers_archetype="swarm",
@@ -1401,9 +1402,11 @@ GLEE_PLATING = make_add_on(
 
 
 # 4.8 Affinity Coil — +1/+2, Synchronize chassis you control have +1 power
+# WAVE 4B: anthem gated on Synchronize lord-active window (2-3 chassis).
 def _affinity_coil_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Global +1 power to Synchronize chassis under our controller (while this
-    add-on is on the floor — solo or attached).
+    add-on is on the floor — solo or attached). Wave-4B: gated on the
+    over-coupling window so a 4+ Synchronize board no longer gets the anthem.
     """
     def filter_fn(event: Event, st: GameState) -> bool:
         if event.type != EventType.CLANKERS_QUERY_POWER:
@@ -1418,7 +1421,7 @@ def _affinity_coil_setup(obj: GameObject, state: GameState) -> list[Interceptor]
             return False
         if obj.zone != ZoneType.CLANKERS_ASSEMBLY_FLOOR:
             return False
-        return True
+        return _synchronize_lord_active(st, obj.controller)
 
     def handler(event: Event, st: GameState) -> InterceptorResult:
         new_payload = dict(event.payload)
@@ -1446,11 +1449,15 @@ def _affinity_coil_setup(obj: GameObject, state: GameState) -> list[Interceptor]
     )]
 
 
+# BALANCE WAVE 3: compute_cost 3 → 4. Same reasoning as Iron Cluster — this
+# is a 1-card global +1 power anthem for the entire Synchronize package.
+# 3 Compute let MIRTH stack it alongside Iron Cluster while still having
+# tempo plays. Bumping to 4 enforces a real choice between the anthems.
 AFFINITY_COIL = make_add_on(
     name="Affinity Coil",
     integrity_bonus=2,
     power_bonus=1,
-    compute_cost=3,
+    compute_cost=4,
     text="Synchronize chassis you control have +1 power.",
     rarity="rare",
     clankers_archetype="swarm",
@@ -1676,7 +1683,7 @@ def _swarm_surge_resolve(event: Event, state: GameState) -> list[Event]:
 
 SWARM_SURGE = make_transient(
     name="Swarm Surge",
-    compute_cost=3,
+    compute_cost=4,
     resolve_fn=_swarm_surge_resolve,
     text="Each chassis you control with Synchronize gets +1/+1 until end of turn.",
     rarity="uncommon",
@@ -1690,9 +1697,11 @@ SWARM_SURGE = make_transient(
 
 
 # 6.1 Iron Cluster — each Synchronize chassis you control has +1 integrity
+# WAVE 4B: anthem gated on Synchronize lord-active window (2-3 chassis).
 def _iron_cluster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Same shape as Affinity Coil but for integrity. Structure global passive
-    targeting Synchronize chassis under our controller.
+    targeting Synchronize chassis under our controller. Wave-4B: gated on the
+    over-coupling window so a 4+ Synchronize board no longer gets the anthem.
     """
     def filter_fn(event: Event, st: GameState) -> bool:
         if event.type != EventType.CLANKERS_QUERY_INTEGRITY:
@@ -1707,7 +1716,7 @@ def _iron_cluster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
             return False
         if obj.zone != ZoneType.CLANKERS_ASSEMBLY_FLOOR:
             return False
-        return True
+        return _synchronize_lord_active(st, obj.controller)
 
     def handler(event: Event, st: GameState) -> InterceptorResult:
         new_payload = dict(event.payload)
@@ -1735,9 +1744,13 @@ def _iron_cluster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     )]
 
 
+# BALANCE WAVE 3: compute_cost 3 → 4. Iron Cluster is a one-card global
+# anthem for the Synchronize archetype; priced at 3 it landed too early in
+# the curve and stacked over Affinity Coil + Hum-Swarm Alpha for a runaway
+# swarm. Bumped to 4 to match the anthem-priced-like-an-anthem rule.
 IRON_CLUSTER = make_structure(
     name="Iron Cluster",
-    compute_cost=3,
+    compute_cost=4,
     setup_interceptors=_iron_cluster_setup,
     text="Each Synchronize chassis you control has +1 integrity.",
     rarity="rare",
