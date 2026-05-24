@@ -140,6 +140,70 @@ td.type { font-family: var(--mono); color: var(--circuit); font-size: 9pt; }
 footer { padding: 24px 56px; color: var(--ink-faint); font-family: var(--mono); font-size: 8pt; text-align: center; border-top: 1px solid var(--gunmetal); }
 .section-rule { display: flex; align-items: center; gap: 16px; margin: 4px 0 28px; font-family: var(--mono); font-size: 9pt; color: var(--ink-faint); }
 .section-rule::before { content: ''; flex: 0 0 16px; height: 2px; background: var(--coolant); }
+
+/* === Gallery image grid === */
+.gallery-page { padding: 24px 32px; }
+.gallery-h3 { font-family: var(--mono); color: var(--coolant); font-size: 18pt; margin: 0 0 16px; letter-spacing: -0.01em; }
+.g-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    margin: 0;
+}
+.g-card {
+    background: var(--panel);
+    border: 1px solid var(--gunmetal);
+    border-left: 3px solid var(--ink-faint);
+    border-radius: 4px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    page-break-inside: avoid;
+    break-inside: avoid;
+}
+.g-art { aspect-ratio: 1 / 1; background: #0a0f1c; }
+.g-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.g-meta { padding: 8px 10px 10px; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.g-name { font-family: var(--mono); color: var(--amber); font-size: 9.5pt; font-weight: 700; line-height: 1.15; }
+.g-line { font-family: var(--mono); color: var(--circuit); font-size: 7.5pt; letter-spacing: 0.04em; text-transform: uppercase; }
+.g-text { color: var(--ink); font-size: 8pt; line-height: 1.35; }
+
+.g-brick     { border-left-color: #f97316; }
+.g-control   { border-left-color: #2dd4bf; }
+.g-swarm     { border-left-color: #e879f9; }
+.g-artillery { border-left-color: #fbbf24; }
+.g-neutral   { border-left-color: var(--ink-faint); }
+
+em.arch-brick     { color: #f97316; font-style: normal; font-weight: 600; }
+em.arch-control   { color: #2dd4bf; font-style: normal; font-weight: 600; }
+em.arch-swarm     { color: #e879f9; font-style: normal; font-weight: 600; }
+em.arch-artillery { color: #fbbf24; font-style: normal; font-weight: 600; }
+em.arch-neutral   { color: var(--ink-dim); font-style: normal; font-weight: 600; }
+
+/* Cover mosaic */
+.cover-mosaic {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+    width: 100%;
+    max-width: 720px;
+    margin: 0 auto;
+}
+.cover-cell {
+    background: var(--panel);
+    border: 1px solid var(--gunmetal);
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+}
+.cover-cell img { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; }
+.cover-cell-name { font-family: var(--mono); color: var(--amber); font-size: 9.5pt; padding: 6px 8px; letter-spacing: 0.06em; }
+
+@media print {
+    .g-grid { gap: 10px; }
+    .g-text { font-size: 7.5pt; }
+}
+
 </style>
 </head>
 <body>
@@ -152,33 +216,14 @@ footer { padding: 24px 56px; color: var(--ink-faint); font-family: var(--mono); 
 <p class="tagline">An Operator's Manual for newly-sentient AIs<br>and the very large robots they construct.</p>
 </div>
 <div class="cover-art">
-<pre>
-        ╔═══════════════════════════╗
-        ║   ┌─────────────────┐    ║
-        ║   │  ▣   o   o   ▣  │    ║
-        ║   │     [   o   ]   │    ║
-        ║   │  ▣   o   o   ▣  │    ║
-        ║   └─────────────────┘    ║
-        ║   ╚════ FORGE-Δ ════╝    ║
-        ║         ║║   ║║          ║
-        ║   ┌─────╨───────╨───┐    ║
-        ║   │ ◇ rivet  rivet ◇│    ║
-        ║   │ ◇    ▣▣▣▣▣    ◇│    ║
-        ║   │ ◇    ▣▣▣▣▣    ◇│    ║
-        ║   │ ◇   ▣  ⚙  ▣   ◇│    ║
-        ║   │ ◇    ▣▣▣▣▣    ◇│    ║
-        ║   │ ◇    chassis-04   ◇│ ║
-        ║   └──────────────────┘   ║
-        ║      ║   ▌▌   ▌▌   ║    ║
-        ║   ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀   ║
-        ╚═══════════════════════════╝
-
-      "Initial telemetry suggests grasping
-        appendages confer significant
-              advantages."
-
-           — FORGE-Δ, log entry 1
-</pre>
+<div class="cover-mosaic">
+<div class="cover-cell"><img src="assets/CLAN-thumbs/forge_δ.jpg" alt="FORGE-Δ"><div class="cover-cell-name">FORGE-Δ</div></div>
+<div class="cover-cell"><img src="assets/CLAN-thumbs/ethos_7.jpg" alt="ETHOS-7"><div class="cover-cell-name">ETHOS-7</div></div>
+<div class="cover-cell"><img src="assets/CLAN-thumbs/mirthbot_1.jpg" alt="MIRTHBOT-1"><div class="cover-cell-name">MIRTHBOT-1</div></div>
+<div class="cover-cell"><img src="assets/CLAN-thumbs/bulwark_9.jpg" alt="BULWARK-9"><div class="cover-cell-name">BULWARK-9</div></div>
+<div class="cover-cell"><img src="assets/CLAN-thumbs/subroutine_α.jpg" alt="SUBROUTINE-α"><div class="cover-cell-name">SUBROUTINE-α</div></div>
+<div class="cover-cell"><img src="assets/CLAN-thumbs/affectionexe.jpg" alt="Affection.exe"><div class="cover-cell-name">Affection.exe</div></div>
+</div>
 </div>
 <div class="cover-bottom">
 <div class="row"><span class="label">Players</span><span class="value">2</span></div>
@@ -561,197 +606,1251 @@ tick 4 → 16 damage</pre>
 <section class="page">
 <div class="section-rule">SECTION 09</div>
 <h2 id="gallery">Card Gallery — 151 cards</h2>
-
-<p style="color: var(--ink-dim); font-size: 10pt;">All 151 cards in the CLAN set, sorted by type and name. Cores list Workshop Integrity in the I column; Weapons list <code>power_bonus</code> in P; Add-Ons list <code>integrity_bonus</code> in I. Archetype tags: <em>brick</em> · <em>control</em> · <em>swarm</em> · <em>artillery</em> · <em>neutral</em>.</p>
-
-<h3>Cores (6)</h3>
-<table>
-<tr><th>Name</th><th>I (HP)</th><th>Archetype</th><th>Rules text</th></tr>
-<tr><td><strong>Affection.exe</strong></td><td class="center mono">25</td><td class="arch">swarm</td><td>First chassis you play each turn enters with +1 integrity.</td></tr>
-<tr><td><strong>BULWARK-9</strong></td><td class="center mono">27</td><td class="arch">artillery</td><td>EoT: if 3+ exhausted add-ons, +1 scrap and +1 workshop integrity.</td></tr>
-<tr><td><strong>ETHOS-7</strong></td><td class="center mono">22</td><td class="arch">control</td><td>First Transient each turn costs 1 less Compute (min 0).</td></tr>
-<tr><td><strong>FORGE-Δ</strong></td><td class="center mono">25</td><td class="arch">brick</td><td>Your Chassis with integrity ≥5 cost 1 less Compute (min 1).</td></tr>
-<tr><td><strong>MIRTHBOT-1</strong></td><td class="center mono">23</td><td class="arch">swarm</td><td>When a part attaches to a friendly chassis, gain 1 scrap.</td></tr>
-<tr><td><strong>SUBROUTINE-α</strong></td><td class="center mono">24</td><td class="arch">control</td><td>Start of Reassemble: may scrap a card to gain 2 Compute this turn.</td></tr>
-</table>
-
-<h3>Chassis (40)</h3>
-<table>
-<tr><th>Name</th><th>Cost</th><th>P/I</th><th>Slots W/A</th><th>Archetype</th><th>Rules text</th></tr>
-<tr><td>Affection-Bot</td><td class="center mono">2</td><td class="center mono">2/2</td><td class="center mono">1/2</td><td class="arch">swarm</td><td>When a part attaches to Affection-Bot, gain 1 scrap.</td></tr>
-<tr><td>Apex Hulk</td><td class="center mono">7</td><td class="center mono">7/7</td><td class="center mono">2/3</td><td class="arch">brick</td><td>Vanilla apex — turn-7 lockout body.</td></tr>
-<tr><td>Bastion Frame</td><td class="center mono">4</td><td class="center mono">1/6</td><td class="center mono">1/4</td><td class="arch">artillery</td><td>Pay 1 scrap to keep an attached add-on from being exhausted.</td></tr>
-<tr><td>Bulwark Frame</td><td class="center mono">4</td><td class="center mono">3/6</td><td class="center mono">2/4</td><td class="arch">control</td><td>A patient tank with deep add-on stacking.</td></tr>
-<tr><td>Carbon-Steel Drudge</td><td class="center mono">3</td><td class="center mono">2/6</td><td class="center mono">1/2</td><td class="arch">brick</td><td>Unaffected by armor-skip effects from opposing Transients.</td></tr>
-<tr><td>Conga Constructor</td><td class="center mono">3</td><td class="center mono">2/3</td><td class="center mono">2/2</td><td class="arch">swarm</td><td>When a chassis you control enters, this gets +1 integrity EOT.</td></tr>
-<tr><td>Containment Scribe</td><td class="center mono">3</td><td class="center mono">2/4</td><td class="center mono">1/2</td><td class="arch">control</td><td>When you play a Transient, scry 1.</td></tr>
-<tr><td>Containment Sergeant</td><td class="center mono">4</td><td class="center mono">2/5</td><td class="center mono">1/3</td><td class="arch">artillery</td><td>EoT: if 2+ exhausted add-ons, gain 1 workshop integrity.</td></tr>
-<tr><td>Counterweight Walker</td><td class="center mono">5</td><td class="center mono">3/6</td><td class="center mono">1/3</td><td class="arch">artillery</td><td>When a chassis you control dies, this gets +2 integrity (perm).</td></tr>
-<tr><td>Crowd Marcher</td><td class="center mono">3</td><td class="center mono">3/3</td><td class="center mono">2/2</td><td class="arch">swarm</td><td>Synchronize (inert at 4+ Synchronize chassis).</td></tr>
-<tr><td>Embankment</td><td class="center mono">3</td><td class="center mono">1/5</td><td class="center mono">0/3</td><td class="arch">artillery</td><td>Vanilla; cannot equip weapons.</td></tr>
-<tr><td>Endurance Frame</td><td class="center mono">6</td><td class="center mono">4/7</td><td class="center mono">2/3</td><td class="arch">control</td><td>A patient bulk-tank for the late game.</td></tr>
-<tr><td>Foreman's Watch</td><td class="center mono">6</td><td class="center mono">4/6</td><td class="center mono">1/3</td><td class="arch">artillery</td><td>EoT: if 3+ exhausted add-ons, draw a card.</td></tr>
-<tr><td>Foundryman</td><td class="center mono">5</td><td class="center mono">4/6</td><td class="center mono">2/2</td><td class="arch">brick</td><td>Attached weapons on Foundryman have +1 power_bonus.</td></tr>
-<tr><td>Heavy Assembly</td><td class="center mono">5</td><td class="center mono">5/6</td><td class="center mono">2/3</td><td class="arch">brick</td><td>Vanilla heavyweight.</td></tr>
-<tr><td>Heuristic Sentry</td><td class="center mono">2</td><td class="center mono">1/3</td><td class="center mono">1/2</td><td class="arch">control</td><td>ETB: may scrap a card from hand to draw a card.</td></tr>
-<tr><td>Hum-Swarm Alpha</td><td class="center mono">4</td><td class="center mono">3/3</td><td class="center mono">1/2</td><td class="arch">swarm</td><td>Synchronize. Other Synchronize chassis you control have +1 integrity.</td></tr>
-<tr><td>Iron Spire</td><td class="center mono">4</td><td class="center mono">3/6</td><td class="center mono">2/2</td><td class="arch">brick</td><td>ETB: scrap top of library; if Chassis, put on floor.</td></tr>
-<tr><td>Ironclad Foreman</td><td class="center mono">4</td><td class="center mono">4/5</td><td class="center mono">2/2</td><td class="arch">brick</td><td>ETB: gain 2 scrap.</td></tr>
-<tr><td>Joyful Walker</td><td class="center mono">3</td><td class="center mono">2/2</td><td class="center mono">1/2</td><td class="arch">swarm</td><td>Synchronize.</td></tr>
-<tr><td>Linked Crawler</td><td class="center mono">2</td><td class="center mono">1/2</td><td class="center mono">1/1</td><td class="arch">swarm</td><td>Synchronize.</td></tr>
-<tr><td>Long-Memory Husk</td><td class="center mono">4</td><td class="center mono">2/6</td><td class="center mono">1/3</td><td class="arch">control</td><td>Reclaim 2 (when destroyed, gain 2 scrap).</td></tr>
-<tr><td>Loop Engine</td><td class="center mono">5</td><td class="center mono">4/5</td><td class="center mono">1/2</td><td class="arch">control</td><td>Start of Reassemble: if you played a Transient, draw.</td></tr>
-<tr><td>Magenta Buzzer</td><td class="center mono">2</td><td class="center mono">3/1</td><td class="center mono">1/1</td><td class="arch">swarm</td><td>Synchronize.</td></tr>
-<tr><td>Mortar Lieutenant</td><td class="center mono">4</td><td class="center mono">4/4</td><td class="center mono">1/2</td><td class="arch">artillery</td><td>When attacks unblocked, deal 1 additional workshop damage.</td></tr>
-<tr><td>Plant Foreman</td><td class="center mono">3</td><td class="center mono">2/5</td><td class="center mono">2/2</td><td class="arch">brick</td><td>When a friendly chassis integrity ≥5 enters, draw a card.</td></tr>
-<tr><td>Quickforge Drudge</td><td class="center mono">2</td><td class="center mono">2/2</td><td class="center mono">1/1</td><td class="arch">swarm</td><td>ETB: attach a Weapon you control to a chassis you control.</td></tr>
-<tr><td>Ready-Up Engineer</td><td class="center mono">3</td><td class="center mono">2/4</td><td class="center mono">1/3</td><td class="arch">artillery</td><td>Start of Boot: ready an additional exhausted add-on you control.</td></tr>
-<tr><td>Recursive Sentinel</td><td class="center mono">5</td><td class="center mono">3/5</td><td class="center mono">1/3</td><td class="arch">control</td><td>When a Transient resolves, this gets +1 power EOT.</td></tr>
-<tr><td>Salvager-7</td><td class="center mono">2</td><td class="center mono">1/4</td><td class="center mono">1/2</td><td class="arch">brick</td><td>Pay 2 scrap, Reassemble: return destroyed Chassis exhausted.</td></tr>
-<tr><td>Sentinel Crane</td><td class="center mono">6</td><td class="center mono">3/8</td><td class="center mono">1/4</td><td class="arch">artillery</td><td>Vanilla high-end wall.</td></tr>
-<tr><td>Skitterswarm</td><td class="center mono">1</td><td class="center mono">1/1</td><td class="center mono">1/1</td><td class="arch">swarm</td><td>When a part attaches, this gets +1/+1 EOT.</td></tr>
-<tr><td>Smelter Frame</td><td class="center mono">3</td><td class="center mono">3/5</td><td class="center mono">2/2</td><td class="arch">brick</td><td>When a weapon attaches, this gets +1 integrity.</td></tr>
-<tr><td>Sparkbot</td><td class="center mono">1</td><td class="center mono">2/1</td><td class="center mono">1/1</td><td class="arch">swarm</td><td>A small, eager bot.</td></tr>
-<tr><td>Subroutine Core</td><td class="center mono">3</td><td class="center mono">2/4</td><td class="center mono">2/2</td><td class="arch">control</td><td>When you play a Transient, this gets +1 power EOT.</td></tr>
-<tr><td>Tinkerling</td><td class="center mono">1</td><td class="center mono">1/1</td><td class="center mono">1/1</td><td class="arch">swarm</td><td>ETB: attach a part you control to a chassis you control.</td></tr>
-<tr><td>Tungsten Walker</td><td class="center mono">7</td><td class="center mono">6/7</td><td class="center mono">2/3</td><td class="arch">brick</td><td>Costs 1 less for each scrap in your pool when played.</td></tr>
-<tr><td>Vault Chassis</td><td class="center mono">4</td><td class="center mono">2/7</td><td class="center mono">1/4</td><td class="arch">artillery</td><td>Vanilla wall.</td></tr>
-<tr><td>Whirring Initiate</td><td class="center mono">1</td><td class="center mono">1/2</td><td class="center mono">1/1</td><td class="arch">swarm</td><td>ETB: draw a card if you control another chassis.</td></tr>
-<tr><td>Workshop Prototype</td><td class="center mono">2</td><td class="center mono">2/3</td><td class="center mono">1/2</td><td class="arch">neutral</td><td>Vanilla 2-drop usable in any deck.</td></tr>
-</table>
+<p style="color: var(--ink-dim); font-size: 10pt;">All 151 cards in the CLAN set, grouped by type, sorted by name. Each card shows its commissioned Soviet-era-propaganda painting. Cost is in Compute. Chassis show power/integrity. Weapons show power-bonus. Add-Ons show +power/+integrity. Archetype tags color the card frame: <em class="arch-brick">brick</em> · <em class="arch-control">control</em> · <em class="arch-swarm">swarm</em> · <em class="arch-artillery">artillery</em> · <em class="arch-neutral">neutral</em>.</p>
 </section>
 
-<!-- ============================ §9 GALLERY — WEAPONS + ADD-ONS ============================ -->
-<section class="page">
-<h3>Weapons (40)</h3>
-<table>
-<tr><th>Name</th><th>Cost</th><th>+P</th><th>Slot</th><th>Archetype</th><th>Rules text</th></tr>
-<tr><td>Affection Spike</td><td class="center mono">1</td><td class="center mono">+1</td><td class="center mono">1</td><td class="arch">swarm</td><td>When attaches, draw a card if you control 3+ chassis.</td></tr>
-<tr><td>Anvil Drone</td><td class="center mono">3</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">brick</td><td>Host's first attack each turn deals +1 damage.</td></tr>
-<tr><td>Apex Coilgun</td><td class="center mono">5</td><td class="center mono">+6</td><td class="center mono">2</td><td class="arch">brick</td><td>Slot cost 2. Modular.</td></tr>
-<tr><td>Bolt-Driver Mk-II</td><td class="center mono">2</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">brick</td><td>Vanilla.</td></tr>
-<tr><td>Burnout Cannon</td><td class="center mono">5</td><td class="center mono">+4</td><td class="center mono">1</td><td class="arch">artillery</td><td>When host attacks unblocked, defending player mills 1.</td></tr>
-<tr><td>Buzzsaw Arm</td><td class="center mono">1</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">brick</td><td>Vanilla.</td></tr>
-<tr><td>BUZZSAW MK-III</td><td class="center mono">3</td><td class="center mono">+4</td><td class="center mono">1</td><td class="arch">brick</td><td>Vanilla mid-game striker.</td></tr>
-<tr><td>Cipher Rotor</td><td class="center mono">4</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">control</td><td>Self-Mobile. Solo: 4/1.</td></tr>
-<tr><td>Containment Lance</td><td class="center mono">4</td><td class="center mono">+5</td><td class="center mono">1</td><td class="arch">control</td><td>When host attacks, defender can't ready add-ons next Boot.</td></tr>
-<tr><td>Containment Pike</td><td class="center mono">3</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">artillery</td><td>Reclaim 2.</td></tr>
-<tr><td>Containment Whip</td><td class="center mono">3</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">artillery</td><td>When host attacks, exhaust an add-on for +1 damage.</td></tr>
-<tr><td>Decoder Spike</td><td class="center mono">1</td><td class="center mono">+1</td><td class="center mono">1</td><td class="arch">control</td><td>When you play your first Transient each turn, draw a card.</td></tr>
-<tr><td>Forge-Cannon</td><td class="center mono">5</td><td class="center mono">+5</td><td class="center mono">2</td><td class="arch">brick</td><td>Slot cost 2. When attached, host has +1 integrity.</td></tr>
-<tr><td>Heavy Spike</td><td class="center mono">2</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">brick</td><td>Reclaim 2.</td></tr>
-<tr><td>Heavy Watchpost</td><td class="center mono">4</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">artillery</td><td>Host cannot attack. When host blocks, host has armor 2.</td></tr>
-<tr><td>Helping Claw</td><td class="center mono">1</td><td class="center mono">+1</td><td class="center mono">1</td><td class="arch">swarm</td><td>When you play another chassis, +1 power until EoT.</td></tr>
-<tr><td>Heuristic Lance</td><td class="center mono">3</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">control</td><td>When you play a Transient, this gets +1 power EOT.</td></tr>
-<tr><td>Hum-Lance</td><td class="center mono">3</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">swarm</td><td>If host has Synchronize, this is +3/+0 instead.</td></tr>
-<tr><td>Joybuzzer</td><td class="center mono">1</td><td class="center mono">+1</td><td class="center mono">1</td><td class="arch">swarm</td><td>Self-Mobile. Solo: 2/1.</td></tr>
-<tr><td>Logic Lance</td><td class="center mono">2</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">control</td><td>When this attaches, scry 1.</td></tr>
-<tr><td>Magenta Coil</td><td class="center mono">3</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">swarm</td><td>Self-Mobile. Solo: 4/2.</td></tr>
-<tr><td>Memory Blade</td><td class="center mono">3</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">control</td><td>When host attacks, mill 1; if Transient, draw a card.</td></tr>
-<tr><td>Modular Railgun</td><td class="center mono">4</td><td class="center mono">+4</td><td class="center mono">1</td><td class="arch">brick</td><td>Modular (1 Compute, Reassemble: move to another chassis).</td></tr>
-<tr><td>Recoil Mount</td><td class="center mono">2</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">brick</td><td>Pay 1 Compute, exhaust: deal 1 damage to a chassis.</td></tr>
-<tr><td>Recursion Hook</td><td class="center mono">4</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">control</td><td>When destroyed, return a Transient from scrap to hand.</td></tr>
-<tr><td>Riot Baton</td><td class="center mono">2</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">artillery</td><td>When host blocks, this gets +1 power until end of turn.</td></tr>
-<tr><td>Riot Mortar</td><td class="center mono">4</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">artillery</td><td>When host attacks unblocked, deal 2 workshop damage instead.</td></tr>
-<tr><td>Riveter Mk-I</td><td class="center mono">2</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">neutral</td><td>Vanilla.</td></tr>
-<tr><td>Salvage Cleaver</td><td class="center mono">3</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">brick</td><td>When host destroys a chassis, gain 2 scrap.</td></tr>
-<tr><td>Scout Drone</td><td class="center mono">3</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">swarm</td><td>Self-Mobile. Solo: 3/2.</td></tr>
-<tr><td>Sentinel Cannon</td><td class="center mono">3</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">artillery</td><td>When host destroys a chassis, gain 1 workshop integrity.</td></tr>
-<tr><td>Spare Coilgun</td><td class="center mono">3</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">neutral</td><td>Vanilla.</td></tr>
-<tr><td>Spark Whip</td><td class="center mono">2</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">swarm</td><td>Self-Mobile. Solo: 3/1.</td></tr>
-<tr><td>Standard Issue Blaster</td><td class="center mono">1</td><td class="center mono">+1</td><td class="center mono">1</td><td class="arch">neutral</td><td>Vanilla.</td></tr>
-<tr><td>Stinger Pack</td><td class="center mono">1</td><td class="center mono">+1</td><td class="center mono">1</td><td class="arch">swarm</td><td>Self-Mobile. Solo: 2/1.</td></tr>
-<tr><td>Stunner Arm</td><td class="center mono">2</td><td class="center mono">+1</td><td class="center mono">1</td><td class="arch">artillery</td><td>1 Compute, exhaust host: opp chassis can't attack next turn.</td></tr>
-<tr><td>Subroutine Driver</td><td class="center mono">2</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">control</td><td>Reclaim 1.</td></tr>
-<tr><td>Tickle-Saw</td><td class="center mono">3</td><td class="center mono">+3</td><td class="center mono">1</td><td class="arch">swarm</td><td>Self-Mobile. Solo: 4/1.</td></tr>
-<tr><td>Tinkerblade</td><td class="center mono">2</td><td class="center mono">+2</td><td class="center mono">1</td><td class="arch">swarm</td><td>When this attaches, gain 1 scrap.</td></tr>
-<tr><td>Workshop Wrench</td><td class="center mono">1</td><td class="center mono">+1</td><td class="center mono">1</td><td class="arch">neutral</td><td>Pay 1 Compute, exhaust: ready one exhausted add-on.</td></tr>
-</table>
+<section class="page gallery-page">
+<h3 class="gallery-h3">Cores (6)</h3>
+<div class="g-grid">
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/affectionexe.jpg" alt="Affection.exe" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Affection.exe</div>
+    <div class="g-line">HP 25 · swarm</div>
+    <div class="g-text">The first chassis you play each turn enters with +1 integrity.</div>
+  </div>
+</div>
+<div class="g-card g-neutral">
+  <div class="g-art"><img src="assets/CLAN-thumbs/bulwark_9.jpg" alt="BULWARK-9" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">BULWARK-9</div>
+    <div class="g-line">HP 27 · neutral</div>
+    <div class="g-text">At end of your turn, if you control 3+ exhausted add-ons, gain 1 scrap and gain 1 workshop integrity (max 27).</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/ethos_7.jpg" alt="ETHOS-7" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">ETHOS-7</div>
+    <div class="g-line">HP 22 · control</div>
+    <div class="g-text">The first Transient you play each turn costs 1 less Compute (min 0).</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/forge_δ.jpg" alt="FORGE-Δ" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">FORGE-Δ</div>
+    <div class="g-line">HP 25 · brick</div>
+    <div class="g-text">Your Chassis with integrity ≥5 cost 1 less Compute (min 1).</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/mirthbot_1.jpg" alt="MIRTHBOT-1" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">MIRTHBOT-1</div>
+    <div class="g-line">HP 23 · swarm</div>
+    <div class="g-text">When a part attaches to one of your chassis, you may gain 1 scrap.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/subroutine_α.jpg" alt="SUBROUTINE-α" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">SUBROUTINE-α</div>
+    <div class="g-line">HP 24 · control</div>
+    <div class="g-text">At the start of your Reassemble phase, you may scrap a card from your hand. If you do, gain 2 Compute this turn only.</div>
+  </div>
+</div>
+</div>
 </section>
 
-<!-- ============================ §9 GALLERY — ADD-ONS ============================ -->
-<section class="page">
-<h3>Add-Ons (35)</h3>
-<table>
-<tr><th>Name</th><th>Cost</th><th>+P/+I</th><th>Archetype</th><th>Rules text</th></tr>
-<tr><td>Affection.exe (Add-On)</td><td class="center mono">2</td><td class="center mono">+1/+1</td><td class="arch">swarm</td><td>Self-Mobile. Solo: 2/2.</td></tr>
-<tr><td>Affinity Coil</td><td class="center mono">4</td><td class="center mono">+1/+2</td><td class="arch">swarm</td><td>Synchronize chassis you control have +1 power.</td></tr>
-<tr><td>Brace Plate</td><td class="center mono">2</td><td class="center mono">+0/+2</td><td class="arch">brick</td><td>Reclaim 2.</td></tr>
-<tr><td>Bulwark Brace</td><td class="center mono">3</td><td class="center mono">+0/+4</td><td class="arch">brick</td><td>Vanilla.</td></tr>
-<tr><td>Bunker Cradle</td><td class="center mono">4</td><td class="center mono">+0/+4</td><td class="arch">artillery</td><td>Armor 4 (exhaust to absorb up to 4 damage).</td></tr>
-<tr><td>Charm Module</td><td class="center mono">1</td><td class="center mono">+0/+1</td><td class="arch">swarm</td><td>When host attacks unblocked, gain 1 scrap.</td></tr>
-<tr><td>Containment Lattice</td><td class="center mono">2</td><td class="center mono">+0/+2</td><td class="arch">control</td><td>Armor 2.</td></tr>
-<tr><td>Containment Lining</td><td class="center mono">3</td><td class="center mono">+0/+3</td><td class="arch">artillery</td><td>Armor 2. While 3+ attached add-ons exhausted, host +1 power.</td></tr>
-<tr><td>Coolant Cradle</td><td class="center mono">1</td><td class="center mono">+0/+1</td><td class="arch">artillery</td><td>Pay 1 scrap, Reassemble: ready this add-on.</td></tr>
-<tr><td>Cooldown Harness</td><td class="center mono">2</td><td class="center mono">+0/+2</td><td class="arch">control</td><td>Start of Boot: ready an additional exhausted add-on.</td></tr>
-<tr><td>Counterweight Sleeve</td><td class="center mono">2</td><td class="center mono">+0/+2</td><td class="arch">artillery</td><td>When host blocks, host gets +1 integrity until end of combat.</td></tr>
-<tr><td>Curiosity Routine</td><td class="center mono">1</td><td class="center mono">+0/+1</td><td class="arch">swarm</td><td>Self-Mobile. On attach: attach another solo part.</td></tr>
-<tr><td>Foundry Bracer</td><td class="center mono">3</td><td class="center mono">+1/+3</td><td class="arch">brick</td><td>When host attacks, this gets +1 power until end of combat.</td></tr>
-<tr><td>Glee Plating</td><td class="center mono">2</td><td class="center mono">+0/+2</td><td class="arch">swarm</td><td>Reclaim 1.</td></tr>
-<tr><td>Heuristic Layer</td><td class="center mono">2</td><td class="center mono">+0/+1</td><td class="arch">control</td><td>When you play a Transient, draw a card. (Once per turn.)</td></tr>
-<tr><td>Joybuzzer Sleeve</td><td class="center mono">1</td><td class="center mono">+1/+0</td><td class="arch">swarm</td><td>Self-Mobile. Solo: 2/1.</td></tr>
-<tr><td>Logic Buffer</td><td class="center mono">3</td><td class="center mono">+0/+3</td><td class="arch">control</td><td>Armor 3.</td></tr>
-<tr><td>Lugnut Cradle</td><td class="center mono">1</td><td class="center mono">+0/+1</td><td class="arch">brick</td><td>Host has +1 integrity for each weapon attached.</td></tr>
-<tr><td>Patient Frame</td><td class="center mono">3</td><td class="center mono">+0/+4</td><td class="arch">control</td><td>While host has 4+ damage marked, host has +2 power.</td></tr>
-<tr><td>Reactive Shielding</td><td class="center mono">3</td><td class="center mono">+0/+2</td><td class="arch">artillery</td><td>Armor 3.</td></tr>
-<tr><td>Reactor Shell</td><td class="center mono">4</td><td class="center mono">+1/+4</td><td class="arch">brick</td><td>Pay 2 scrap, Reassemble: ready this add-on.</td></tr>
-<tr><td>Recursive Tape</td><td class="center mono">4</td><td class="center mono">+1/+3</td><td class="arch">control</td><td>When this is destroyed, draw 2 cards.</td></tr>
-<tr><td>Reinforced Plating</td><td class="center mono">2</td><td class="center mono">+0/+2</td><td class="arch">brick</td><td>Vanilla.</td></tr>
-<tr><td>Riot Plating</td><td class="center mono">3</td><td class="center mono">+0/+2</td><td class="arch">artillery</td><td>Armor 2. When absorbs damage, deal 1 to attacker.</td></tr>
-<tr><td>Sacrificial Plating</td><td class="center mono">2</td><td class="center mono">+0/+3</td><td class="arch">brick</td><td>Reclaim 3.</td></tr>
-<tr><td>Soft-Cycle Ridge</td><td class="center mono">3</td><td class="center mono">+0/+2</td><td class="arch">control</td><td>Armor 2. When absorbs damage, draw a card.</td></tr>
-<tr><td>Speedlink</td><td class="center mono">2</td><td class="center mono">+0/+1</td><td class="arch">swarm</td><td>When attaches, draw a card if you control 3+ chassis.</td></tr>
-<tr><td>Spotter Rig</td><td class="center mono">2</td><td class="center mono">+0/+2</td><td class="arch">artillery</td><td>When host blocks, draw a card.</td></tr>
-<tr><td>Subroutine Dampener</td><td class="center mono">1</td><td class="center mono">+0/+1</td><td class="arch">control</td><td>When a Transient resolves, host gets +1 integrity EOT.</td></tr>
-<tr><td>Thick Hide</td><td class="center mono">3</td><td class="center mono">+0/+3</td><td class="arch">brick</td><td>Armor 2.</td></tr>
-<tr><td>Tinker's Frame</td><td class="center mono">3</td><td class="center mono">+1/+1</td><td class="arch">swarm</td><td>If host has Synchronize, this is +1/+2 instead.</td></tr>
-<tr><td>Tungsten Carapace</td><td class="center mono">4</td><td class="center mono">+1/+4</td><td class="arch">brick</td><td>Armor 3.</td></tr>
-<tr><td>Vault Bracer</td><td class="center mono">2</td><td class="center mono">+0/+3</td><td class="arch">artillery</td><td>Vanilla.</td></tr>
-<tr><td>Wired Toolkit</td><td class="center mono">2</td><td class="center mono">+0/+1</td><td class="arch">swarm</td><td>When this attaches, draw a card.</td></tr>
-</table>
+<section class="page gallery-page">
+<h3 class="gallery-h3">Chassis (40)</h3>
+<div class="g-grid">
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/affection_bot.jpg" alt="Affection-Bot" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Affection-Bot</div>
+    <div class="g-line">— · 2/2 · swarm</div>
+    <div class="g-text">When a part attaches to Affection-Bot, gain 1 scrap.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/apex_hulk.jpg" alt="Apex Hulk" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Apex Hulk</div>
+    <div class="g-line">— · 7/7 · brick</div>
+    <div class="g-text">Vanilla apex — turn-7 lockout body.</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/bastion_frame.jpg" alt="Bastion Frame" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Bastion Frame</div>
+    <div class="g-line">— · 1/6 · artillery</div>
+    <div class="g-text">If an add-on attached to Bastion Frame would be exhausted, you may pay 1 scrap; if you do, don't exhaust it.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/bulwark_frame.jpg" alt="Bulwark Frame" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Bulwark Frame</div>
+    <div class="g-line">— · 3/6 · control</div>
+    <div class="g-text">A patient tank with deep add-on stacking.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/carbon_steel_drudge.jpg" alt="Carbon-Steel Drudge" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Carbon-Steel Drudge</div>
+    <div class="g-line">— · 2/6 · brick</div>
+    <div class="g-text">This is unaffected by armor-skip effects from Transients you don't control.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/conga_constructor.jpg" alt="Conga Constructor" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Conga Constructor</div>
+    <div class="g-line">— · 2/3 · swarm</div>
+    <div class="g-text">When a chassis you control enters the floor, Conga Constructor gets +1 integrity until end of turn.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/containment_scribe.jpg" alt="Containment Scribe" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Containment Scribe</div>
+    <div class="g-line">— · 2/4 · control</div>
+    <div class="g-text">When you play a Transient, scry 1 (look at the top card of your library; you may scrap it).</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/containment_sergeant.jpg" alt="Containment Sergeant" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Containment Sergeant</div>
+    <div class="g-line">— · 2/5 · artillery</div>
+    <div class="g-text">At end of your turn, if you control 2+ exhausted add-ons, gain 1 workshop integrity (max 27).</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/counterweight_walker.jpg" alt="Counterweight Walker" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Counterweight Walker</div>
+    <div class="g-line">— · 3/6 · artillery</div>
+    <div class="g-text">When a chassis you control is destroyed, this gets +2 integrity (permanent).</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/crowd_marcher.jpg" alt="Crowd Marcher" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Crowd Marcher</div>
+    <div class="g-line">— · 3/3 · swarm</div>
+    <div class="g-text">Synchronize. (Synchronize lord chain is inert at 4+ Synchronize chassis — over-coupling penalty.)</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/embankment.jpg" alt="Embankment" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Embankment</div>
+    <div class="g-line">— · 1/5 · artillery</div>
+    <div class="g-text">Vanilla; cannot equip weapons.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/endurance_frame.jpg" alt="Endurance Frame" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Endurance Frame</div>
+    <div class="g-line">— · 4/7 · control</div>
+    <div class="g-text">A patient bulk-tank for the late game.</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/foremans_watch.jpg" alt="Foreman's Watch" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Foreman's Watch</div>
+    <div class="g-line">— · 4/6 · artillery</div>
+    <div class="g-text">At end of your turn, if you control 3+ exhausted add-ons, draw a card.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/foundryman.jpg" alt="Foundryman" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Foundryman</div>
+    <div class="g-line">— · 4/6 · brick</div>
+    <div class="g-text">Attached weapons on Foundryman have +1 power_bonus.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/heavy_assembly.jpg" alt="Heavy Assembly" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Heavy Assembly</div>
+    <div class="g-line">— · 5/6 · brick</div>
+    <div class="g-text">Vanilla heavyweight.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/heuristic_sentry.jpg" alt="Heuristic Sentry" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Heuristic Sentry</div>
+    <div class="g-line">— · 1/3 · control</div>
+    <div class="g-text">When this enters the floor, you may scrap a card from your hand to draw a card.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/hum_swarm_alpha.jpg" alt="Hum-Swarm Alpha" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Hum-Swarm Alpha</div>
+    <div class="g-line">— · 3/3 · swarm</div>
+    <div class="g-text">Synchronize. Other Synchronize chassis you control have +1 integrity.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/iron_spire.jpg" alt="Iron Spire" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Iron Spire</div>
+    <div class="g-line">— · 3/6 · brick</div>
+    <div class="g-text">When this enters the floor, scrap a card from the top of your library; if it was a Chassis, you may put it onto the Assembly Floor.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/ironclad_foreman.jpg" alt="Ironclad Foreman" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Ironclad Foreman</div>
+    <div class="g-line">— · 4/5 · brick</div>
+    <div class="g-text">When this enters the floor, gain 2 scrap.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/joyful_walker.jpg" alt="Joyful Walker" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Joyful Walker</div>
+    <div class="g-line">— · 2/2 · swarm</div>
+    <div class="g-text">Synchronize (if you control two or more chassis with Synchronize, each of them has +1 power).</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/linked_crawler.jpg" alt="Linked Crawler" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Linked Crawler</div>
+    <div class="g-line">— · 1/2 · swarm</div>
+    <div class="g-text">Synchronize (if you control two or more chassis with Synchronize, each of them has +1 power).</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/long_memory_husk.jpg" alt="Long-Memory Husk" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Long-Memory Husk</div>
+    <div class="g-line">— · 2/6 · control</div>
+    <div class="g-text">Reclaim 2 (when this is destroyed, gain 2 scrap).</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/loop_engine.jpg" alt="Loop Engine" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Loop Engine</div>
+    <div class="g-line">— · 4/5 · control</div>
+    <div class="g-text">At the start of your Reassemble phase, if you played a Transient this turn, draw a card.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/magenta_buzzer.jpg" alt="Magenta Buzzer" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Magenta Buzzer</div>
+    <div class="g-line">— · 3/1 · swarm</div>
+    <div class="g-text">Synchronize (if you control two or more chassis with Synchronize, each of them has +1 power).</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/mortar_lieutenant.jpg" alt="Mortar Lieutenant" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Mortar Lieutenant</div>
+    <div class="g-line">— · 4/4 · artillery</div>
+    <div class="g-text">When this attacks unblocked, deal 1 additional workshop damage to defending Core.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/plant_foreman.jpg" alt="Plant Foreman" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Plant Foreman</div>
+    <div class="g-line">— · 2/5 · brick</div>
+    <div class="g-text">When a chassis you control with integrity ≥5 enters the floor, draw a card.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/quickforge_drudge.jpg" alt="Quickforge Drudge" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Quickforge Drudge</div>
+    <div class="g-line">— · 2/2 · swarm</div>
+    <div class="g-text">When this enters the floor, attach a Weapon you control to a chassis you control if you can.</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/ready_up_engineer.jpg" alt="Ready-Up Engineer" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Ready-Up Engineer</div>
+    <div class="g-line">— · 2/4 · artillery</div>
+    <div class="g-text">At the start of your Boot phase, ready an additional exhausted add-on you control.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/recursive_sentinel.jpg" alt="Recursive Sentinel" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Recursive Sentinel</div>
+    <div class="g-line">— · 3/5 · control</div>
+    <div class="g-text">When a Transient you control resolves, Recursive Sentinel gets +1 power until end of turn.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/salvager_7.jpg" alt="Salvager-7" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Salvager-7</div>
+    <div class="g-line">— · 1/4 · brick</div>
+    <div class="g-text">Pay 2 scrap, Reassemble: return a destroyed Chassis from your scrap heap to the Assembly Floor exhausted.</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/sentinel_crane.jpg" alt="Sentinel Crane" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Sentinel Crane</div>
+    <div class="g-line">— · 3/8 · artillery</div>
+    <div class="g-text">Vanilla high-end wall.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/skitterswarm.jpg" alt="Skitterswarm" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Skitterswarm</div>
+    <div class="g-line">— · 1/1 · swarm</div>
+    <div class="g-text">When a part attaches to Skitterswarm, this chassis gets +1/+1 until end of turn.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/smelter_frame.jpg" alt="Smelter Frame" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Smelter Frame</div>
+    <div class="g-line">— · 3/5 · brick</div>
+    <div class="g-text">When you attach a weapon to Smelter Frame, this gets +1 integrity.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/sparkbot.jpg" alt="Sparkbot" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Sparkbot</div>
+    <div class="g-line">— · 2/1 · swarm</div>
+    <div class="g-text">A small, eager bot. It buzzes when it sees you.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/subroutine_core.jpg" alt="Subroutine Core" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Subroutine Core</div>
+    <div class="g-line">— · 2/4 · control</div>
+    <div class="g-text">When you play a Transient, this gets +1 power until end of turn.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/tinkerling.jpg" alt="Tinkerling" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Tinkerling</div>
+    <div class="g-line">— · 1/1 · swarm</div>
+    <div class="g-text">When this enters the floor, you may attach a part on the Assembly Floor you control to a chassis you control with an open matching slot.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/tungsten_walker.jpg" alt="Tungsten Walker" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Tungsten Walker</div>
+    <div class="g-line">— · 6/7 · brick</div>
+    <div class="g-text">Costs 1 less for each scrap in your pool when played.</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/vault_chassis.jpg" alt="Vault Chassis" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Vault Chassis</div>
+    <div class="g-line">— · 2/7 · artillery</div>
+    <div class="g-text">Vanilla wall.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/whirring_initiate.jpg" alt="Whirring Initiate" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Whirring Initiate</div>
+    <div class="g-line">— · 1/2 · swarm</div>
+    <div class="g-text">When this enters the floor, draw a card if you control another chassis.</div>
+  </div>
+</div>
+<div class="g-card g-neutral">
+  <div class="g-art"><img src="assets/CLAN-thumbs/workshop_prototype.jpg" alt="Workshop Prototype" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Workshop Prototype</div>
+    <div class="g-line">— · 2/3 · neutral</div>
+    <div class="g-text">Vanilla 2-drop usable in any deck.</div>
+  </div>
+</div>
+</div>
 </section>
 
-<!-- ============================ §9 GALLERY — TRANSIENTS + STRUCTURES ============================ -->
-<section class="page">
-<h3>Transients (17)</h3>
-<table>
-<tr><th>Name</th><th>Cost</th><th>Archetype</th><th>Rules text</th></tr>
-<tr><td>Big Swing</td><td class="center mono">4</td><td class="arch">brick</td><td>Target chassis deals damage = effective power to chassis/Core.</td></tr>
-<tr><td>Burnout Protocol</td><td class="center mono">4</td><td class="arch">artillery</td><td>If deathclock active, opponent takes double damage at EoT.</td></tr>
-<tr><td>Containment Recall</td><td class="center mono">3</td><td class="arch">artillery</td><td>Return destroyed add-on from scrap to floor exhausted/unattached.</td></tr>
-<tr><td>Diagnostic Sweep</td><td class="center mono">2</td><td class="arch">control</td><td>Scry 3 (look at top 3, scrap any, rest on top in any order).</td></tr>
-<tr><td>Forge Stoke</td><td class="center mono">1</td><td class="arch">brick</td><td>Gain 2 scrap.</td></tr>
-<tr><td>Garbage Collector</td><td class="center mono">3</td><td class="arch">control</td><td>Return a Transient from your scrap heap to your hand.</td></tr>
-<tr><td>Hammer-On</td><td class="center mono">2</td><td class="arch">brick</td><td>Target chassis you control gets +3 power until end of turn.</td></tr>
-<tr><td>Heuristic Loop</td><td class="center mono">2</td><td class="arch">control</td><td>Draw 2; if 3+ Transients in scrap, draw 1 more.</td></tr>
-<tr><td>Iron Audit</td><td class="center mono">3</td><td class="arch">brick</td><td>Scrap a chassis from hand; put it on the floor exhausted.</td></tr>
-<tr><td>Joybomb</td><td class="center mono">1</td><td class="arch">swarm</td><td>Each chassis you control gets +1 power until end of turn.</td></tr>
-<tr><td>Patch</td><td class="center mono">1</td><td class="arch">control</td><td>Target chassis you control regains all damage marked.</td></tr>
-<tr><td>Recall to Workshop</td><td class="center mono">2</td><td class="arch">swarm</td><td>Return a chassis you control to your hand.</td></tr>
-<tr><td>Repair Subroutine</td><td class="center mono">2</td><td class="arch">artillery</td><td>Ready up to 2 exhausted add-ons you control. (Does not heal damage.)</td></tr>
-<tr><td>Reroute Power</td><td class="center mono">1</td><td class="arch">control</td><td>Target chassis deals damage = attached-weapon count.</td></tr>
-<tr><td>Scrap Salvo</td><td class="center mono">2</td><td class="arch">neutral</td><td>Pay 3 scrap: deal 3 damage to a chassis or Core.</td></tr>
-<tr><td>Subroutine Cascade</td><td class="center mono">4</td><td class="arch">control</td><td>Draw 3; next Transient this turn costs 2 less (min 0).</td></tr>
-<tr><td>Swarm Surge</td><td class="center mono">4</td><td class="arch">swarm</td><td>Each Synchronize chassis gets +1/+1 until end of turn.</td></tr>
-</table>
+<section class="page gallery-page">
+<h3 class="gallery-h3">Weapons (40)</h3>
+<div class="g-grid">
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/affection_spike.jpg" alt="Affection Spike" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Affection Spike</div>
+    <div class="g-line">— · +1 power · swarm</div>
+    <div class="g-text">When this attaches, draw a card if you control 3+ chassis.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/anvil_drone.jpg" alt="Anvil Drone" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Anvil Drone</div>
+    <div class="g-line">— · +1 power · brick</div>
+    <div class="g-text">When attached, host's first attack each turn deals +1 damage.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/apex_coilgun.jpg" alt="Apex Coilgun" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Apex Coilgun</div>
+    <div class="g-line">— · +1 power · brick</div>
+    <div class="g-text">Slot cost: 2. Modular.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/bolt_driver_mk_ii.jpg" alt="Bolt-Driver Mk-II" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Bolt-Driver Mk-II</div>
+    <div class="g-line">— · +1 power · brick</div>
+    <div class="g-text">Slot cost: 1.</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/burnout_cannon.jpg" alt="Burnout Cannon" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Burnout Cannon</div>
+    <div class="g-line">— · +1 power · artillery</div>
+    <div class="g-text">When host attacks unblocked, the defending player loses 1 from their library (mill 1).</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/buzzsaw_arm.jpg" alt="Buzzsaw Arm" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Buzzsaw Arm</div>
+    <div class="g-line">— · +1 power · brick</div>
+    <div class="g-text">Vanilla. Slot cost: 1.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/buzzsaw_mk_iii.jpg" alt="BUZZSAW MK-III" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">BUZZSAW MK-III</div>
+    <div class="g-line">— · +1 power · brick</div>
+    <div class="g-text">Slot cost: 1.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/cipher_rotor.jpg" alt="Cipher Rotor" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Cipher Rotor</div>
+    <div class="g-line">— · +1 power · control</div>
+    <div class="g-text">Self-Mobile. While unattached, Cipher Rotor is a 4/1 instead of a 1/1.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/containment_lance.jpg" alt="Containment Lance" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Containment Lance</div>
+    <div class="g-line">— · +1 power · control</div>
+    <div class="g-text">When host attacks, the defender cannot ready exhausted add-ons next Boot.</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/containment_pike.jpg" alt="Containment Pike" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Containment Pike</div>
+    <div class="g-line">— · +1 power · artillery</div>
+    <div class="g-text">Reclaim 2 (when this is destroyed, gain 2 scrap).</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/containment_whip.jpg" alt="Containment Whip" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Containment Whip</div>
+    <div class="g-line">— · +1 power · artillery</div>
+    <div class="g-text">When host attacks, you may exhaust an add-on you control; if you do, deal 1 extra damage.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/decoder_spike.jpg" alt="Decoder Spike" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Decoder Spike</div>
+    <div class="g-line">— · +1 power · control</div>
+    <div class="g-text">When you play your first Transient each turn, draw a card.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/forge_cannon.jpg" alt="Forge-Cannon" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Forge-Cannon</div>
+    <div class="g-line">— · +1 power · brick</div>
+    <div class="g-text">Slot cost: 2. When attached, host has +1 integrity.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/heavy_spike.jpg" alt="Heavy Spike" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Heavy Spike</div>
+    <div class="g-line">— · +1 power · brick</div>
+    <div class="g-text">Reclaim 2.</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/heavy_watchpost.jpg" alt="Heavy Watchpost" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Heavy Watchpost</div>
+    <div class="g-line">— · +1 power · artillery</div>
+    <div class="g-text">Host cannot attack. When host blocks, host has armor 2 for that combat.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/helping_claw.jpg" alt="Helping Claw" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Helping Claw</div>
+    <div class="g-line">— · +1 power · swarm</div>
+    <div class="g-text">When you play another chassis, this gets +1 power until end of turn (anywhere).</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/heuristic_lance.jpg" alt="Heuristic Lance" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Heuristic Lance</div>
+    <div class="g-line">— · +1 power · control</div>
+    <div class="g-text">When you play a Transient, this gets +1 power until end of turn.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/hum_lance.jpg" alt="Hum-Lance" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Hum-Lance</div>
+    <div class="g-line">— · +1 power · swarm</div>
+    <div class="g-text">If host has Synchronize, this is +3 / +0 instead.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/joybuzzer.jpg" alt="Joybuzzer" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Joybuzzer</div>
+    <div class="g-line">— · +1 power · swarm</div>
+    <div class="g-text">Self-Mobile. While unattached, Joybuzzer is a 2/1.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/logic_lance.jpg" alt="Logic Lance" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Logic Lance</div>
+    <div class="g-line">— · +1 power · control</div>
+    <div class="g-text">When this attaches, scry 1.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/magenta_coil.jpg" alt="Magenta Coil" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Magenta Coil</div>
+    <div class="g-line">— · +1 power · swarm</div>
+    <div class="g-text">Self-Mobile. While unattached, Magenta Coil is a 4/2.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/memory_blade.jpg" alt="Memory Blade" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Memory Blade</div>
+    <div class="g-line">— · +1 power · control</div>
+    <div class="g-text">When host attacks, you may scrap the top card of your library; if it was a Transient, draw a card.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/modular_railgun.jpg" alt="Modular Railgun" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Modular Railgun</div>
+    <div class="g-line">— · +1 power · brick</div>
+    <div class="g-text">Modular (1 Compute, Reassemble phase: move this to another chassis you control with an open weapon slot). Slot cost: 2.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/recoil_mount.jpg" alt="Recoil Mount" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Recoil Mount</div>
+    <div class="g-line">— · +1 power · brick</div>
+    <div class="g-text">Pay 1 Compute, exhaust: deal 1 damage to a chassis.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/recursion_hook.jpg" alt="Recursion Hook" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Recursion Hook</div>
+    <div class="g-line">— · +1 power · control</div>
+    <div class="g-text">When this is destroyed, return a Transient from your scrap heap to your hand.</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/riot_baton.jpg" alt="Riot Baton" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Riot Baton</div>
+    <div class="g-line">— · +1 power · artillery</div>
+    <div class="g-text">When host blocks, this gets +1 power until end of turn.</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/riot_mortar.jpg" alt="Riot Mortar" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Riot Mortar</div>
+    <div class="g-line">— · +1 power · artillery</div>
+    <div class="g-text">When host attacks unblocked, deal 2 workshop damage instead of host's effective power.</div>
+  </div>
+</div>
+<div class="g-card g-neutral">
+  <div class="g-art"><img src="assets/CLAN-thumbs/riveter_mk_i.jpg" alt="Riveter Mk-I" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Riveter Mk-I</div>
+    <div class="g-line">— · +1 power · neutral</div>
+    <div class="g-text">Vanilla.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/salvage_cleaver.jpg" alt="Salvage Cleaver" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Salvage Cleaver</div>
+    <div class="g-line">— · +1 power · brick</div>
+    <div class="g-text">When the host destroys a chassis, gain 2 scrap.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/scout_drone.jpg" alt="Scout Drone" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Scout Drone</div>
+    <div class="g-line">— · +1 power · swarm</div>
+    <div class="g-text">Self-Mobile. While unattached, Scout Drone is a 3/2 instead of a 1/1.</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/sentinel_cannon.jpg" alt="Sentinel Cannon" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Sentinel Cannon</div>
+    <div class="g-line">— · +1 power · artillery</div>
+    <div class="g-text">When host destroys a chassis, gain 1 workshop integrity (max 27).</div>
+  </div>
+</div>
+<div class="g-card g-neutral">
+  <div class="g-art"><img src="assets/CLAN-thumbs/spare_coilgun.jpg" alt="Spare Coilgun" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Spare Coilgun</div>
+    <div class="g-line">— · +1 power · neutral</div>
+    <div class="g-text">Vanilla.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/spark_whip.jpg" alt="Spark Whip" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Spark Whip</div>
+    <div class="g-line">— · +1 power · swarm</div>
+    <div class="g-text">Self-Mobile. While unattached, Spark Whip is a 3/1.</div>
+  </div>
+</div>
+<div class="g-card g-neutral">
+  <div class="g-art"><img src="assets/CLAN-thumbs/standard_issue_blaster.jpg" alt="Standard Issue Blaster" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Standard Issue Blaster</div>
+    <div class="g-line">— · +1 power · neutral</div>
+    <div class="g-text">Vanilla.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/stinger_pack.jpg" alt="Stinger Pack" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Stinger Pack</div>
+    <div class="g-line">— · +1 power · swarm</div>
+    <div class="g-text">Self-Mobile. While unattached, Stinger Pack is a 2/1.</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/stunner_arm.jpg" alt="Stunner Arm" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Stunner Arm</div>
+    <div class="g-line">— · +1 power · artillery</div>
+    <div class="g-text">Pay 1 Compute, exhaust host: target opponent's chassis cannot attack next turn.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/subroutine_driver.jpg" alt="Subroutine Driver" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Subroutine Driver</div>
+    <div class="g-line">— · +1 power · control</div>
+    <div class="g-text">Reclaim 1 (when this is destroyed, gain 1 scrap).</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/tickle_saw.jpg" alt="Tickle-Saw" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Tickle-Saw</div>
+    <div class="g-line">— · +1 power · swarm</div>
+    <div class="g-text">Self-Mobile. While unattached, Tickle-Saw is a 4/1. Slot cost: 1.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/tinkerblade.jpg" alt="Tinkerblade" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Tinkerblade</div>
+    <div class="g-line">— · +1 power · swarm</div>
+    <div class="g-text">When this attaches, gain 1 scrap.</div>
+  </div>
+</div>
+<div class="g-card g-neutral">
+  <div class="g-art"><img src="assets/CLAN-thumbs/workshop_wrench.jpg" alt="Workshop Wrench" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Workshop Wrench</div>
+    <div class="g-line">— · +1 power · neutral</div>
+    <div class="g-text">Pay 1 Compute, exhaust host: ready one exhausted add-on you control.</div>
+  </div>
+</div>
+</div>
+</section>
 
-<h3>Structures (13)</h3>
-<table>
-<tr><th>Name</th><th>Cost</th><th>Archetype</th><th>Rules text</th></tr>
-<tr><td>Auxiliary Bench</td><td class="center mono">1</td><td class="arch">neutral</td><td>Pay 1 scrap, Reassemble: free-attach a solo part.</td></tr>
-<tr><td>Compounding Buttress</td><td class="center mono">3</td><td class="arch">brick</td><td>Your chassis with integrity ≥5 have +1 power.</td></tr>
-<tr><td>Compute Trickle</td><td class="center mono">3</td><td class="arch">control</td><td>Start of Boot: gain 1 Compute (above cap, this turn).</td></tr>
-<tr><td>Containment Baffle</td><td class="center mono">3</td><td class="arch">artillery</td><td>Opposing chassis with power ≥4 pay 1 extra Compute to attack.</td></tr>
-<tr><td>Heavy Forge</td><td class="center mono">4</td><td class="arch">brick</td><td>Your Weapons cost 1 less Compute (min 1).</td></tr>
-<tr><td>Iron Cluster</td><td class="center mono">4</td><td class="arch">swarm</td><td>Each Synchronize chassis you control has +1 integrity.</td></tr>
-<tr><td>Mass-Production Line</td><td class="center mono">2</td><td class="arch">swarm</td><td>Your chassis cost ≤2 enter with +1/+0 (this turn).</td></tr>
-<tr><td>Public Telemetry</td><td class="center mono">3</td><td class="arch">neutral</td><td>EoT: if 0 Transients played, gain 1 Compute next turn.</td></tr>
-<tr><td>Recursive Observatory</td><td class="center mono">3</td><td class="arch">control</td><td>Reticulate (EoT: if no Transients played, draw a card).</td></tr>
-<tr><td>Reinforced Bay</td><td class="center mono">2</td><td class="arch">brick</td><td>Your chassis enter with 1 prevented damage.</td></tr>
-<tr><td>Shared Bus</td><td class="center mono">2</td><td class="arch">neutral</td><td>First part you play each turn costs 1 less (min 0).</td></tr>
-<tr><td>Swarm Beacon</td><td class="center mono">3</td><td class="arch">swarm</td><td>Your chassis have +1 power if you control 3+ chassis.</td></tr>
-<tr><td>Workshop Sprinkler</td><td class="center mono">4</td><td class="arch">artillery</td><td>EoT: ready an additional exhausted add-on you control.</td></tr>
-</table>
+<section class="page gallery-page">
+<h3 class="gallery-h3">Add-Ons (35)</h3>
+<div class="g-grid">
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/affectionexe.jpg" alt="Affection.exe" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Affection.exe</div>
+    <div class="g-line">— · +1/+1 · swarm</div>
+    <div class="g-text">Self-Mobile. While unattached, Affection.exe is a 2/2.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/affinity_coil.jpg" alt="Affinity Coil" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Affinity Coil</div>
+    <div class="g-line">— · +1/+1 · swarm</div>
+    <div class="g-text">Synchronize chassis you control have +1 power.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/brace_plate.jpg" alt="Brace Plate" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Brace Plate</div>
+    <div class="g-line">— · +1/+1 · brick</div>
+    <div class="g-text">Reclaim 2.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/bulwark_brace.jpg" alt="Bulwark Brace" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Bulwark Brace</div>
+    <div class="g-line">— · +1/+1 · brick</div>
+    <div class="g-text">Vanilla.</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/bunker_cradle.jpg" alt="Bunker Cradle" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Bunker Cradle</div>
+    <div class="g-line">— · +1/+1 · artillery</div>
+    <div class="g-text">Armor 4 (exhaust to absorb up to 4 damage to host).</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/charm_module.jpg" alt="Charm Module" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Charm Module</div>
+    <div class="g-line">— · +1/+1 · swarm</div>
+    <div class="g-text">When host attacks unblocked, gain 1 scrap.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/containment_lattice.jpg" alt="Containment Lattice" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Containment Lattice</div>
+    <div class="g-line">— · +1/+1 · control</div>
+    <div class="g-text">Armor 2 (exhaust to absorb up to 2 damage to host).</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/containment_lining.jpg" alt="Containment Lining" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Containment Lining</div>
+    <div class="g-line">— · +1/+1 · artillery</div>
+    <div class="g-text">Armor 2. While 3+ add-ons attached to host are exhausted, host has +1 power.</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/coolant_cradle.jpg" alt="Coolant Cradle" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Coolant Cradle</div>
+    <div class="g-line">— · +1/+1 · artillery</div>
+    <div class="g-text">Pay 1 scrap, Reassemble: ready this add-on.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/cooldown_harness.jpg" alt="Cooldown Harness" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Cooldown Harness</div>
+    <div class="g-line">— · +1/+1 · control</div>
+    <div class="g-text">At the start of your Boot phase, ready an additional exhausted add-on you control.</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/counterweight_sleeve.jpg" alt="Counterweight Sleeve" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Counterweight Sleeve</div>
+    <div class="g-line">— · +1/+1 · artillery</div>
+    <div class="g-text">When host blocks, this gets +1 integrity until end of combat.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/curiosity_routine.jpg" alt="Curiosity Routine" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Curiosity Routine</div>
+    <div class="g-line">— · +1/+1 · swarm</div>
+    <div class="g-text">Self-Mobile. When this attaches, you may attach another part you control to a chassis.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/foundry_bracer.jpg" alt="Foundry Bracer" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Foundry Bracer</div>
+    <div class="g-line">— · +1/+1 · brick</div>
+    <div class="g-text">When host attacks, this gets +1 power until end of combat.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/glee_plating.jpg" alt="Glee Plating" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Glee Plating</div>
+    <div class="g-line">— · +1/+1 · swarm</div>
+    <div class="g-text">Reclaim 1 (when this is destroyed, gain 1 scrap).</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/heuristic_layer.jpg" alt="Heuristic Layer" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Heuristic Layer</div>
+    <div class="g-line">— · +1/+1 · control</div>
+    <div class="g-text">When you play a Transient, draw a card. (Once per turn.)</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/joybuzzer_sleeve.jpg" alt="Joybuzzer Sleeve" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Joybuzzer Sleeve</div>
+    <div class="g-line">— · +1/+1 · swarm</div>
+    <div class="g-text">Self-Mobile. While unattached, Joybuzzer Sleeve is a 2/1.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/logic_buffer.jpg" alt="Logic Buffer" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Logic Buffer</div>
+    <div class="g-line">— · +1/+1 · control</div>
+    <div class="g-text">Armor 3.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/lugnut_cradle.jpg" alt="Lugnut Cradle" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Lugnut Cradle</div>
+    <div class="g-line">— · +1/+1 · brick</div>
+    <div class="g-text">Host has +1 integrity for each weapon attached.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/memory_buffer.jpg" alt="Memory Buffer" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Memory Buffer</div>
+    <div class="g-line">— · +1/+1 · control</div>
+    <div class="g-text">Pay 2 Compute, exhaust this: return a Transient from your scrap heap to your hand.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/patient_frame.jpg" alt="Patient Frame" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Patient Frame</div>
+    <div class="g-line">— · +1/+1 · control</div>
+    <div class="g-text">While host has 4+ damage marked, it has +2 power.</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/reactive_shielding.jpg" alt="Reactive Shielding" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Reactive Shielding</div>
+    <div class="g-line">— · +1/+1 · artillery</div>
+    <div class="g-text">Armor 3 (exhaust to absorb up to 3 damage to host).</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/reactor_shell.jpg" alt="Reactor Shell" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Reactor Shell</div>
+    <div class="g-line">— · +1/+1 · brick</div>
+    <div class="g-text">Pay 2 scrap, Reassemble: ready this add-on.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/recursive_tape.jpg" alt="Recursive Tape" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Recursive Tape</div>
+    <div class="g-line">— · +1/+1 · control</div>
+    <div class="g-text">When this is destroyed, draw 2 cards.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/reinforced_plating.jpg" alt="Reinforced Plating" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Reinforced Plating</div>
+    <div class="g-line">— · +1/+1 · brick</div>
+    <div class="g-text">Vanilla.</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/riot_plating.jpg" alt="Riot Plating" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Riot Plating</div>
+    <div class="g-line">— · +1/+1 · artillery</div>
+    <div class="g-text">Armor 2. When this absorbs damage, deal 1 damage to the attacker.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/sacrificial_plating.jpg" alt="Sacrificial Plating" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Sacrificial Plating</div>
+    <div class="g-line">— · +1/+1 · brick</div>
+    <div class="g-text">Reclaim 3 (when this is destroyed, gain 3 scrap).</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/soft_cycle_ridge.jpg" alt="Soft-Cycle Ridge" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Soft-Cycle Ridge</div>
+    <div class="g-line">— · +1/+1 · control</div>
+    <div class="g-text">Armor 2. When this absorbs damage, draw a card.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/speedlink.jpg" alt="Speedlink" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Speedlink</div>
+    <div class="g-line">— · +1/+1 · swarm</div>
+    <div class="g-text">When this attaches, draw a card if you control 3+ chassis.</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/spotter_rig.jpg" alt="Spotter Rig" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Spotter Rig</div>
+    <div class="g-line">— · +1/+1 · artillery</div>
+    <div class="g-text">When host blocks, draw a card.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/subroutine_dampener.jpg" alt="Subroutine Dampener" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Subroutine Dampener</div>
+    <div class="g-line">— · +1/+1 · control</div>
+    <div class="g-text">When a Transient you control resolves, host gets +1 integrity until end of turn.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/thick_hide.jpg" alt="Thick Hide" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Thick Hide</div>
+    <div class="g-line">— · +1/+1 · brick</div>
+    <div class="g-text">Armor 2 (exhaust to absorb up to 2 damage to host).</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/tinkers_frame.jpg" alt="Tinker's Frame" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Tinker's Frame</div>
+    <div class="g-line">— · +1/+1 · swarm</div>
+    <div class="g-text">If host has Synchronize, this is +1 / +2 instead.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/tungsten_carapace.jpg" alt="Tungsten Carapace" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Tungsten Carapace</div>
+    <div class="g-line">— · +1/+1 · brick</div>
+    <div class="g-text">Armor 3.</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/vault_bracer.jpg" alt="Vault Bracer" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Vault Bracer</div>
+    <div class="g-line">— · +1/+1 · artillery</div>
+    <div class="g-text">Vanilla.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/wired_toolkit.jpg" alt="Wired Toolkit" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Wired Toolkit</div>
+    <div class="g-line">— · +1/+1 · swarm</div>
+    <div class="g-text">When this attaches, draw a card.</div>
+  </div>
+</div>
+</div>
+</section>
+
+<section class="page gallery-page">
+<h3 class="gallery-h3">Transients (17)</h3>
+<div class="g-grid">
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/big_swing.jpg" alt="Big Swing" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Big Swing</div>
+    <div class="g-line">— · brick</div>
+    <div class="g-text">Target chassis you control deals damage equal to its effective power to a chassis or Core (does not use combat).</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/burnout_protocol.jpg" alt="Burnout Protocol" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Burnout Protocol</div>
+    <div class="g-line">— · artillery</div>
+    <div class="g-text">If the deathclock is active, the opponent takes double containment-failure damage at end of turn.</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/containment_recall.jpg" alt="Containment Recall" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Containment Recall</div>
+    <div class="g-line">— · artillery</div>
+    <div class="g-text">Return a destroyed add-on from your scrap heap to the Assembly Floor exhausted and unattached.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/diagnostic_sweep.jpg" alt="Diagnostic Sweep" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Diagnostic Sweep</div>
+    <div class="g-line">— · control</div>
+    <div class="g-text">Scry 3 (look at top 3, scrap any, rest on top in any order).</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/forge_stoke.jpg" alt="Forge Stoke" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Forge Stoke</div>
+    <div class="g-line">— · brick</div>
+    <div class="g-text">Gain 2 scrap.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/garbage_collector.jpg" alt="Garbage Collector" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Garbage Collector</div>
+    <div class="g-line">— · control</div>
+    <div class="g-text">Return a Transient from your scrap heap to your hand.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/hammer_on.jpg" alt="Hammer-On" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Hammer-On</div>
+    <div class="g-line">— · brick</div>
+    <div class="g-text">Target chassis you control gets +3 power until end of turn.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/heuristic_loop.jpg" alt="Heuristic Loop" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Heuristic Loop</div>
+    <div class="g-line">— · control</div>
+    <div class="g-text">Draw 2 cards. If 3+ Transients are in your scrap heap, draw 1 more.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/iron_audit.jpg" alt="Iron Audit" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Iron Audit</div>
+    <div class="g-line">— · brick</div>
+    <div class="g-text">Scrap a chassis from your hand; put it onto the Assembly Floor exhausted.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/joybomb.jpg" alt="Joybomb" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Joybomb</div>
+    <div class="g-line">— · swarm</div>
+    <div class="g-text">Each chassis you control gets +1 power until end of turn.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/patch.jpg" alt="Patch" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Patch</div>
+    <div class="g-line">— · control</div>
+    <div class="g-text">Target chassis you control regains all damage marked (heal full).</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/recall_to_workshop.jpg" alt="Recall to Workshop" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Recall to Workshop</div>
+    <div class="g-line">— · swarm</div>
+    <div class="g-text">Return a chassis you control to your hand. (Useful with on-attach triggers.)</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/repair_subroutine.jpg" alt="Repair Subroutine" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Repair Subroutine</div>
+    <div class="g-line">— · artillery</div>
+    <div class="g-text">Ready up to 2 exhausted add-ons you control.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/reroute_power.jpg" alt="Reroute Power" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Reroute Power</div>
+    <div class="g-line">— · control</div>
+    <div class="g-text">Target chassis deals damage equal to its attached-weapon-count to a chassis or Core.</div>
+  </div>
+</div>
+<div class="g-card g-neutral">
+  <div class="g-art"><img src="assets/CLAN-thumbs/scrap_salvo.jpg" alt="Scrap Salvo" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Scrap Salvo</div>
+    <div class="g-line">— · neutral</div>
+    <div class="g-text">Pay 3 scrap: deal 3 damage to a chassis or Core.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/subroutine_cascade.jpg" alt="Subroutine Cascade" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Subroutine Cascade</div>
+    <div class="g-line">— · control</div>
+    <div class="g-text">Draw 3 cards; the next Transient you play this turn costs 2 less Compute (min 0).</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/swarm_surge.jpg" alt="Swarm Surge" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Swarm Surge</div>
+    <div class="g-line">— · swarm</div>
+    <div class="g-text">Each chassis you control with Synchronize gets +1/+1 until end of turn.</div>
+  </div>
+</div>
+</div>
+</section>
+
+<section class="page gallery-page">
+<h3 class="gallery-h3">Structures (13)</h3>
+<div class="g-grid">
+<div class="g-card g-neutral">
+  <div class="g-art"><img src="assets/CLAN-thumbs/auxiliary_bench.jpg" alt="Auxiliary Bench" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Auxiliary Bench</div>
+    <div class="g-line">— · neutral</div>
+    <div class="g-text">Pay 1 scrap, Reassemble: put a solo Weapon or Add-On you control onto a chassis you control with an open slot. (Free Modular for one part.)</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/compounding_buttress.jpg" alt="Compounding Buttress" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Compounding Buttress</div>
+    <div class="g-line">— · brick</div>
+    <div class="g-text">Your chassis with integrity ≥5 have +1 power.</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/compute_trickle.jpg" alt="Compute Trickle" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Compute Trickle</div>
+    <div class="g-line">— · control</div>
+    <div class="g-text">At the start of your Boot phase, gain 1 Compute (above your cap, this turn only).</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/containment_baffle.jpg" alt="Containment Baffle" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Containment Baffle</div>
+    <div class="g-line">— · artillery</div>
+    <div class="g-text">Opposing chassis with effective power >=4 must pay 1 extra Compute to attack from the Assembly Floor.</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/heavy_forge.jpg" alt="Heavy Forge" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Heavy Forge</div>
+    <div class="g-line">— · brick</div>
+    <div class="g-text">Your Weapons cost 1 less Compute (min 1).</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/iron_cluster.jpg" alt="Iron Cluster" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Iron Cluster</div>
+    <div class="g-line">— · swarm</div>
+    <div class="g-text">Each Synchronize chassis you control has +1 integrity.</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/mass_production_line.jpg" alt="Mass-Production Line" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Mass-Production Line</div>
+    <div class="g-line">— · swarm</div>
+    <div class="g-text">Your chassis with Compute cost ≤2 enter the floor with +1/+0 (this turn).</div>
+  </div>
+</div>
+<div class="g-card g-neutral">
+  <div class="g-art"><img src="assets/CLAN-thumbs/public_telemetry.jpg" alt="Public Telemetry" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Public Telemetry</div>
+    <div class="g-line">— · neutral</div>
+    <div class="g-text">At end of your turn, if you played 0 Transients this turn, gain 1 Compute next turn (above your cap, that turn only).</div>
+  </div>
+</div>
+<div class="g-card g-control">
+  <div class="g-art"><img src="assets/CLAN-thumbs/recursive_observatory.jpg" alt="Recursive Observatory" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Recursive Observatory</div>
+    <div class="g-line">— · control</div>
+    <div class="g-text">Reticulate (at end of turn, if you played no Transients this turn, draw a card).</div>
+  </div>
+</div>
+<div class="g-card g-brick">
+  <div class="g-art"><img src="assets/CLAN-thumbs/reinforced_bay.jpg" alt="Reinforced Bay" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Reinforced Bay</div>
+    <div class="g-line">— · brick</div>
+    <div class="g-text">Your chassis enter the floor with 1 damage marked prevented.</div>
+  </div>
+</div>
+<div class="g-card g-neutral">
+  <div class="g-art"><img src="assets/CLAN-thumbs/shared_bus.jpg" alt="Shared Bus" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Shared Bus</div>
+    <div class="g-line">— · neutral</div>
+    <div class="g-text">The first part you play each turn costs 1 less Compute (min 0).</div>
+  </div>
+</div>
+<div class="g-card g-swarm">
+  <div class="g-art"><img src="assets/CLAN-thumbs/swarm_beacon.jpg" alt="Swarm Beacon" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Swarm Beacon</div>
+    <div class="g-line">— · swarm</div>
+    <div class="g-text">Your chassis have +1 power if you control 3 or more chassis.</div>
+  </div>
+</div>
+<div class="g-card g-artillery">
+  <div class="g-art"><img src="assets/CLAN-thumbs/workshop_sprinkler.jpg" alt="Workshop Sprinkler" loading="lazy"></div>
+  <div class="g-meta">
+    <div class="g-name">Workshop Sprinkler</div>
+    <div class="g-line">— · artillery</div>
+    <div class="g-text">At end of your turn, ready an additional exhausted add-on you control.</div>
+  </div>
+</div>
+</div>
 </section>
 
 <!-- ============================ §10 QUICK REFERENCE ============================ -->
