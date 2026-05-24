@@ -13,6 +13,37 @@ import { CastIcon, PlayLandIcon } from '../ui/Icons';
 import { useDragDropStore } from '../../hooks/useDragDrop';
 import type { DragItem } from '../../hooks/useDragDrop';
 import type { CardData, LegalActionData } from '../../types';
+import { useCardInspector, type InspectableCardType } from '../../hooks/useCardInspector';
+
+// Map MTG type tags onto the inspector's engine accent palette.
+function pickInspectorType(card: CardData): InspectableCardType {
+  const types = card.types || [];
+  if (types.includes('CREATURE')) return 'creature';
+  if (types.includes('LAND')) return 'land';
+  // Instants, sorceries, enchantments, artifacts, planeswalkers all share
+  // the "spell" accent (blue) — matches the existing CAST badge.
+  return 'spell';
+}
+
+// Build the inspector subtitle for an MTG card: type line — e.g. "Creature · Human Soldier".
+function buildSubtitle(card: CardData): string | undefined {
+  const types = (card.types || []).map(
+    (t) => t.charAt(0) + t.slice(1).toLowerCase(),
+  );
+  const left = types.join(' ');
+  const right = (card.subtypes || []).join(' ');
+  if (left && right) return `${left} — ${right}`;
+  return left || right || undefined;
+}
+
+// Stats line for creatures / planeswalkers; undefined otherwise.
+function buildStats(card: CardData): string | undefined {
+  const types = card.types || [];
+  if (types.includes('CREATURE') && card.power != null && card.toughness != null) {
+    return `${card.power}/${card.toughness}`;
+  }
+  return undefined;
+}
 
 interface HandViewProps {
   cards: CardData[];
@@ -123,6 +154,71 @@ export function HandView({
   const isDragging = useDragDropStore((s) => s.isDragging);
   const dragItem = useDragDropStore((s) => s.dragItem);
   const validDropZones = useDragDropStore((s) => s.validDropZones);
+  const inspector = useCardInspector();
+
+  // Open the shared inspector modal for a hand card. The Play action
+  // re-routes the click into the existing `onCardClick` handler, which
+  // dispatches CAST_SPELL / PLAY_LAND through the engine pipeline
+  // (targeting flows continue to work via overlay / pending_choice).
+  const openInspector = useCallback(
+    (card: CardData) => {
+      const action = legalActions.find(
+        (a) =>
+          (a.type === 'CAST_SPELL' || a.type === 'PLAY_LAND') &&
+          a.card_id === card.id,
+      );
+      const canCast = castableCards.includes(card.id);
+      const canPlayLand = playableLands.includes(card.id);
+      const isPlayable = canCast || canPlayLand;
+      const isLand = action?.type === 'PLAY_LAND';
+      const isTargeted = action?.type === 'CAST_SPELL' && action.requires_targets;
+      // Default "insufficient mana" gating mirrors HandView's existing
+      // disabled state: a spell shows up but isn't in `castableCards`
+      // when mana is short.
+      const disabledReason = disabled
+        ? 'Your opponent has priority'
+        : !isPlayable
+          ? action?.type === 'CAST_SPELL'
+            ? 'Insufficient mana'
+            : 'Not playable right now'
+          : undefined;
+      inspector.open(
+        {
+          id: card.id,
+          name: card.name,
+          text: card.text,
+          cost: card.mana_cost ?? undefined,
+          subtitle: buildSubtitle(card),
+          stats: buildStats(card),
+          engine: pickInspectorType(card),
+        },
+        [
+          {
+            label: isLand ? 'Play Land' : isTargeted ? 'Cast (pick target)' : 'Cast',
+            variant: 'primary',
+            disabled: disabled || !isPlayable,
+            disabledReason,
+            // Route through the parent's onCardClick — GameView's
+            // `handleCardClick` dispatches castSpell/playLand from there.
+            // For targeted spells the engine then drives the target
+            // overlay; closing the modal here is correct because the
+            // overlay handles its own targeting UI on the battlefield.
+            onClick: () => {
+              onCardClick?.(card);
+            },
+          },
+        ],
+      );
+    },
+    [
+      inspector,
+      legalActions,
+      castableCards,
+      playableLands,
+      disabled,
+      onCardClick,
+    ],
+  );
 
   // Get context about the currently dragged card
   const dragContext = useMemo(() => {
@@ -235,7 +331,7 @@ export function HandView({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      if (!disabled || isPlayable) onCardClick?.(card);
+                      if (!disabled || isPlayable) openInspector(card);
                     }
                   }}
                   className={clsx(
@@ -268,7 +364,7 @@ export function HandView({
                       isSelected={isSelected}
                       isPlayable={isPlayable}
                       disabled={disabled}
-                      onClick={disabled && !isPlayable ? undefined : () => onCardClick?.(card)}
+                      onClick={disabled && !isPlayable ? undefined : () => openInspector(card)}
                       validDropZones={cardValidDropZones}
                     />
                   </div>

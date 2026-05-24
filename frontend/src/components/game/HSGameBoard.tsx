@@ -20,9 +20,42 @@ import type { GameState, CardData } from '../../types';
 import { useDropTarget } from '../../hooks/useDropTarget';
 import { useDragDropStore, type DragItem } from '../../hooks/useDragDrop';
 import { useCardPreviewStore } from '../../hooks/useCardPreview';
+import { useCardInspector, type InspectorAction } from '../../hooks/useCardInspector';
 import { LegendaryEntranceOverlay } from './shared/LegendaryEntranceOverlay';
 import { BattlefieldEventLayer } from './shared/DamageFloater';
 import { useBattlefieldEvents } from '../../hooks/useBattlefieldEvents';
+
+// Parse "{N}" mana cost into a number for the inspector cost chip.
+function hsManaLabel(manaCost: string | null | undefined): string | undefined {
+  if (!manaCost) return undefined;
+  const match = manaCost.match(/\{(\d+)\}/);
+  return match ? match[1] : manaCost;
+}
+
+// Stat line for HS hand cards: minions show power/toughness, weapons show
+// attack/durability, spells / hero powers show nothing.
+function hsStatsLabel(card: CardData): string | undefined {
+  const isMinion = card.types.includes('MINION') || card.types.includes('CREATURE');
+  const isWeapon = card.types.includes('WEAPON');
+  if (isMinion && card.power != null && card.toughness != null) {
+    return `${card.power}/${card.toughness}`;
+  }
+  if (isWeapon && card.power != null && card.toughness != null) {
+    return `${card.power} atk · ${card.toughness} dur`;
+  }
+  return undefined;
+}
+
+// Subtitle: "Minion · Beast", "Weapon", "Spell", etc.
+function hsSubtitle(card: CardData): string | undefined {
+  const isMinion = card.types.includes('MINION') || card.types.includes('CREATURE');
+  const isWeapon = card.types.includes('WEAPON');
+  let label = 'Spell';
+  if (isMinion) label = 'Minion';
+  else if (isWeapon) label = 'Weapon';
+  const subs = (card.subtypes || []).filter(Boolean);
+  return subs.length > 0 ? `${label} · ${subs.join(' ')}` : label;
+}
 
 interface HSGameBoardProps {
   gameState: GameState;
@@ -116,6 +149,11 @@ export function HSGameBoard({
   const storeDragging = useDragDropStore((s) => s.isDragging);
   const storeValidZones = useDragDropStore((s) => s.validDropZones);
 
+  // Shared card-inspector modal — opening a hand card surfaces the
+  // Play / Attune actions through this primitive instead of firing the
+  // play action on the first click.
+  const inspector = useCardInspector();
+
   // Clear card preview state on unmount
   const clearPreview = useCardPreviewStore((s) => s.clearAll);
   useEffect(() => {
@@ -200,7 +238,9 @@ export function HSGameBoard({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [mode]);
 
-  // Handle card play from hand
+  // Handle card play from hand — fires the play action directly. The
+  // inspector wraps this; drag-and-drop also funnels through here via
+  // the battlefield drop handler.
   const handleHandCardClick = useCallback((card: CardData) => {
     if (!isMyTurn || !canPlayCard(card)) return;
     // Cancel any attack selection
@@ -213,6 +253,68 @@ export function HSGameBoard({
     handleCancel();
     onAttuneCard(card.id);
   }, [isMyTurn, canAttuneCard, handleCancel, onAttuneCard]);
+
+  // Inspector-aware click: opens the shared modal with a Play action
+  // (and an Attune action in Frierenrift variant). Drag-and-drop still
+  // works as the primary play affordance — this is an additive click
+  // path that surfaces the rules text before committing.
+  const handleHandCardInspect = useCallback(
+    (card: CardData) => {
+      const playable = isMyTurn && canPlayCard(card);
+      const attunable = isFrierenrift && isMyTurn && canAttuneCard(card);
+      const playReason = !isMyTurn
+        ? 'Not your turn'
+        : !playable
+          ? 'Insufficient mana or no valid target'
+          : undefined;
+      // Drop variant-specific affinity tag from displayed text — the
+      // inspector already shows the cost chip separately.
+      const displayText = (card.text || '').replace(/\[AF:\d+\/\d+\/\d+\]\s*/i, '');
+      const actions: InspectorAction[] = [
+        {
+          label: 'Play',
+          variant: 'primary',
+          disabled: !playable,
+          disabledReason: playReason,
+          onClick: () => {
+            handleHandCardClick(card);
+          },
+        },
+      ];
+      if (isFrierenrift) {
+        actions.push({
+          label: 'Attune',
+          variant: 'secondary',
+          disabled: !attunable,
+          disabledReason: !attunable ? 'Cannot attune this card' : undefined,
+          onClick: () => {
+            handleAttuneClick(card);
+          },
+        });
+      }
+      inspector.open(
+        {
+          id: card.id,
+          name: card.name,
+          text: displayText,
+          cost: hsManaLabel(card.mana_cost),
+          subtitle: hsSubtitle(card),
+          stats: hsStatsLabel(card),
+          engine: 'minion',
+        },
+        actions,
+      );
+    },
+    [
+      inspector,
+      isMyTurn,
+      canPlayCard,
+      canAttuneCard,
+      isFrierenrift,
+      handleHandCardClick,
+      handleAttuneClick,
+    ],
+  );
 
   // Drop target: player battlefield (for playing hand cards)
   const handleBattlefieldDrop = useCallback((item: DragItem) => {
@@ -399,7 +501,7 @@ export function HSGameBoard({
             showAttune={isFrierenrift}
             canAttune={isMyTurn && canAttuneCard(card)}
             onAttune={() => handleAttuneClick(card)}
-            onClick={() => handleHandCardClick(card)}
+            onClick={() => handleHandCardInspect(card)}
           />
         ))}
         {gameState.hand.length === 0 && (

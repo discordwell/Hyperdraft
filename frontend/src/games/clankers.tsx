@@ -36,6 +36,7 @@ import {
   type ClankersState,
   type ClankersAction,
 } from '../hooks/useClankersGame';
+import { useCardInspector } from '../hooks/useCardInspector';
 
 // ---------------------------------------------------------------------------
 // Visual palette — kept on one object so we can tune the industrial identity
@@ -1523,6 +1524,42 @@ function MyHand({
   onAction: (a: ClankersAction) => void;
 }) {
   const playable = isActive && (phase === 'assemble' || phase === 'reassemble');
+  const inspector = useCardInspector();
+  const openInspector = (card: ClankersCard, affordable: boolean) => {
+    const enabled = playable && affordable;
+    const stats =
+      card.card_type === 'CLANKERS_CHASSIS'
+        ? `${card.power ?? 0}/${card.integrity ?? 0}`
+        : card.card_type === 'CLANKERS_WEAPON'
+        ? `+${card.power_bonus ?? 0} power`
+        : card.card_type === 'CLANKERS_ADD_ON'
+        ? `+${card.power_bonus ?? 0}/+${card.integrity_bonus ?? 0}`
+        : undefined;
+    inspector.open(
+      {
+        id: card.id,
+        name: card.name,
+        text: card.text,
+        cost: String(card.compute_cost),
+        subtitle: cardKindLabel(card.card_type),
+        stats,
+        engine: 'clankers',
+      },
+      [
+        {
+          label: 'Play',
+          variant: 'primary',
+          disabled: !enabled,
+          disabledReason: !playable
+            ? 'Not your phase to play'
+            : !affordable
+            ? `Costs ${card.compute_cost} · you have ${computePool}`
+            : undefined,
+          onClick: () => playFromHand(card, onAction),
+        },
+      ],
+    );
+  };
   return (
     <div className="flex flex-col gap-1.5">
       <div
@@ -1532,8 +1569,8 @@ function MyHand({
         <span>Your hand · {cards.length}/7 floor</span>
         <span>
           {playable
-            ? 'tap a card to play'
-            : 'awaiting your phase'}
+            ? 'tap a card to inspect, then Play'
+            : 'tap a card to inspect'}
         </span>
       </div>
       <div className="flex flex-wrap gap-2">
@@ -1544,12 +1581,11 @@ function MyHand({
             <button
               key={card.id}
               type="button"
-              disabled={!enabled}
-              onClick={() => playFromHand(card, onAction)}
+              onClick={() => openInspector(card, affordable)}
               className="group transition-transform"
               style={{
-                cursor: enabled ? 'pointer' : 'not-allowed',
-                opacity: enabled ? 1 : 0.5,
+                cursor: 'pointer',
+                opacity: enabled ? 1 : 0.55,
               }}
             >
               <span
@@ -1564,6 +1600,18 @@ function MyHand({
       </div>
     </div>
   );
+}
+
+function cardKindLabel(t: ClankersCard['card_type']): string {
+  switch (t) {
+    case 'CLANKERS_CHASSIS': return 'Chassis';
+    case 'CLANKERS_WEAPON': return 'Weapon';
+    case 'CLANKERS_ADD_ON': return 'Add-On';
+    case 'CLANKERS_TRANSIENT': return 'Transient';
+    case 'CLANKERS_STRUCTURE': return 'Structure';
+    case 'CLANKERS_CORE': return 'Core';
+    default: return 'Card';
+  }
 }
 
 function playFromHand(

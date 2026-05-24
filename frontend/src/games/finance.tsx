@@ -24,6 +24,7 @@ import { StackedBar } from './StackedBar';
 import { FinanceResponseWindow } from './finance/ResponseWindow';
 import { useFinanceSounds } from '../hooks/useFinanceSounds';
 import { getFinanceArtPaths } from '../utils/cardArt';
+import { useCardInspector } from '../hooks/useCardInspector';
 
 // ---- CSS keyframes (injected once into the document) --------------------
 
@@ -872,6 +873,10 @@ export function FinanceGameBoard({
   const [selectedHandCardId, setSelectedHandCardId] = useState<string | null>(null);
   const [detailCard, setDetailCard] = useState<CardData | null>(null);
 
+  // Shared "click to inspect, then Play" modal (additive — preserves the
+  // existing right-click detail modal, audio cues, and selection state).
+  const inspector = useCardInspector();
+
   // Combat prompt if server sends it (same shape as Depths)
   const combatPrompt = (gameState as unknown as Record<string, unknown>)['finance_combat'] as {
     phase?: string;
@@ -938,13 +943,48 @@ export function FinanceGameBoard({
   };
 
   const handleHandCardClick = (card: CardData) => {
-    if (!canPlayCard(card)) return;
-    if (selectedHandCardId === card.id) {
-      onPlayCard(card.id);
-      setSelectedHandCardId(null);
-    } else {
-      setSelectedHandCardId(card.id);
-    }
+    // Route the play confirmation through the shared CardInspector. The
+    // inspector's Play action is what actually fires onPlayCard — this
+    // replaces the previous two-click "select then click again" confirmation
+    // pattern. Right-click to inspect still works for opponent cards and
+    // for the existing detail modal, and the audio cues / response window
+    // are unaffected.
+    const playable = canPlayCard(card);
+    const cost = liquidityCost(card);
+    const canAfford = myLiquidity >= cost;
+
+    let disabledReason: string | undefined;
+    if (!isMyTurn) disabledReason = 'Not your turn';
+    else if (!canAfford) disabledReason = `Need ${cost}L (have ${myLiquidity})`;
+    else if (!playable) disabledReason = 'Cannot play right now';
+
+    const statsLine = isTrader(card)
+      ? `${card.power ?? 0} AGG / ${card.toughness ?? 0} DEF`
+      : undefined;
+
+    inspector.open(
+      {
+        id: card.id,
+        name: card.name,
+        text: card.text ?? undefined,
+        cost: `${cost}L`,
+        stats: statsLine,
+        subtitle: cardTypeLabel(card),
+        engine: 'finance',
+      },
+      [
+        {
+          label: 'Play',
+          variant: 'primary',
+          disabled: !playable,
+          disabledReason,
+          onClick: () => {
+            onPlayCard(card.id);
+            setSelectedHandCardId(null);
+          },
+        },
+      ],
+    );
   };
 
   // ---- Render --------------------------------------------------------
@@ -1381,9 +1421,7 @@ export function FinanceGameBoard({
             </div>
             <div className="text-[9px] uppercase tracking-wide text-slate-600">
               {isMyTurn
-                ? selectedHandCardId
-                  ? 'CLICK AGAIN TO PLAY'
-                  : 'YOUR TURN — SELECT A CARD TO PLAY'
+                ? 'YOUR TURN — CLICK A CARD TO INSPECT, THEN PLAY'
                 : 'AWAITING OPPONENT'}
             </div>
           </div>

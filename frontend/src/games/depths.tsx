@@ -28,6 +28,7 @@ import type { DeckStats } from '../types/deckbuilder';
 import { defaultFormatType } from './types';
 import { StackedBar } from './StackedBar';
 import { getDepthsArtPaths } from '../utils/cardArt';
+import { useCardInspector } from '../hooks/useCardInspector';
 
 // -- Depth ladder ----------------------------------------------------------
 
@@ -552,6 +553,7 @@ export function DepthsGameBoard({
   const [detectMode, setDetectMode] = useState(false);
   const [pendingDetections, setPendingDetections] = useState<string[]>([]);
   const [interceptorAssignments, setInterceptorAssignments] = useState<Record<string, string>>({});
+  const inspector = useCardInspector();
 
   // Combat prompt — depths uses the same shape Minecraft does for blockers,
   // but with detection-resolution and interceptor sub-steps.
@@ -579,15 +581,74 @@ export function DepthsGameBoard({
   }, [gameState.battlefield]);
 
   // Hand interactions --------------------------------------------------------
-  const handleHandClick = (card: CardData) => {
-    if (!canPlayCard(card)) return;
+  // Resolve the actual play once the user confirms in the inspector. Mines
+  // still drive their band-picker via the Depth Ladder header — we just
+  // stage the pending mine id and let the existing band buttons commit.
+  const resolveHandPlay = (card: CardData) => {
     if (isMine(card)) {
-      // Mines need a depth-band pick; toggle the placement prompt.
       setPendingMineCardId(pendingMineCardId === card.id ? null : card.id);
       setSelectedAttackerId(null);
       return;
     }
     onPlayCard(card.id);
+  };
+
+  // Format the Depths Torpedo/Sonar charge cost as a compact "3T 2S" string.
+  const formatDepthsCost = (cost?: { tc?: number; sc?: number }): string | undefined => {
+    const t = cost?.tc ?? 0;
+    const s = cost?.sc ?? 0;
+    if (!t && !s) return 'Free';
+    const parts: string[] = [];
+    if (t > 0) parts.push(`${t}T`);
+    if (s > 0) parts.push(`${s}S`);
+    return parts.join(' ');
+  };
+
+  const handleHandClick = (card: CardData) => {
+    const playable = canPlayCard(card);
+    const stats =
+      card.power !== null || card.toughness !== null || card.hull != null
+        ? `${card.power ?? 0} / ${card.hull ?? card.toughness ?? 0}`
+        : undefined;
+    const types = card.types
+      .map((t) => {
+        if (t === 'INSTANT') return 'Action';
+        if (t === 'ENCHANTMENT' || t === 'DEPTHS_DOCTRINE') return 'Doctrine';
+        if (t.startsWith('DEPTHS_')) {
+          const tail = t.slice('DEPTHS_'.length);
+          return tail.charAt(0) + tail.slice(1).toLowerCase();
+        }
+        return t.charAt(0) + t.slice(1).toLowerCase();
+      })
+      .join(' · ');
+    const subtypes = card.subtypes.length ? card.subtypes.join(' · ') : '';
+    const band = card.depth_band ? `Band: ${card.depth_band}` : '';
+    const subtitle = [types, subtypes, band].filter(Boolean).join(' — ');
+    const mine = isMine(card);
+    inspector.open(
+      {
+        id: card.id,
+        name: card.name,
+        text: card.text,
+        cost: formatDepthsCost(card.depths_cost),
+        stats,
+        subtitle,
+        engine: 'depths',
+      },
+      [
+        {
+          label: mine ? 'Play (pick band)' : 'Play',
+          variant: 'primary',
+          disabled: !playable,
+          disabledReason: !playable
+            ? 'Cannot play this card right now'
+            : undefined,
+          onClick: () => {
+            resolveHandPlay(card);
+          },
+        },
+      ],
+    );
   };
 
   // Combat interactions -----------------------------------------------------
@@ -1016,7 +1077,6 @@ export function DepthsGameBoard({
                 <button
                   key={card.id}
                   onClick={() => handleHandClick(card)}
-                  disabled={!playable}
                   className={`border bg-slate-950/80 p-1.5 text-left transition ${
                     pendingMineCardId === card.id
                       ? 'border-amber-300'

@@ -29,6 +29,7 @@ import { useDraggable } from '../../hooks/useDraggable';
 import { useDropTarget } from '../../hooks/useDropTarget';
 import { useDragDropStore, type DragItem } from '../../hooks/useDragDrop';
 import { useCardPreviewStore, useCardPreviewBindings } from '../../hooks/useCardPreview';
+import { useCardInspector } from '../../hooks/useCardInspector';
 import { LegendaryEntranceOverlay } from './shared/LegendaryEntranceOverlay';
 import { BattlefieldEventLayer } from './shared/DamageFloater';
 import { useBattlefieldEvents } from '../../hooks/useBattlefieldEvents';
@@ -255,6 +256,9 @@ export function PKMGameBoard({
   // Wire damage/heal/death floaters
   useBattlefieldEvents(gameState, 'pkm');
 
+  // Shared "click to inspect, then Play" modal — additive to drag+drop / hover.
+  const inspector = useCardInspector();
+
   // Card preview store (hover + pin)
   const setPreviewHover = useCardPreviewStore((s) => s.setHover);
   const clearPreview = useCardPreviewStore((s) => s.clearAll);
@@ -306,8 +310,10 @@ export function PKMGameBoard({
   // Reset actionPending when game state changes (action resolved)
   useEffect(() => { setActionPending(false); }, [gameState]);
 
-  // Handle clicking a card in hand
-  const handleHandCardClick = useCallback((card: CardData) => {
+  // Underlying play resolver — fires the appropriate engine action for a hand
+  // card. Used by both the legacy direct-click path (kept for tests / drag
+  // fallback callers) and by the new inspector's primary action.
+  const resolveHandCardPlay = useCallback((card: CardData) => {
     if (!isMyTurn || actionPending) return;
 
     const types = card.types || [];
@@ -333,6 +339,88 @@ export function PKMGameBoard({
       handleCancel();
     }
   }, [isMyTurn, actionPending, canPlayCard, canAttachEnergy, onPlayCard, handleCancel]);
+
+  // Handle clicking a card in hand — opens the shared inspector modal. The
+  // modal's primary action calls back into `resolveHandCardPlay`, preserving
+  // the existing play/attach/evolve flow (including target-picker mode).
+  const handleHandCardClick = useCallback((card: CardData) => {
+    const types = card.types || [];
+    const isEnergy = types.includes('ENERGY');
+    const isPokemon = types.includes('POKEMON');
+    const isEvolution = isPokemon && (card.evolution_stage === 'Stage 1' || card.evolution_stage === 'Stage 2');
+    const isTrainer = !isPokemon && !isEnergy &&
+      (types.includes('ITEM') || types.includes('SUPPORTER') || types.includes('STADIUM') || types.includes('POKEMON_TOOL'));
+
+    // Inspector card descriptor — engine-agnostic shape consumed by <CardInspector />.
+    let subtitle: string | undefined;
+    let stats: string | undefined;
+    let actionLabel = 'Play';
+    let inspectorEngine: 'pokemon' | 'energy' | 'trainer' = 'pokemon';
+    if (isEnergy) {
+      subtitle = 'Energy';
+      inspectorEngine = 'energy';
+      actionLabel = 'Attach Energy';
+    } else if (isEvolution) {
+      subtitle = `${card.evolution_stage}${card.pokemon_type ? ` · ${card.pokemon_type}` : ''}`;
+      stats = card.hp ? `HP ${card.hp}` : undefined;
+      actionLabel = 'Evolve';
+    } else if (isPokemon) {
+      subtitle = `Basic${card.pokemon_type ? ` · ${card.pokemon_type}` : ''}`;
+      stats = card.hp ? `HP ${card.hp}` : undefined;
+    } else if (isTrainer) {
+      const trainerKind =
+        types.includes('SUPPORTER') ? 'Supporter' :
+        types.includes('ITEM') ? 'Item' :
+        types.includes('STADIUM') ? 'Stadium' :
+        types.includes('POKEMON_TOOL') ? 'Pokémon Tool' :
+        'Trainer';
+      subtitle = trainerKind;
+      inspectorEngine = 'trainer';
+    }
+
+    // Disability check mirrors `resolveHandCardPlay`'s preconditions exactly.
+    let disabled = false;
+    let disabledReason: string | undefined;
+    if (!isMyTurn) {
+      disabled = true;
+      disabledReason = "Not your turn";
+    } else if (actionPending) {
+      disabled = true;
+      disabledReason = 'Resolving previous action…';
+    } else if (isEnergy && !canAttachEnergy(card)) {
+      disabled = true;
+      disabledReason = 'No energy attach available';
+    } else if (!isEnergy && !isEvolution && !canPlayCard(card)) {
+      disabled = true;
+      disabledReason = 'Cannot play this card right now';
+    }
+
+    inspector.open(
+      {
+        id: card.id,
+        name: card.name,
+        text: card.text || (card.ability_text ? `Ability: ${card.ability_text}` : undefined),
+        subtitle,
+        stats,
+        engine: inspectorEngine,
+      },
+      [
+        {
+          label: actionLabel,
+          variant: 'primary',
+          disabled,
+          disabledReason,
+          onClick: () => {
+            resolveHandCardPlay(card);
+            // For Energy / Evolution we set a target-picker mode; let the
+            // modal close so the user can click a field Pokemon. For Basic
+            // Pokemon / Trainer the engine action fires directly. In both
+            // cases default-close (void) is the right behavior.
+          },
+        },
+      ],
+    );
+  }, [isMyTurn, actionPending, canPlayCard, canAttachEnergy, inspector, resolveHandCardPlay]);
 
   // Handle clicking a Pokemon on field (for energy attachment, evolution, ability)
   const handleFieldPokemonClick = useCallback((pokemonId: string, isOwn: boolean) => {

@@ -10,6 +10,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Home } from './pages';
 import { EnginePicker } from './components/lab/EnginePicker';
 import { RulesSheet } from './components/lab/RulesSheet';
+import CardInspector from './components/cards/CardInspector';
 
 // Code-split: mode views + heavyweight pages are loaded on-demand
 const GameView = lazy(() => import('./pages/GameView'));
@@ -50,6 +51,7 @@ export function App() {
     <BrowserRouter>
       <EnginePicker />
       <RulesSheet />
+      <CardInspector />
       <Suspense fallback={<LoadingFallback />}>
         <Routes>
           <Route path="/" element={<Home />} />

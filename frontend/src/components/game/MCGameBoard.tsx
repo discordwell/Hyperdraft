@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { CardData, GameState, PlayerData } from '../../types';
 import { getMinecraftArtPaths } from '../../utils/cardArt';
+import { useCardInspector } from '../../hooks/useCardInspector';
 
 const MATERIALS = [
   ['wood', 'Wood'],
@@ -258,6 +259,7 @@ export function MCGameBoard({
   const [attackingMobId, setAttackingMobId] = useState<string | null>(null);
   const [avatarTargeting, setAvatarTargeting] = useState(false);
   const [showOppBiomes, setShowOppBiomes] = useState(false);
+  const inspector = useCardInspector();
 
   const myGrid = gameState.minecraft_grid?.[playerId] || Array.from({ length: COLUMN_COUNT }, () => Array(COLUMN_COUNT).fill(null));
   const oppGrid = opponentId
@@ -326,13 +328,57 @@ export function MCGameBoard({
     onDeclareBlockers(blockers);
   };
 
-  const handleHandClick = (card: CardData) => {
-    if (!canPlayCard(card)) return;
+  // Resolve the actual play once the user confirms in the inspector.
+  // For structures / blocks, we still want the existing column-pick flow
+  // on the 3x3 grid — Play just stages the card via setPlacingCard, and
+  // the next grid cell click commits via onPlayCard(id, {x,y}).
+  const resolveHandPlay = (card: CardData) => {
     if (card.types.includes('MC_STRUCTURE') || card.types.includes('MC_BLOCK')) {
       setPlacingCard(card);
       return;
     }
     onPlayCard(card.id);
+  };
+
+  // Format the MC mana-cost record as a compact "W2 S1" string for the modal.
+  const formatMcCost = (cost?: Record<string, number>): string | undefined => {
+    if (!cost) return undefined;
+    const entries = Object.entries(cost).filter(([, v]) => v > 0);
+    if (!entries.length) return 'Free';
+    return entries.map(([k, v]) => `${k[0].toUpperCase()}${v}`).join(' ');
+  };
+
+  const handleHandClick = (card: CardData) => {
+    const playable = canPlayCard(card);
+    const stats =
+      card.power !== null || card.toughness !== null
+        ? `${card.power ?? '-'} / ${card.toughness ?? '-'}`
+        : undefined;
+    const types = card.types.map((t) => t.replace(/^MC_/, '')).join(' · ');
+    const subtypes = card.subtypes.length ? card.subtypes.join(' · ') : '';
+    const subtitle = [types, subtypes].filter(Boolean).join(' — ');
+    inspector.open(
+      {
+        id: card.id,
+        name: card.name,
+        text: card.text,
+        cost: formatMcCost(card.mc_cost),
+        stats,
+        subtitle,
+        engine: 'minecraft',
+      },
+      [
+        {
+          label: 'Play',
+          variant: 'primary',
+          disabled: !playable,
+          disabledReason: !playable ? 'Cannot play this card right now' : undefined,
+          onClick: () => {
+            resolveHandPlay(card);
+          },
+        },
+      ],
+    );
   };
 
   const handleColumnAttack = (column: number) => {

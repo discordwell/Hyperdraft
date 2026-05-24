@@ -32,6 +32,7 @@ import {
   type CatsTrick,
   type CatsAction,
 } from '../hooks/useCatsGame';
+import { useCardInspector } from '../hooks/useCardInspector';
 
 // ---------------------------------------------------------------------------
 // Visual palette — kept on a single object so the cozy/cream identity is
@@ -831,22 +832,42 @@ function MyHand({
   playable: boolean;
   onPlay: (cardId: string) => void;
 }) {
+  const inspector = useCardInspector();
+  const openInspector = (card: CatsCard) => {
+    inspector.open(
+      {
+        id: card.id,
+        name: card.name,
+        text: card.text,
+        cost: card.value > 0 ? String(card.value) : undefined,
+        subtitle: card.card_type + (card.category ? ` · ${card.category}` : ''),
+        engine: 'cats',
+      },
+      [
+        {
+          label: 'Play',
+          variant: 'primary',
+          disabled: !playable,
+          disabledReason: !playable ? 'Not your phase to play' : undefined,
+          onClick: () => onPlay(card.id),
+        },
+      ],
+    );
+  };
   return (
     <div className="flex flex-col gap-1.5">
       <div className="text-[10px] uppercase tracking-[0.22em] opacity-60">
-        Your paw {playable ? '· tap a card to play' : ''}
+        Your paw {playable ? '· tap a card to inspect, then Play' : '· tap to inspect'}
       </div>
       <div className="flex flex-wrap gap-3">
         {cards.map((card) => (
           <button
             key={card.id}
             type="button"
-            disabled={!playable}
-            onClick={() => onPlay(card.id)}
+            onClick={() => openInspector(card)}
             className="group transition-transform"
             style={{
-              transform: playable ? 'translateY(0)' : 'translateY(0)',
-              cursor: playable ? 'pointer' : 'not-allowed',
+              cursor: 'pointer',
               opacity: playable ? 1 : 0.78,
             }}
           >

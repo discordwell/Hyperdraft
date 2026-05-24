@@ -15,6 +15,8 @@ import {
   SCPSitePanel,
   SCPStat,
 } from '../components/game/SCPBoard';
+import { useCardInspector } from '../hooks/useCardInspector';
+import type { InspectorAction } from '../hooks/useCardInspector';
 import type { CardData, SCPIncident } from '../types';
 
 // SCPGameView is the *interactive* SCP match page. The pure visual primitives
@@ -134,6 +136,11 @@ export function SCPGameView() {
   const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
   const [selectedContainedId, setSelectedContainedId] = useState<string>('');
 
+  // Shared "click to inspect, then act" modal. Additive — the inline action
+  // buttons on each hand card (Open / Fast-track / Seal) still work, and so
+  // does the existing selection + protocol picker chrome below.
+  const inspector = useCardInspector();
+
   const {
     pendingChoice,
     handleChoiceSubmit,
@@ -197,6 +204,83 @@ export function SCPGameView() {
     ));
   };
 
+  // Open the shared CardInspector for a hand-card. Surfaces the same set of
+  // actions the inline buttons offer (Open / Fast-track / Seal). The inline
+  // buttons stay so quick-action keyboard / muscle-memory flows are preserved.
+  const openHandCardInspector = (card: CardData) => {
+    const actions: InspectorAction[] = [];
+    const redTape = card.scp_red_tape ?? 0;
+    const anomaly = isAnomaly(card);
+
+    // openDossier returns Promise<void> (it's a socket send); we don't want
+    // to leak the promise into the inspector — wrap in a block body so the
+    // return type stays void and the modal closes immediately on click.
+    actions.push({
+      label: 'Open',
+      variant: 'primary',
+      disabled: !canAct,
+      disabledReason: !canAct ? 'Not your turn' : undefined,
+      onClick: () => {
+        void openDossier(card.id);
+      },
+    });
+    if (redTape > 0) {
+      actions.push({
+        label: 'Fast-track',
+        variant: 'secondary',
+        disabled: !canAct,
+        disabledReason: !canAct ? 'Not your turn' : undefined,
+        onClick: () => {
+          void openDossier(card.id, true);
+        },
+      });
+    }
+    if (anomaly) {
+      actions.push({
+        label: 'Seal',
+        variant: 'secondary',
+        disabled: !canAct,
+        disabledReason: !canAct ? 'Not your turn' : undefined,
+        onClick: () => {
+          void openDossier(card.id, false, true);
+        },
+      });
+    }
+
+    const typeLabel = card.types.join(' / ');
+    const subtitle = card.scp_status ? `${typeLabel} · ${card.scp_status}` : typeLabel;
+    const metaRows: { label: string; value: string }[] = [
+      { label: 'RT', value: String(card.scp_red_tape ?? 0) },
+      { label: 'CL', value: String(card.scp_clearance ?? 0) },
+    ];
+    if (anomaly) {
+      metaRows.push({
+        label: 'C/R/H',
+        value: `${card.scp_containment ?? 0} / ${card.scp_curiosity ?? 0} / ${card.scp_hazard ?? 0}`,
+      });
+    } else if (card.types.includes('SCP_PERSONNEL')) {
+      const skills = card.scp_skills ?? {};
+      metaRows.push({
+        label: 'C/R/S',
+        value: `${skills.contain ?? 0} / ${skills.research ?? 0} / ${skills.suppress ?? 0}`,
+      });
+    }
+    if (card.scp_mood) metaRows.push({ label: 'Mood', value: formatLabel(card.scp_mood) });
+
+    inspector.open(
+      {
+        id: card.id,
+        name: card.name,
+        text: card.text ?? undefined,
+        subtitle,
+        artUrl: card.image_url ?? null,
+        engine: 'scp',
+        meta: metaRows,
+      },
+      actions,
+    );
+  };
+
   if (!gameState || !playerId) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950">
@@ -257,7 +341,11 @@ export function SCPGameView() {
           <SCPSection title={`Hand (${hand.length})`}>
             {hand.length === 0 && <SCPEmpty label="No cards in hand" />}
             {hand.map((card) => (
-              <SCPCardPanel key={card.id} card={card}>
+              <SCPCardPanel
+                key={card.id}
+                card={card}
+                onClick={() => openHandCardInspector(card)}
+              >
                 <ActionButton onClick={() => openDossier(card.id)} disabled={!canAct}>Open</ActionButton>
                 {(card.scp_red_tape ?? 0) > 0 && (
                   <ActionButton onClick={() => openDossier(card.id, true)} disabled={!canAct} tone="warn">Fast-track</ActionButton>

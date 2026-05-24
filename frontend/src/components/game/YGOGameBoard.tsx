@@ -20,6 +20,7 @@ import { useDropTarget } from '../../hooks/useDropTarget';
 import { cardSummon, handStagger, modalBackdrop, modalContent, gameOverOverlay } from '../../utils/ygoAnimations';
 import type { DragItem } from '../../hooks/useDragDrop';
 import { useCardPreviewStore, useCardPreviewBindings } from '../../hooks/useCardPreview';
+import { useCardInspector } from '../../hooks/useCardInspector';
 import CardPreviewWrapper from './shared/CardPreviewWrapper';
 import { LegendaryEntranceOverlay } from './shared/LegendaryEntranceOverlay';
 import { BattlefieldEventLayer } from './shared/DamageFloater';
@@ -676,6 +677,17 @@ export function YGOGameBoard({
   // Wire death floaters (YGO has no per-card HP in state, so only death events fire)
   useBattlefieldEvents(gameState, 'ygo');
 
+  // Shared "click to inspect, then act" modal — additive to drag+drop / hover.
+  const inspector = useCardInspector();
+
+  // Clear selection / attack-mode state. Hoisted above the click handlers so
+  // the inspector's action callbacks can call it without a TDZ error.
+  const clearSelections = useCallback(() => {
+    setSelectedHandCard(null);
+    setSelectedFieldCard(null);
+    setAttackMode(null);
+  }, []);
+
   // Turn banner trigger
   const prevTurn = useRef(gameState.turn_number);
   useEffect(() => {
@@ -708,11 +720,119 @@ export function YGOGameBoard({
   }, [myPlayer?.lp, opponentPlayer?.lp]);
 
   const handleHandCardClick = useCallback((card: CardData) => {
+    // Mirror the prior selection behavior so the action-bar buttons /
+    // drag affordances stay in sync, then open the shared inspector with
+    // a context-appropriate action list. The inspector is additive: when
+    // it's dismissed, the action-bar buttons remain available for users
+    // who prefer that flow.
     if (!isMyTurn) return;
-    setSelectedHandCard(prev => prev === card.id ? null : card.id);
+    const wasSelected = selectedHandCard === card.id;
+    setSelectedHandCard(wasSelected ? null : card.id);
     setSelectedFieldCard(null);
     setAttackMode(null);
-  }, [isMyTurn]);
+
+    const isMonsterCard = card.types?.includes('YGO_MONSTER') ?? false;
+    const isSpellCard = card.types?.includes('YGO_SPELL') ?? false;
+    const isTrapCard = card.types?.includes('YGO_TRAP') ?? false;
+
+    // Build inspector card descriptor.
+    let cost: string | undefined;
+    let stats: string | undefined;
+    let subtitle: string | undefined;
+    let engineKind: 'monster' | 'spell_trap' = isMonsterCard ? 'monster' : 'spell_trap';
+    if (isMonsterCard) {
+      if (typeof card.level === 'number') cost = `Lv ${card.level}`;
+      else if (typeof card.rank === 'number') cost = `Rank ${card.rank}`;
+      else if (typeof card.link_rating === 'number') cost = `Link ${card.link_rating}`;
+      const atk = card.atk ?? card.power;
+      const def = card.def_val ?? card.toughness;
+      const atkStr = atk != null ? `ATK ${atk}` : '';
+      const defStr = def != null ? `DEF ${def}` : '';
+      stats = [atkStr, defStr].filter(Boolean).join(' / ') || undefined;
+      const typeBits = [card.attribute, card.ygo_monster_type].filter(Boolean).join(' · ');
+      subtitle = typeBits || 'Monster';
+    } else if (isSpellCard) {
+      engineKind = 'spell_trap';
+      subtitle = card.ygo_spell_type ? `${card.ygo_spell_type} Spell` : 'Spell';
+    } else if (isTrapCard) {
+      engineKind = 'spell_trap';
+      subtitle = card.ygo_trap_type ? `${card.ygo_trap_type} Trap` : 'Trap';
+    }
+
+    // Build action list. Each action wraps the existing engine handler
+    // and clears the selection so the action-bar state stays consistent.
+    // Tribute / chain-target follow-ups are still driven by the engine —
+    // those flows close the modal naturally because the action returns
+    // void (the engine then opens its own picker / chain window).
+    const actions = [] as Parameters<typeof inspector.open>[1];
+
+    if (isMonsterCard) {
+      actions!.push({
+        label: 'Normal Summon',
+        variant: 'primary',
+        onClick: () => {
+          onNormalSummon(card.id);
+          clearSelections();
+        },
+      });
+      actions!.push({
+        label: 'Set',
+        variant: 'secondary',
+        onClick: () => {
+          onSetMonster(card.id);
+          clearSelections();
+        },
+      });
+    } else if (isSpellCard) {
+      actions!.push({
+        label: 'Activate',
+        variant: 'primary',
+        onClick: () => {
+          onActivateCard(card.id);
+          clearSelections();
+        },
+      });
+      actions!.push({
+        label: 'Set',
+        variant: 'secondary',
+        onClick: () => {
+          onSetSpellTrap(card.id);
+          clearSelections();
+        },
+      });
+    } else if (isTrapCard) {
+      actions!.push({
+        label: 'Set',
+        variant: 'primary',
+        onClick: () => {
+          onSetSpellTrap(card.id);
+          clearSelections();
+        },
+      });
+    }
+
+    inspector.open(
+      {
+        id: card.id,
+        name: card.name,
+        text: card.text,
+        cost,
+        stats,
+        subtitle,
+        engine: engineKind,
+      },
+      actions,
+    );
+  }, [
+    isMyTurn,
+    selectedHandCard,
+    inspector,
+    onNormalSummon,
+    onSetMonster,
+    onActivateCard,
+    onSetSpellTrap,
+    clearSelections,
+  ]);
 
   const handleFieldCardClick = useCallback((card: CardData, isMine: boolean) => {
     if (attackMode && !isMine && card.id) {
@@ -732,12 +852,6 @@ export function YGOGameBoard({
       setAttackMode(null);
     }
   }, [attackMode, onDirectAttack]);
-
-  const clearSelections = useCallback(() => {
-    setSelectedHandCard(null);
-    setSelectedFieldCard(null);
-    setAttackMode(null);
-  }, []);
 
   // --- Drag-and-drop handlers ---
 
