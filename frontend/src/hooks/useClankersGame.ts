@@ -524,6 +524,109 @@ function getMockState(): ClankersState {
   return mockStateRef;
 }
 
+// Backend serializer (session.py:_serialize_clankers_state) emits a flatter
+// MVP shape than ClankersState requires. This projector adapts:
+//   active_player          → active_seat
+//   deathclock_active/turn → deathclock: { active, turn, next_damage }
+//   player.floor           → player.assembly_floor (flattened chassis+solo)
+//   <missing>              → combat / refill_prompt / game_over / winner stubs
+// As the backend grows real combat/refill signals we shrink this layer.
+export function projectClankersState(raw: Record<string, unknown>): ClankersState {
+  const num = (v: unknown, dflt = 0): number =>
+    typeof v === 'number' && Number.isFinite(v) ? v : dflt;
+  const str = (v: unknown, dflt = ''): string => (typeof v === 'string' ? v : dflt);
+  const bool = (v: unknown, dflt = false): boolean =>
+    typeof v === 'boolean' ? v : dflt;
+  const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+  const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' ? (v as Record<string, unknown>) : {});
+
+  const seatFromActive = (v: unknown): ClankersSeat =>
+    v === 'me' || v === 'opponent' ? v : 'me';
+
+  const deathclockTurn = num(raw.deathclock_turn);
+  const deathclock: ClankersDeathclock = {
+    active: bool(raw.deathclock_active),
+    turn: deathclockTurn,
+    // Engine doc: damage doubles each turn starting at 2.
+    next_damage: Math.max(2, 2 ** Math.max(0, deathclockTurn)),
+  };
+
+  const projectCard = (c: Record<string, unknown>, host?: string | null): ClankersCard => {
+    const kind = str(c.kind, 'Chassis').toLowerCase();
+    const cardType: ClankersCardType =
+      kind === 'weapon' ? 'CLANKERS_WEAPON'
+      : kind === 'add-on' || kind === 'add_on' || kind === 'addon' ? 'CLANKERS_ADD_ON'
+      : kind === 'transient' ? 'CLANKERS_TRANSIENT'
+      : kind === 'structure' ? 'CLANKERS_STRUCTURE'
+      : kind === 'core' ? 'CLANKERS_CORE'
+      : 'CLANKERS_CHASSIS';
+    return {
+      id: str(c.id),
+      name: str(c.name, '?'),
+      card_type: cardType,
+      compute_cost: num(c.compute_cost),
+      text: str(c.text) || undefined,
+      power: c.effective_power !== undefined ? num(c.effective_power) : (c.power !== undefined ? num(c.power) : undefined),
+      integrity: c.effective_integrity !== undefined ? num(c.effective_integrity) : (c.integrity !== undefined ? num(c.integrity) : undefined),
+      weapon_slots: c.weapon_slots !== undefined ? num(c.weapon_slots) : undefined,
+      add_on_slots: c.add_on_slots !== undefined ? num(c.add_on_slots) : undefined,
+      power_bonus: c.power_bonus !== undefined ? num(c.power_bonus) : undefined,
+      integrity_bonus: c.integrity_bonus !== undefined ? num(c.integrity_bonus) : undefined,
+      armor_value: c.armor_value !== undefined && c.armor_value !== null ? num(c.armor_value) : undefined,
+      tapped: bool(c.tapped),
+      damage_marked: c.damage !== undefined ? num(c.damage) : undefined,
+      attached_to: host ?? null,
+      attachments: arr<Record<string, unknown>>(c.attached_parts).map((p) => projectCard(p, str(c.id))),
+    };
+  };
+
+  const projectPlayer = (p: Record<string, unknown>, seat: ClankersSeat): ClankersPlayerState => {
+    const core = obj(p.core);
+    const floor = obj(p.floor);
+    const chassisCards = arr<Record<string, unknown>>(floor.chassis).map((c) => projectCard(c));
+    const soloCards = arr<Record<string, unknown>>(floor.solo_parts).map((c) => projectCard(c));
+    const hp = num(p.workshop_integrity);
+    return {
+      display_name: seat === 'me' ? 'You' : 'Opponent',
+      core: {
+        id: str(core.id) || `core_${seat}`,
+        name: str(core.name, 'Core'),
+        text: str(core.text) || undefined,
+      },
+      workshop_integrity: hp,
+      workshop_integrity_max: hp > 0 ? Math.max(hp, 25) : 25,
+      compute_pool: num(p.compute_pool),
+      compute_cap: num(p.compute_cap, 10),
+      scrap_pool: num(p.scrap_pool),
+      refill_used: false,
+      hand: arr<Record<string, unknown>>(p.hand).map((c) => projectCard(c)),
+      hand_size: num(p.hand_size, arr(p.hand).length),
+      library_size: num(p.library_size),
+      scrap_heap_size: num(p.scrap_heap_size),
+      assembly_floor: [...chassisCards, ...soloCards],
+      structures: arr<Record<string, unknown>>(p.structures).map((c) => projectCard(c)),
+    };
+  };
+
+  const me = projectPlayer(obj(raw.player), 'me');
+  const opp = projectPlayer(obj(raw.opponent), 'opponent');
+
+  const phase = str(raw.phase, 'assemble') as ClankersPhase;
+
+  return {
+    turn_number: num(raw.turn_number),
+    active_seat: seatFromActive(raw.active_player ?? raw.active_seat),
+    phase,
+    player: me,
+    opponent: opp,
+    deathclock,
+    combat: { active: false, attackers: [], blocks: {} },
+    refill_prompt: { pending: false, current_hand_size: me.hand_size, target: 7 },
+    game_over: bool(raw.game_over),
+    winner: (raw.winner === 'me' || raw.winner === 'opponent') ? raw.winner : null,
+  };
+}
+
 export function useClankersGame(): UseClankersGameResult {
   const store = useGameStore();
   const { matchId, playerId, gameState, setGameState, setError } = store;
@@ -536,17 +639,16 @@ export function useClankersGame(): UseClankersGameResult {
   });
 
   // Project the server's nested `clankers` payload into ClankersState. The
-  // backend is expected to emit a seat-relative shape (player vs opponent)
-  // like the cats serializer does; this is mostly a passthrough with a
-  // typed cast. When the field is absent (no active match, or backend not
-  // yet wired), fall back to the mock fixture so the board still renders.
+  // backend currently emits a leaner MVP shape (flat deathclock_*, no
+  // refill_prompt / combat / game_over keys, player.floor instead of
+  // player.assembly_floor); this projector adapts that shape to the UI
+  // contract until the serializer is updated to match 1:1.
   const state = useMemo<ClankersState | null>(() => {
     if (gameState) {
-      const clankers = (gameState as unknown as { clankers?: ClankersState | null }).clankers;
-      if (clankers) return clankers;
+      const raw = (gameState as unknown as { clankers?: Record<string, unknown> | null }).clankers;
+      if (raw) return projectClankersState(raw);
     }
     // No real state available — surface mock fixture for design review.
-    // The board cannot distinguish; it just gets a ClankersState shape.
     return getMockState();
   }, [gameState]);
 
