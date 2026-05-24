@@ -653,6 +653,39 @@ class EventType(Enum):
     CATS_GAME_OVER = auto()             # Marker: round 9 ended + both hands empty -> finalize scores.
     CATS_REVEAL = auto()                # A card's hidden info (e.g. Sneaky sneaky_value) is revealed. Payload: {'player': str, 'card_id': str, 'sneaky_value': int}
 
+    # ------------------------------------------------------------------
+    # Clankers — newly-sentient AIs building battle robots from multi-card
+    # assemblies (chassis + weapons + add-ons). Always-7-cards-in-hand floor.
+    # See src/engine/clankers.py.
+    # ------------------------------------------------------------------
+    CLANKERS_TURN_START = auto()            # Boot phase opened. Payload: {'player': str, 'turn_number': int}
+    CLANKERS_TURN_END = auto()              # Cleanup phase closed. Payload: {'player': str, 'turn_number': int}
+    CLANKERS_ATTACH_PART = auto()           # Attach action. Payload: {'part_id': str, 'target_chassis_id': str, 'controller': str}
+    CLANKERS_DETACH_PART = auto()           # Detach action. Payload: {'part_id': str, 'former_host_id': str}
+    CLANKERS_PART_ATTACHED = auto()         # Marker: part successfully attached. Payload: {'part_id', 'target_chassis_id'}
+    CLANKERS_PART_DETACHED = auto()         # Marker: part successfully detached.
+    CLANKERS_HAND_REFILL_QUERY = auto()     # Synthetic query: should this player refill to 7? Payload: {'player_id', 'current_hand_size', 'target_hand_size': 7, 'may': True}
+    CLANKERS_QUERY_POWER = auto()           # Synthetic query: effective power of a chassis assembly. Payload: {'chassis_id', 'base_value', 'result'}
+    CLANKERS_QUERY_INTEGRITY = auto()       # Synthetic query: effective integrity of a chassis assembly. Same shape.
+    CLANKERS_COMPUTE_SPEND = auto()         # Compute spent. Payload: {'player_id', 'amount', 'source_card_id'}
+    CLANKERS_COMPUTE_GAIN = auto()          # Compute gained (Boot refresh, card effects).
+    CLANKERS_SCRAP_GAIN = auto()            # Scrap pool increased.
+    CLANKERS_SCRAP_SPEND = auto()           # Scrap pool decreased.
+    CLANKERS_CHASSIS_DESTROYED = auto()     # Marker: a chassis was destroyed. Payload includes attached part list (death cascade).
+    CLANKERS_WEAPON_DESTROYED = auto()      # Marker: a weapon was destroyed (combat damage to chassis, cascade, or direct effect).
+    CLANKERS_ADD_ON_DESTROYED = auto()      # Marker: an add-on was destroyed.
+    CLANKERS_DEATH_CASCADE = auto()         # Marker: a chassis death triggered its attached parts going to scrap. Payload: {'chassis_id', 'cascaded_part_ids': list[str]}
+    CLANKERS_ATTACK_DECLARE = auto()        # Attacker declared in Combat phase. Payload: {'attacker_id', 'attacker_controller'}
+    CLANKERS_BLOCK_DECLARE = auto()         # Blocker assigned. Payload: {'attacker_id', 'blocker_id', 'blocker_controller'}
+    CLANKERS_COMBAT_DAMAGE = auto()         # Combat damage event. Payload: {'attacker_id', 'defender_id', 'amount', 'damage_credited_to'}
+    CLANKERS_WORKSHOP_DAMAGE = auto()       # Damage routed to Core's workshop_integrity (unblocked attacker, Transient effect, etc.).
+    CLANKERS_WORKSHOP_BREACHED = auto()     # Workshop Integrity hit 0. Game-end trigger. Payload: {'player_id'} = loser.
+    CLANKERS_CONTAINMENT_FAILURE_TICK = auto()  # Deathclock fired. Payload: {'turn': int, 'damage': int}
+    CLANKERS_CORE_PASSIVE = auto()          # Marker: a Core Processor passive triggered (for observability/logging).
+    CLANKERS_REFILL_TAKEN = auto()          # Marker: a player actually took their Allocate-phase refill (after may-decision).
+    CLANKERS_REFILL_DECLINED = auto()       # Marker: a player declined the refill.
+    CLANKERS_ACTIVATE = auto()              # Marker: an activated ability fired. Payload: {'player_id', 'source_id', 'ability_index', 'targets', 'compute_paid', 'exhausted_self'}
+
 
 class EventStatus(Enum):
     PENDING = auto()      # On the stack, can be responded to
@@ -817,6 +850,14 @@ class CardType(Enum):
     CATS_TRINKET = auto()     # Persistent pile attachment. Grants a passive score/utility mod.
     CATS_COMMANDER = auto()   # Pre-game-only. Lives in COMMAND zone; permanent passive.
 
+    # Clankers card types — see src/engine/clankers.py.
+    CLANKERS_CHASSIS = auto()    # Robot base. Has power/integrity/weapon_slots/add_on_slots.
+    CLANKERS_WEAPON = auto()     # Attachable offensive part; adds power_bonus to host chassis. Optional activated abilities.
+    CLANKERS_ADD_ON = auto()     # Attachable utility/defensive part; adds power_bonus/integrity_bonus and/or static effects.
+    CLANKERS_TRANSIENT = auto()  # One-shot AI subroutine. Resolves and goes to scrap heap.
+    CLANKERS_STRUCTURE = auto()  # Workshop fixture providing passive global effects. Max 3 per player.
+    CLANKERS_CORE = auto()       # The AI itself. Commander-equivalent. Lives in COMMAND zone. Carries workshop_integrity (HP).
+
 
 class Color(Enum):
     WHITE = 'W'
@@ -869,6 +910,10 @@ class ZoneType(Enum):
     CATS_PILE_NAP = auto()          # Per-player scoring pile #2. Cap 6 cards. 2pt/card, capped at 12.
     CATS_PILE_SNACK = auto()        # Per-player scoring pile #3. Cap 5 cards. 3pt/card if <5 else 1pt.
     CATS_PILE_ATTENTION = auto()    # Per-player tiebreaker pile. Unlimited. Holds overflow + "demands attention" placements.
+
+    # Clankers — see src/engine/clankers.py.
+    CLANKERS_ASSEMBLY_FLOOR = auto()   # Central battlefield analogue. Chassis, solo parts, Structures live here. Shared across players (each obj has its own controller).
+    CLANKERS_SCRAP_HEAP = auto()       # Per-player graveyard analogue for destroyed parts and discarded cards.
 
 
 # =============================================================================

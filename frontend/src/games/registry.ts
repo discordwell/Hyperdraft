@@ -17,6 +17,7 @@ import { depths } from './depths';
 import { finance } from './finance';
 import { scp } from './scp';
 import { cats } from './cats';
+import { clankers } from './clankers';
 
 export const GAME_MODULES: Record<Game, GameModule> = {
   mtg,
@@ -28,6 +29,7 @@ export const GAME_MODULES: Record<Game, GameModule> = {
   finance,
   scp,
   cats,
+  clankers,
 };
 
 export function getGameModule(game: Game): GameModule {

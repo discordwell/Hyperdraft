@@ -900,6 +900,12 @@ def _build_cats_adapter() -> "GameModeAdapter":
     return CatsModeAdapter()
 
 
+def _build_clankers_adapter() -> "GameModeAdapter":
+    """Construct the ClankersModeAdapter lazily to avoid an import cycle."""
+    from .clankers import ClankersModeAdapter
+    return ClankersModeAdapter()
+
+
 # =============================================================================
 # Registry
 # =============================================================================
@@ -914,6 +920,7 @@ _REGISTRY: dict[str, GameModeAdapter] = {
     "depths": _build_depths_adapter(),
     "finance": _build_finance_adapter(),
     "cats": _build_cats_adapter(),
+    "clankers": _build_clankers_adapter(),
 }
 
 
