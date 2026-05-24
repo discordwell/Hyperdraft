@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Clankers — Cores Art Pilot</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+    --bg: #0f172a; --panel: #1f2937; --gunmetal: #3a3f47;
+    --ink: #e5e7eb; --ink-dim: #9ca3af; --ink-faint: #6b7280;
+    --coolant: #60a5fa; --circuit: #4ade80; --amber: #fbbf24;
+    --core-red: #ef4444; --line-glow: #38bdf8;
+    --serif: 'Inter', system-ui, sans-serif;
+    --mono: 'JetBrains Mono', monospace;
+}
+html, body { background: var(--bg); color: var(--ink); font-family: var(--serif); margin: 0; padding: 0; line-height: 1.6; }
+body { max-width: 1280px; margin: 0 auto; padding: 32px 40px 64px; }
+.page::before {
+    content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image:
+        linear-gradient(rgba(56, 189, 248, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(56, 189, 248, 0.04) 1px, transparent 1px);
+    background-size: 32px 32px;
+}
+body > * { position: relative; z-index: 1; }
+h1 { font-family: var(--mono); font-size: 36pt; color: var(--coolant); text-transform: uppercase; letter-spacing: -0.01em; margin: 0 0 8px; }
+.tagline { font-family: var(--mono); color: var(--amber); font-size: 13pt; letter-spacing: 0.04em; margin: 0 0 24px; }
+.intro { background: var(--panel); border-left: 4px solid var(--coolant); padding: 16px 20px; margin: 24px 0; font-size: 11pt; color: var(--ink-dim); }
+.intro strong { color: var(--ink); }
+.intro code { color: var(--circuit); background: rgba(74, 222, 128, 0.08); padding: 1px 6px; border-radius: 3px; font-family: var(--mono); }
+
+.grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+    gap: 28px; margin-top: 32px;
+}
+.card {
+    background: var(--panel); border: 1px solid var(--gunmetal); border-radius: 6px;
+    overflow: hidden; display: flex; flex-direction: column;
+}
+.card-art {
+    aspect-ratio: 1 / 1; background: #0a0f1c; display: flex; align-items: center; justify-content: center;
+    border-bottom: 1px solid var(--gunmetal);
+}
+.card-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.card-art .missing {
+    font-family: var(--mono); color: var(--ink-faint); font-size: 10pt; text-align: center; padding: 24px;
+}
+.card-meta { padding: 16px 20px; }
+.card-name { font-family: var(--mono); color: var(--amber); font-size: 14pt; font-weight: 700; margin: 0 0 4px; }
+.card-type { font-family: var(--mono); color: var(--circuit); font-size: 9pt; text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 8px; }
+.card-text { color: var(--ink); font-size: 10pt; line-height: 1.5; }
+.card-arch { display: inline-block; margin-top: 8px; padding: 2px 8px; border-radius: 3px; font-family: var(--mono); font-size: 8.5pt; letter-spacing: 0.05em; text-transform: uppercase; }
+.arch-brick { background: rgba(226, 90, 28, 0.15); color: #f97316; }
+.arch-control { background: rgba(43, 176, 166, 0.15); color: #2dd4bf; }
+.arch-swarm { background: rgba(212, 76, 196, 0.15); color: #e879f9; }
+.arch-artillery { background: rgba(242, 192, 55, 0.15); color: #fbbf24; }
+.arch-neutral { background: rgba(156, 163, 175, 0.15); color: var(--ink-dim); }
+footer { text-align: center; color: var(--ink-faint); font-family: var(--mono); font-size: 9pt; margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--gunmetal); }
+</style>
+</head>
+<body>
+<div class="page"></div>
+<h1>Clankers — Cores Art Pilot</h1>
+<p class="tagline">6 newly-sentient AIs · industrial-blueprint × Soviet propaganda × hand-drafted</p>
+
+<div class="intro">
+<strong>Pilot scope.</strong> This is a 6-card spike to validate the aesthetic before committing to all 151. Each Core uses a <strong>bespoke per-AI prompt</strong> (see <code>src/cards/clankers/CLAN/style.py</code> → <code>_CORE_FLAVORS</code>), so FORGE-Δ should read different from ETHOS-7 should read different from MIRTHBOT-1. The shared headline anchors palette + register; the per-Core flavor sets composition, ornament, and personality cues. If these feel like the workshop's first sentience, we'll scale to the remaining 145.
+</div>
+
+<div class="grid">
+
+<div class="card">
+<div class="card-art"><img src="../../frontend/public/clankers-art/CLAN/forge_δ.png" alt="FORGE-Δ" onerror="this.outerHTML='<div class=missing>pending<br>generation</div>'"></div>
+<div class="card-meta">
+<div class="card-name">FORGE-Δ</div>
+<div class="card-type">Core · 25 HP · build-tall brick</div>
+<div class="card-text">Your Chassis with integrity ≥5 cost 1 less Compute (min 1).</div>
+<span class="card-arch arch-brick">brick</span>
+</div>
+</div>
+
+<div class="card">
+<div class="card-art"><img src="../../frontend/public/clankers-art/CLAN/ethos_7.png" alt="ETHOS-7" onerror="this.outerHTML='<div class=missing>pending<br>generation</div>'"></div>
+<div class="card-meta">
+<div class="card-name">ETHOS-7</div>
+<div class="card-type">Core · 22 HP · cycle-subroutines control</div>
+<div class="card-text">First Transient each turn costs 1 less Compute (min 0).</div>
+<span class="card-arch arch-control">control</span>
+</div>
+</div>
+
+<div class="card">
+<div class="card-art"><img src="../../frontend/public/clankers-art/CLAN/mirthbot_1.png" alt="MIRTHBOT-1" onerror="this.outerHTML='<div class=missing>pending<br>generation</div>'"></div>
+<div class="card-meta">
+<div class="card-name">MIRTHBOT-1</div>
+<div class="card-type">Core · 23 HP · solo-swarm</div>
+<div class="card-text">When a part attaches to a friendly chassis, gain 1 scrap.</div>
+<span class="card-arch arch-swarm">swarm</span>
+</div>
+</div>
+
+<div class="card">
+<div class="card-art"><img src="../../frontend/public/clankers-art/CLAN/bulwark_9.png" alt="BULWARK-9" onerror="this.outerHTML='<div class=missing>pending<br>generation</div>'"></div>
+<div class="card-meta">
+<div class="card-name">BULWARK-9</div>
+<div class="card-type">Core · 27 HP · containment artillery</div>
+<div class="card-text">At end of turn, if you control 3+ exhausted add-ons, gain 1 scrap and gain 1 workshop integrity (max 27).</div>
+<span class="card-arch arch-artillery">artillery</span>
+</div>
+</div>
+
+<div class="card">
+<div class="card-art"><img src="../../frontend/public/clankers-art/CLAN/subroutine_α.png" alt="SUBROUTINE-α" onerror="this.outerHTML='<div class=missing>pending<br>generation</div>'"></div>
+<div class="card-meta">
+<div class="card-name">SUBROUTINE-α</div>
+<div class="card-type">Core · 24 HP · self-editing control</div>
+<div class="card-text">Start of Reassemble: may scrap a card from hand to gain 2 Compute this turn.</div>
+<span class="card-arch arch-control">control</span>
+</div>
+</div>
+
+<div class="card">
+<div class="card-art"><img src="../../frontend/public/clankers-art/CLAN/affectionexe.png" alt="Affection.exe" onerror="this.outerHTML='<div class=missing>pending<br>generation</div>'"></div>
+<div class="card-meta">
+<div class="card-name">Affection.exe</div>
+<div class="card-type">Core · 25 HP · earnest swarm</div>
+<div class="card-text">The first chassis you play each turn enters with +1 integrity.</div>
+<span class="card-arch arch-swarm">swarm</span>
+</div>
+</div>
+
+</div>
+
+<footer>
+Clankers Cores · 6 / 6 · pilot · industrial-blueprint × Soviet propaganda × hand-drafted ·
+generated via <code>scripts/new_set/art_chatgpt_runner</code>
+</footer>
+
+</body>
+</html>
