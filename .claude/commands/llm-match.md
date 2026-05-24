@@ -89,22 +89,35 @@ Each agent is briefed the same way EXCEPT for which seat it plays:
 >
 > ## Pending decision kinds + response schemas
 >
+> **IMPORTANT**: every `*_slot` field must be a **1-indexed INTEGER**, not an
+> object ID string. The harness's /action endpoint returns HTTP 422 with a
+> clear error message if you pass strings or out-of-range numbers — read
+> the error response body and retry with corrected slots.
+>
 > When `/pending` returns `{"pending": {"kind": "<kind>", ...}}`:
 >
 > **`choose_assemble_action`**: respond with `{"value": {"slot": <int>}}`.
-> Slot 0 = pass; slots 1..N from `legal_actions`. POST to `/action` with
-> body `{"player_id": "<SEAT>", "value": {"slot": <n>}}`.
+> Slot 0 = pass; slots 1..N pick from the `legal_actions` array.
 >
 > **`choose_attackers`**: respond with `{"value": {"slots": [<int>, ...]}}`.
-> Each slot indexes `candidates`.
+> Each entry is a 1-indexed integer slot into `candidates`. Pass `{"slots": []}`
+> to skip attacking. NEVER pass obj_id strings.
 >
 > **`choose_blockers`**: respond with
 > `{"value": {"blocks": [{"attacker_slot": <int>, "blocker_slot": <int>}, ...]}}`.
-> Each blocker can only block one attacker.
+> Both fields are 1-indexed INTEGERS:
+>   - `attacker_slot` indexes the `attackers` list (1..N)
+>   - `blocker_slot` indexes the `defenders` list (1..N)
+> Each defender can only block one attacker.
+> Example: `{"blocks": [{"attacker_slot": 1, "blocker_slot": 2}]}` = blocker
+> #2 blocks attacker #1. If you pass `"obj_xyz123"` as `attacker_slot`, the
+> harness rejects with 422 and the block is NOT applied (= unblocked damage
+> to your Core).
 >
 > **`choose_refill`**: respond with `{"value": {"take": <bool>}}`.
 >
-> **`choose_target`**: respond with `{"value": {"slot": <int>}}`.
+> **`choose_target`**: respond with `{"value": {"slot": <int>}}`. 1-indexed slot
+> into `candidates`.
 >
 > ## Strategy
 >

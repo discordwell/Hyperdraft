@@ -395,8 +395,14 @@ def make_app(harness: MatchHarness) -> FastAPI:
             raise HTTPException(409, "no pending decision for this player")
         kind = handler.pending["kind"]
         value = body.get("value")
-        # Per-kind: translate the agent's slot-indexed answer back to obj_ids.
-        translated = _translate(kind, handler.pending, value)
+        # Per-kind: translate AND validate. Raises 422 with a precise error
+        # if the agent submitted a malformed payload — better than silently
+        # dropping into "pass" / "[]" / "{}" which masks bugs (the issue
+        # caught by the Wave-5 BULWARK agent).
+        translated, errors = _translate(kind, handler.pending, value)
+        if errors:
+            raise HTTPException(422, {"errors": errors, "kind": kind,
+                                       "expected_schema": _schema_hint(kind)})
         handler.submit(translated)
         return {"ok": True, "kind": kind, "submitted": str(translated)[:200]}
 
@@ -409,59 +415,136 @@ def make_app(harness: MatchHarness) -> FastAPI:
     return app
 
 
-def _translate(kind: str, pending: dict, value: Any) -> Any:
-    """Map agent slot-indexed answers back to obj_ids the engine expects."""
+def _coerce_slot(raw: Any, max_n: int, candidates_with_ids: Optional[list[dict]] = None) -> Optional[int]:
+    """Resolve a slot reference to an int.
+
+    Accepts an int directly, OR a string-of-int, OR an obj_id that maps to
+    a candidate. Returns None if nothing valid.
+    """
+    if isinstance(raw, int) and 1 <= raw <= max_n:
+        return raw
+    if isinstance(raw, str):
+        # Try parsing as int first.
+        if raw.isdigit():
+            n = int(raw)
+            if 1 <= n <= max_n:
+                return n
+        # Try looking up as obj_id in candidates.
+        if candidates_with_ids:
+            for i, c in enumerate(candidates_with_ids, 1):
+                if c.get("id") == raw:
+                    return i
+    return None
+
+
+def _schema_hint(kind: str) -> str:
+    return {
+        "choose_assemble_action": '{"slot": <int>} — 0=pass, 1..N from legal_actions',
+        "choose_attackers": '{"slots": [<int>, ...]} — 1-indexed slots from candidates list (NOT obj_ids)',
+        "choose_blockers": '{"blocks": [{"attacker_slot": <int>, "blocker_slot": <int>}, ...]} — 1-indexed integers, NOT obj_ids',
+        "choose_refill": '{"take": <bool>}',
+        "choose_target": '{"slot": <int>} — 1-indexed slot from candidates',
+    }.get(kind, "")
+
+
+def _translate(kind: str, pending: dict, value: Any) -> tuple[Any, list[str]]:
+    """Map agent slot-indexed answers back to obj_ids the engine expects.
+
+    Returns (translated_value, errors). If errors is non-empty, the action
+    endpoint will reject with 422 — agents learn from errors, silent drops
+    teach nothing (Wave-5 lesson).
+    """
+    errors: list[str] = []
+
     if kind == "choose_assemble_action":
-        slot = (value or {}).get("slot") if isinstance(value, dict) else value
-        if slot == 0 or slot is None:
-            return {"action": "pass"}
+        if not isinstance(value, dict) or "slot" not in value:
+            errors.append("expected dict with 'slot' key")
+            return ({"action": "pass"}, errors)
+        slot = value["slot"]
         legal = pending.get("raw_legal", [])
-        if isinstance(slot, int) and 1 <= slot <= len(legal):
-            return legal[slot - 1]
-        return {"action": "pass"}
+        if slot == 0:
+            return ({"action": "pass"}, [])
+        resolved = _coerce_slot(slot, len(legal))
+        if resolved is None:
+            errors.append(f"slot {slot!r} out of range (1..{len(legal)} or 0 for pass)")
+            return ({"action": "pass"}, errors)
+        return (legal[resolved - 1], [])
+
     if kind == "choose_attackers":
-        slots = value.get("slots") if isinstance(value, dict) else value
+        if not isinstance(value, dict) or "slots" not in value:
+            errors.append("expected dict with 'slots' key (list of ints)")
+            return ([], errors)
+        slots = value["slots"]
         if not isinstance(slots, list):
-            return []
+            errors.append("'slots' must be a list of integers (1-indexed)")
+            return ([], errors)
         candidates = pending.get("candidates", [])
-        return [candidates[s - 1]["id"] for s in slots
-                if isinstance(s, int) and 1 <= s <= len(candidates)]
+        out: list[str] = []
+        for s in slots:
+            resolved = _coerce_slot(s, len(candidates), candidates)
+            if resolved is None:
+                errors.append(f"attacker slot {s!r} invalid (expected int 1..{len(candidates)} or obj_id from candidates)")
+                continue
+            out.append(candidates[resolved - 1]["id"])
+        return (out, errors)
+
     if kind == "choose_blockers":
-        blocks = value.get("blocks") if isinstance(value, dict) else value
+        if not isinstance(value, dict) or "blocks" not in value:
+            errors.append("expected dict with 'blocks' key (list of {attacker_slot, blocker_slot})")
+            return ({}, errors)
+        blocks = value["blocks"]
         if not isinstance(blocks, list):
-            return {}
+            errors.append("'blocks' must be a list of {attacker_slot, blocker_slot}")
+            return ({}, errors)
         attackers = pending.get("attacker_ids", [])
+        attacker_dicts = [{"id": a} for a in attackers]
         defenders = pending.get("defenders", [])
         out: dict[str, str] = {}
         used: set[str] = set()
-        for entry in blocks:
+        for i, entry in enumerate(blocks):
             if not isinstance(entry, dict):
+                errors.append(f"blocks[{i}] must be a dict")
                 continue
-            a_slot = entry.get("attacker_slot")
-            b_slot = entry.get("blocker_slot")
-            if not (isinstance(a_slot, int) and 1 <= a_slot <= len(attackers)):
+            a_slot_raw = entry.get("attacker_slot")
+            b_slot_raw = entry.get("blocker_slot")
+            a_resolved = _coerce_slot(a_slot_raw, len(attackers), attacker_dicts)
+            b_resolved = _coerce_slot(b_slot_raw, len(defenders), defenders)
+            if a_resolved is None:
+                errors.append(f"blocks[{i}].attacker_slot {a_slot_raw!r} invalid (expected int 1..{len(attackers)} or obj_id)")
                 continue
-            if not (isinstance(b_slot, int) and 1 <= b_slot <= len(defenders)):
+            if b_resolved is None:
+                errors.append(f"blocks[{i}].blocker_slot {b_slot_raw!r} invalid (expected int 1..{len(defenders)} or obj_id)")
                 continue
-            blocker_id = defenders[b_slot - 1]["id"]
+            blocker_id = defenders[b_resolved - 1]["id"]
             if blocker_id in used:
+                errors.append(f"blocks[{i}].blocker_slot {b_slot_raw!r} already used by an earlier block")
                 continue
             used.add(blocker_id)
-            out[attackers[a_slot - 1]] = blocker_id
-        return out
+            out[attackers[a_resolved - 1]] = blocker_id
+        return (out, errors)
+
     if kind == "choose_refill":
-        if isinstance(value, dict):
-            return bool(value.get("take", True))
-        return bool(value)
+        if isinstance(value, dict) and "take" in value:
+            return (bool(value["take"]), [])
+        if isinstance(value, bool):
+            return (value, [])
+        errors.append("expected dict with 'take' key (bool)")
+        return (True, errors)
+
     if kind == "choose_target":
-        slot = (value or {}).get("slot") if isinstance(value, dict) else value
-        if not isinstance(slot, int):
-            return None
+        if not isinstance(value, dict) or "slot" not in value:
+            errors.append("expected dict with 'slot' key")
+            return (None, errors)
+        slot = value["slot"]
         candidates = pending.get("candidate_ids", [])
-        if 1 <= slot <= len(candidates):
-            return candidates[slot - 1]
-        return None
-    return value
+        cand_dicts = [{"id": c} for c in candidates]
+        resolved = _coerce_slot(slot, len(candidates), cand_dicts)
+        if resolved is None:
+            errors.append(f"slot {slot!r} out of range (1..{len(candidates)})")
+            return (None, errors)
+        return (candidates[resolved - 1], [])
+
+    return (value, [])
 
 
 def main():

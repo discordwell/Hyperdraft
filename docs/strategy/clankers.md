@@ -82,7 +82,16 @@ The "may" refill at Allocate is THE key strategic choice every turn.
 - **Modular parts** (Modular Railgun, Apex Coilgun): can shuffle attachments at end of turn. Use to re-arm an undamaged chassis after a death cascade.
 - **Activated weapons** (most FORGE/BULWARK weapons): "1 Compute, exhaust: deal X damage". Save for lethal finisher.
 - **Damage Transients** (Reroute Power, Big Swing, Hammer-On, Scrap Salvo): direct damage. Reach to close.
-- **Heal Transients** (Patch): full-heal a chassis. Save for "would lethal" situations.
+- **Heal Transients** (`Patch` ONLY): full-heal a chassis's marked damage. Save for "would lethal" situations.
+- **Untap Transients** (`Repair Subroutine`): readies up to 2 *exhausted add-ons* you control. **DOES NOT heal damage** — that's Patch's job. Use Repair Subroutine to reuse Armor add-ons that you exhausted earlier in the turn or to re-enable BULWARK-9 Core's "3+ exhausted add-ons" trigger.
+
+## Blocking rules (important)
+
+- A blocker absorbs the attacker's damage; the attacker absorbs the blocker's damage simultaneously.
+- **Solo unattached parts CAN block** — they're 1/1 baseline (or higher if Self-Mobile). They make decent chump blockers if you have nothing else.
+- **Each blocker blocks one attacker** — you cannot stack two blockers on one attacker, and one blocker cannot split between attackers.
+- Unblocked attackers deal their full Effective Power as damage to your Core (Workshop Integrity).
+- When using the LLM-match REST harness: blocker assignments are submitted as **1-indexed integer slots**, not object IDs. The harness will reject string IDs with HTTP 422 — check the error response body.
 
 ## Deck-out / Deathclock Awareness
 
