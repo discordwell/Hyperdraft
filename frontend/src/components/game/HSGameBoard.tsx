@@ -17,7 +17,6 @@ import { HSMinionCard } from './HSMinionCard';
 import { HSHandCard } from './HSHandCard';
 import HSCardDetailPanel from './HSCardDetailPanel';
 import type { GameState, CardData } from '../../types';
-import { type DragItem } from '../../hooks/useDragDrop';
 import { useCardZone } from '../../hooks/useCardZone';
 import { useCardZoneStore } from '../../stores/cardZoneStore';
 import ZoneHighlight from '../cards/ZoneHighlight';
@@ -91,7 +90,7 @@ function OpponentMinionDropWrapper({
   onClick,
 }: {
   card: CardData;
-  onDrop: (targetId: string, item: DragItem) => void;
+  onDrop: (targetId: string, sourceCardId: string) => void;
   isClickTarget: boolean;
   storeDragging: boolean;
   storeValidZones: string[];
@@ -107,10 +106,7 @@ function OpponentMinionDropWrapper({
     zoneId: card.id,
     engineId: HS_ENGINE_ID,
     onPlay: (sourceCardId) => {
-      // Synthesize a DragItem so the existing onDrop handler keeps its
-      // legacy signature; only the source-card-id is needed.
-      const item = { type: 'hand-card', card: { id: sourceCardId } } as unknown as DragItem;
-      onDrop(card.id, item);
+      onDrop(card.id, sourceCardId);
     },
   });
   const dropProps = {
@@ -360,25 +356,33 @@ export function HSGameBoard({
     onDrop: battlefieldZone.onDrop,
   };
 
-  // Drop handler for opponent minions (attack targets)
-  const handleOpponentMinionDrop = useCallback((targetId: string, item: DragItem) => {
-    if (item.type === 'field-card' && item.intent === 'attack') {
-      onAttack(item.card.id, targetId);
-    } else if (item.type === 'hand-card' && item.intent === 'play') {
-      // Targeted spell on minion
-      onPlayCard(item.card.id);
+  // Drop handler for opponent minions (attack targets). Differentiates
+  // attack (source is your own minion on the battlefield) vs targeted
+  // spell (source is a card in your hand) by checking the source's zone.
+  const handleOpponentMinionDrop = useCallback((targetId: string, sourceCardId: string) => {
+    const onBattlefield = gameState.battlefield.some(
+      (c) => c.id === sourceCardId && c.controller === playerId,
+    );
+    if (onBattlefield) {
+      onAttack(sourceCardId, targetId);
+    } else {
+      onPlayCard(sourceCardId);
     }
-  }, [onAttack, onPlayCard]);
+  }, [gameState.battlefield, playerId, onAttack, onPlayCard]);
 
-  // Drop handler for opponent hero
-  const handleOpponentHeroDrop = useCallback((item: DragItem) => {
-    if (item.type === 'field-card' && item.intent === 'attack' && opponentId) {
-      const oppPlayer = gameState.players[opponentId];
-      if (oppPlayer?.hero_id) {
-        onAttack(item.card.id, oppPlayer.hero_id);
-      }
+  // Drop handler for opponent hero. Attack only — hero is never a
+  // hand-card play target in current HS rules.
+  const handleOpponentHeroDrop = useCallback((sourceCardId: string) => {
+    if (!opponentId) return;
+    const onBattlefield = gameState.battlefield.some(
+      (c) => c.id === sourceCardId && c.controller === playerId,
+    );
+    if (!onBattlefield) return;
+    const oppPlayer = gameState.players[opponentId];
+    if (oppPlayer?.hero_id) {
+      onAttack(sourceCardId, oppPlayer.hero_id);
     }
-  }, [opponentId, gameState.players, onAttack]);
+  }, [opponentId, gameState.players, gameState.battlefield, playerId, onAttack]);
 
   if (!myPlayer || !opponentPlayer) return null;
 

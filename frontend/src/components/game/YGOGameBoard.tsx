@@ -20,7 +20,7 @@ import { type CardIntent } from '../../stores/cardZoneStore';
 import { useDropChoiceStore } from '../../stores/dropChoiceStore';
 import ZoneHighlight from '../cards/ZoneHighlight';
 import { cardSummon, handStagger, modalBackdrop, modalContent, gameOverOverlay } from '../../utils/ygoAnimations';
-import type { DragItem } from '../../hooks/useDragDrop';
+// DragItem type retired in PR A2 — handlers receive plain string card ids.
 
 // YGO engine constants for the shared card-zone primitive. Monster zones
 // and spell/trap zones each have 5 slots per side; field spell is a single
@@ -212,7 +212,7 @@ interface YGOMonsterZoneSlotProps {
   onFieldCardClick: (card: CardData, isMine: boolean) => void;
   onHoverStart: (card: CardData) => void;
   onHoverEnd: () => void;
-  onMonsterDrop: (item: DragItem, slotIndex: number) => void;
+  onMonsterDrop: (sourceCardId: string, slotIndex: number) => void;
   onAttackDrop: (attackerId: string, targetId: string) => void;
 }
 
@@ -232,19 +232,14 @@ function YGOMonsterZoneSlot({
   onAttackDrop,
 }: YGOMonsterZoneSlotProps) {
   // Drop target: my empty monster zone accepts monster hand cards.
-  // Migrated to shared card-zone primitive. The onPlay callback
-  // synthesizes a DragItem-shaped value so the upstream onMonsterDrop
-  // handler (which expects DragItem) keeps working without modification.
+  // Migrated to shared card-zone primitive. PR A2 dropped the DragItem
+  // synthesis — onMonsterDrop now receives the source card id directly.
   const ownZone = useCardZone({
     zoneId: YGO_MZONE(index),
     engineId: YGO_ENGINE_ID,
     onPlay: (cardId) => {
       if (!isMine || !isMyTurn) return;
-      const item: DragItem = {
-        type: 'hand-card',
-        card: { id: cardId } as CardData,
-      } as DragItem;
-      onMonsterDrop(item, index);
+      onMonsterDrop(cardId, index);
     },
   });
   // onDragEnter aliased to onDragOver: legacy DropPropsType requires it,
@@ -396,7 +391,7 @@ interface YGOSpellTrapZoneSlotProps {
   onFieldCardClick: (card: CardData, isMine: boolean) => void;
   onHoverStart: (card: CardData) => void;
   onHoverEnd: () => void;
-  onSpellTrapDrop: (item: DragItem, slotIndex: number) => void;
+  onSpellTrapDrop: (sourceCardId: string, slotIndex: number) => void;
 }
 
 function YGOSpellTrapZoneSlot({
@@ -416,11 +411,7 @@ function YGOSpellTrapZoneSlot({
     engineId: YGO_ENGINE_ID,
     onPlay: (cardId) => {
       if (!isMine || !isMyTurn) return;
-      const item: DragItem = {
-        type: 'hand-card',
-        card: { id: cardId } as CardData,
-      } as DragItem;
-      onSpellTrapDrop(item, index);
+      onSpellTrapDrop(cardId, index);
     },
   });
   const dropProps = !isMine || !isMyTurn
@@ -1002,10 +993,9 @@ export function YGOGameBoard({
 
   // --- Drag-and-drop handlers ---
 
-  const handleMonsterZoneDrop = useCallback((item: DragItem, _slotIndex: number) => {
-    const cardId = item.card?.id;
-    if (!cardId) return;
-    const cardName = item.card?.name || 'Monster';
+  const handleMonsterZoneDrop = useCallback((cardId: string, _slotIndex: number) => {
+    const card = gameState.hand.find((c) => c.id === cardId);
+    const cardName = card?.name || 'Monster';
     // Normal Summon vs Set — shared DropChoicePopup (mounted at App root).
     openDropChoice(
       { id: cardId, name: cardName, subtitle: 'Monster' },
@@ -1022,16 +1012,14 @@ export function YGOGameBoard({
         },
       ],
     );
-  }, [onNormalSummon, onSetMonster, clearSelections, openDropChoice]);
+  }, [gameState.hand, onNormalSummon, onSetMonster, clearSelections, openDropChoice]);
 
-  const handleSpellTrapZoneDrop = useCallback((item: DragItem, _slotIndex: number) => {
-    const cardId = item.card?.id;
-    if (!cardId) return;
-    const cardName = item.card?.name || 'Card';
-    const isTrapCard = item.card?.types?.includes('YGO_TRAP');
+  const handleSpellTrapZoneDrop = useCallback((cardId: string, _slotIndex: number) => {
+    const card = gameState.hand.find((c) => c.id === cardId);
+    const cardName = card?.name || 'Card';
+    const isTrapCard = card?.types?.includes('YGO_TRAP');
 
     if (isTrapCard) {
-      // Traps can only be set face-down — no choice needed.
       onSetSpellTrap(cardId);
       clearSelections();
       return;
@@ -1052,7 +1040,7 @@ export function YGOGameBoard({
         },
       ],
     );
-  }, [onActivateCard, onSetSpellTrap, clearSelections, openDropChoice]);
+  }, [gameState.hand, onActivateCard, onSetSpellTrap, clearSelections, openDropChoice]);
 
   const handleAttackDrop = useCallback((attackerId: string, targetId: string) => {
     onDeclareAttack(attackerId, targetId);

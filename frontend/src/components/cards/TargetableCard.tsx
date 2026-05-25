@@ -7,7 +7,6 @@
 
 import clsx from 'clsx';
 import { Card } from './Card';
-import { type DragItem } from '../../hooks/useDragDrop';
 import { useCardZone } from '../../hooks/useCardZone';
 import ZoneHighlight from './ZoneHighlight';
 import { useCardPreviewBindings } from '../../hooks/useCardPreview';
@@ -24,7 +23,10 @@ interface TargetableCardProps {
   isAttacking?: boolean;
   isBlocking?: boolean;
   onClick?: () => void;
-  onDrop?: (item: DragItem, target: CardData) => void;
+  /** Called when a hand-card source is dropped on this permanent (cast-time
+   *  target). GameBoard looks up the action via gameState.legal_actions
+   *  from the source card id. */
+  onDrop?: (sourceCardId: string, target: CardData) => void;
   size?: 'small' | 'medium' | 'large';
 }
 
@@ -43,22 +45,13 @@ export function TargetableCard({
   // battlefield registers as a drop target with its own zoneId. When a
   // hand-card's validZones includes this card's zoneId (computed by
   // GameBoard.getValidDropZones for targeted spells), the zone glows
-  // arcane violet via <ZoneHighlight>.
-  //
-  // The legacy onDrop callback expects a DragItem with action + card.
-  // useCardZone gives us only the cardId at play-time, so we synthesize
-  // a minimal DragItem shell — GameBoard.handleCardDrop reads it back
-  // and looks up the full action from gameState.legal_actions.
+  // arcane violet via <ZoneHighlight>. GameBoard.handleCardDrop receives
+  // the source card id; it looks up the action from legal_actions.
   const zone = useCardZone({
     zoneId: MTG_CARD_ZONE(card.id),
     engineId: MTG_ENGINE_ID,
     onPlay: (handCardId) => {
-      if (!onDrop) return;
-      const item: DragItem = {
-        type: 'hand-card',
-        card: { id: handCardId } as CardData,
-      } as DragItem;
-      onDrop(item, card);
+      onDrop?.(handCardId, card);
     },
   });
   const isValidDropTarget = zone.isValid;

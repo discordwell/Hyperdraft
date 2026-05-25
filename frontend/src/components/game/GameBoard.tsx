@@ -18,7 +18,8 @@ import MTGCardDetailPanel from './MTGCardDetailPanel';
 import { LegendaryEntranceOverlay } from './shared/LegendaryEntranceOverlay';
 import { BattlefieldEventLayer } from './shared/DamageFloater';
 import { useBattlefieldEvents } from '../../hooks/useBattlefieldEvents';
-import { type DragItem } from '../../hooks/useDragDrop';
+// DragItem type retired in PR A2 — handlers receive plain string card ids
+// and look up actions via gameState.legal_actions.
 import { useCardZoneStore } from '../../stores/cardZoneStore';
 import { useCardPreviewStore } from '../../hooks/useCardPreview';
 import type { GameState, CardData, LegalActionData, PendingChoice } from '../../types';
@@ -260,17 +261,19 @@ export function GameBoard({
     return zones;
   }, [getCardAction, gameState.battlefield, playerId, opponentId]);
 
-  // Handle dropping a land on the battlefield
-  const handleBattlefieldDrop = useCallback((item: DragItem) => {
-    if (!item.action || !item.card) return;
-
-    if (item.action.type === 'PLAY_LAND') {
-      onPlayLand?.(item.card.id);
-    } else if (item.action.type === 'CAST_SPELL' && !item.action.requires_targets) {
-      // Non-targeted spell
-      onCastSpell?.(item.card.id);
+  // Handle dropping a hand card on the battlefield. Receives just the
+  // source card id; looks up the action from gameState.legal_actions
+  // (the legal_actions list is the engine's source of truth — DragItem's
+  // synthesized action was a workaround that's no longer needed).
+  const handleBattlefieldDrop = useCallback((sourceCardId: string) => {
+    const action = getCardAction(sourceCardId);
+    if (!action) return;
+    if (action.type === 'PLAY_LAND') {
+      onPlayLand?.(sourceCardId);
+    } else if (action.type === 'CAST_SPELL' && !action.requires_targets) {
+      onCastSpell?.(sourceCardId);
     }
-  }, [onPlayLand, onCastSpell]);
+  }, [getCardAction, onPlayLand, onCastSpell]);
 
   // Check if a spell needs multiple targets based on card text
   const detectMultiTarget = useCallback((cardText: string): { needsSecond: boolean; secondTargetType: 'opponent_permanent' | 'any_permanent' | 'any_creature' | 'player' } => {
@@ -305,11 +308,17 @@ export function GameBoard({
   // (The legacy "Phase 2" branch — handling the second-target click
   // here in handleCardDrop — is gone. The second click now flows
   // through useCardZone → togglePendingTarget → the effect.)
-  const handleCardDrop = useCallback((item: DragItem, targetCard: CardData) => {
-    if (!item.action || !item.card) return;
+  const handleCardDrop = useCallback((sourceCardId: string, targetCard: CardData) => {
+    const action = getCardAction(sourceCardId);
+    if (!action) return;
+    // Look up the full card for the detectMultiTarget heuristic
+    // (reads card text). After Arc B the engine drives target groups
+    // and this lookup goes away too.
+    const sourceCard = gameState.hand.find((c) => c.id === sourceCardId);
+    if (!sourceCard) return;
 
-    if (item.action.type === 'CAST_SPELL' && item.action.requires_targets) {
-      const { needsSecond, secondTargetType } = detectMultiTarget(item.card.text);
+    if (action.type === 'CAST_SPELL' && action.requires_targets) {
+      const { needsSecond, secondTargetType } = detectMultiTarget(sourceCard.text);
 
       if (needsSecond) {
         // Determine valid second targets based on type
@@ -341,10 +350,8 @@ export function GameBoard({
           const validZones = secondIsPlayer
             ? secondTargets.map(MTG_PLAYER_ZONE)
             : secondTargets.map(MTG_CARD_ZONE);
-          // Store cast context; the auto-confirm effect picks it up
-          // when pendingTargets fills.
           setMultiTargetContext({
-            cardId: item.card.id,
+            cardId: sourceCardId,
             firstTarget: targetCard.id,
             secondIsPlayer,
           });
@@ -353,8 +360,8 @@ export function GameBoard({
           // server-side pending_choice id. Arc B replaces this
           // synthesis with a real engine-emitted PendingChoice.
           useCardZoneStore.getState().primeFromChoice({
-            choiceId: `mtg-multi-${item.card.id}`,
-            sourceId: item.card.id,
+            choiceId: `mtg-multi-${sourceCardId}`,
+            sourceId: sourceCardId,
             prompt: 'Pick second target',
             engineId: MTG_ENGINE_ID,
             accent: MTG_ACCENT,
@@ -371,28 +378,31 @@ export function GameBoard({
       }
 
       // Single target spell - cast immediately
-      onCastSpell?.(item.card.id, [targetCard.id]);
+      onCastSpell?.(sourceCardId, [targetCard.id]);
     }
-  }, [gameState.battlefield, playerId, opponentId, onCastSpell, detectMultiTarget]);
+  }, [gameState.battlefield, gameState.hand, playerId, opponentId, onCastSpell, detectMultiTarget, getCardAction]);
 
   // Handle dropping/clicking a spell on a player portrait. Same two
   // phases as handleCardDrop, second-target via cardZoneStore.
-  const handlePlayerDrop = useCallback((item: DragItem, targetPlayerId: string) => {
-    if (!item.action || !item.card) return;
+  const handlePlayerDrop = useCallback((sourceCardId: string, targetPlayerId: string) => {
+    const action = getCardAction(sourceCardId);
+    if (!action) return;
+    const sourceCard = gameState.hand.find((c) => c.id === sourceCardId);
+    if (!sourceCard) return;
 
-    if (item.action.type === 'CAST_SPELL' && item.action.requires_targets) {
-      const { needsSecond, secondTargetType } = detectMultiTarget(item.card.text);
+    if (action.type === 'CAST_SPELL' && action.requires_targets) {
+      const { needsSecond, secondTargetType } = detectMultiTarget(sourceCard.text);
 
       if (needsSecond && secondTargetType === 'player') {
         const otherPlayer = targetPlayerId === playerId ? opponentId : playerId;
         setMultiTargetContext({
-          cardId: item.card.id,
+          cardId: sourceCardId,
           firstTarget: targetPlayerId,
           secondIsPlayer: true,
         });
         useCardZoneStore.getState().primeFromChoice({
-          choiceId: `mtg-multi-${item.card.id}`,
-          sourceId: item.card.id,
+          choiceId: `mtg-multi-${sourceCardId}`,
+          sourceId: sourceCardId,
           prompt: 'Pick second target',
           engineId: MTG_ENGINE_ID,
           accent: MTG_ACCENT,
@@ -408,9 +418,9 @@ export function GameBoard({
       }
 
       // Single target spell targeting player - cast immediately
-      onCastSpell?.(item.card.id, [targetPlayerId]);
+      onCastSpell?.(sourceCardId, [targetPlayerId]);
     }
-  }, [playerId, opponentId, onCastSpell, detectMultiTarget]);
+  }, [playerId, opponentId, onCastSpell, detectMultiTarget, getCardAction, gameState.hand]);
 
   // Auto-confirm effect — when the user picks the second target via
   // cardZoneStore (lit zone click), the choice's pendingTargets fills.

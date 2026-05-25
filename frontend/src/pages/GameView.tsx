@@ -9,7 +9,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useGame } from '../hooks/useGame';
 import { useDiscoveryStore } from '../stores/discoveryStore';
 import { useGameStore } from '../stores/gameStore';
-import { useDragDropStore } from '../hooks/useDragDrop';
 import { useCardZoneStore } from '../stores/cardZoneStore';
 import { useAltP } from '../hooks/useAltP';
 
@@ -172,7 +171,10 @@ export function GameView() {
     hasActionsOtherThanPass,
   } = useGame();
 
-  const endDrag = useDragDropStore((s) => s.endDrag);
+  // Drag clears itself via useCardZone.onDrop (calls clearAll after the
+  // play action fires), so the explicit endDrag calls here are redundant
+  // — but harmless as a defensive guard. Wraps cardZoneStore.endDrag.
+  const endDrag = useCallback(() => useCardZoneStore.getState().endDrag(), []);
 
   const storeMatchId = useGameStore((state) => state.matchId);
   const storePlayerId = useGameStore((state) => state.playerId);

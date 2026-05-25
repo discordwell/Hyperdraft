@@ -5,7 +5,6 @@
 import { memo } from 'react';
 import type { PlayerData } from '../../types';
 import { useCardZone } from '../../hooks/useCardZone';
-import type { DragItem } from '../../hooks/useDragDrop';
 
 const HS_ENGINE_ID = 'hearthstone';
 
@@ -18,7 +17,10 @@ interface HSHeroPortraitProps {
   onHeroPowerClick?: () => void;
   onHeroClick?: () => void;
   heroDropZoneId?: string;
-  onHeroDrop?: (item: DragItem) => void;
+  /** Called when a hand-card or attacking minion is dropped on this hero
+   *  portrait. HSGameBoard's handleOpponentHeroDrop receives just the
+   *  source id and looks up zone (battlefield vs hand) to decide. */
+  onHeroDrop?: (sourceCardId: string) => void;
 }
 
 export const HSHeroPortrait = memo(function HSHeroPortrait({
@@ -33,7 +35,7 @@ export const HSHeroPortrait = memo(function HSHeroPortrait({
   onHeroDrop,
 }: HSHeroPortraitProps) {
   // Hero portrait as drop target — migrated to shared useCardZone. The
-  // upstream onHeroDrop expects a legacy DragItem; synthesize a minimal
+  // upstream onHeroDrop receives just the source card id — PR A2 dropped
   // shell from the cardId fired by the new primitive.
   const zone = useCardZone({
     zoneId: heroDropZoneId || '__hs_hero_disabled__',
@@ -41,10 +43,7 @@ export const HSHeroPortrait = memo(function HSHeroPortrait({
     onPlay: (cardId) => {
       if (!heroDropZoneId) return;
       if (onHeroDrop) {
-        // Synthesize a minimal DragItem so the upstream handler signature
-        // doesn't change; it reads cardId from item.card.id.
-        const item = { type: 'hand-card', card: { id: cardId } } as unknown as DragItem;
-        onHeroDrop(item);
+        onHeroDrop(cardId);
       } else if (onHeroClick) {
         onHeroClick();
       }

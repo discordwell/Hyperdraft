@@ -8,10 +8,9 @@
 import { useCallback } from 'react';
 import clsx from 'clsx';
 import { PlayerInfo } from './PlayerInfo';
-import { type DragItem } from '../../hooks/useDragDrop';
 import { useCardZone } from '../../hooks/useCardZone';
 import ZoneHighlight from '../cards/ZoneHighlight';
-import type { CardData, PlayerData } from '../../types';
+import type { PlayerData } from '../../types';
 
 const MTG_ENGINE_ID = 'mtg';
 const MTG_PLAYER_ZONE = (id: string) => `mtg-player-${id}`;
@@ -22,7 +21,10 @@ interface TargetablePlayerProps {
   isActivePlayer?: boolean;
   hasPriority?: boolean;
   isOpponent?: boolean;
-  onDrop?: (item: DragItem, playerId: string) => void;
+  /** Called when a hand-card source is dropped on this player portrait
+   *  (player-targeting spells: burn, life gain, etc.). GameBoard looks
+   *  up the action via gameState.legal_actions from the source card id. */
+  onDrop?: (sourceCardId: string, playerId: string) => void;
   // Phase 5b overlay-mode targeting: when set, render a glow ring and
   // wire a click handler so the player can be picked as a target.
   isTargetable?: boolean;
@@ -42,19 +44,13 @@ export function TargetablePlayer({
   // Migrated to shared card-zone primitive. The player-portrait
   // registers as zoneId `mtg-player-<id>`. GameBoard.getValidDropZones
   // emits this id for spells that target players (Lightning Bolt to face,
-  // Lava Spike, etc). Drop synthesizes a minimal DragItem so the
-  // upstream handlePlayerDrop handler can look up the action from
-  // gameState.legal_actions.
+  // Lava Spike, etc). GameBoard.handlePlayerDrop receives the source
+  // card id and looks up the action from gameState.legal_actions.
   const zone = useCardZone({
     zoneId: MTG_PLAYER_ZONE(playerId),
     engineId: MTG_ENGINE_ID,
     onPlay: (handCardId) => {
-      if (!onDrop) return;
-      const item: DragItem = {
-        type: 'hand-card',
-        card: { id: handCardId } as CardData,
-      } as DragItem;
-      onDrop(item, playerId);
+      onDrop?.(handCardId, playerId);
     },
   });
   const isValidDropTarget = zone.isValid;

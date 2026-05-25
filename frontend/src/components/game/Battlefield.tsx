@@ -14,7 +14,6 @@ import {
   PlayerIcon,
   GamepadIcon,
 } from '../ui/Icons';
-import { type DragItem } from '../../hooks/useDragDrop';
 import { useCardZone } from '../../hooks/useCardZone';
 import ZoneHighlight from '../cards/ZoneHighlight';
 import type { CardData } from '../../types';
@@ -32,8 +31,11 @@ interface BattlefieldProps {
   selectedBlockers?: Map<string, string>;
   combatAttackers?: string[];
   onCardClick?: (card: CardData) => void;
-  onCardDrop?: (item: DragItem, targetCard: CardData) => void;
-  onBattlefieldDrop?: (item: DragItem) => void;
+  /** Called when a hand-card source is dropped on a specific permanent.
+   *  GameBoard looks up the action via gameState.legal_actions from the id. */
+  onCardDrop?: (sourceCardId: string, targetCard: CardData) => void;
+  /** Called when a hand-card source is dropped on the empty battlefield (lands, untargeted spells). */
+  onBattlefieldDrop?: (sourceCardId: string) => void;
 }
 
 export function Battlefield({
@@ -64,14 +66,7 @@ export function Battlefield({
     engineId: MTG_ENGINE_ID,
     onPlay: (cardId) => {
       if (isOpponent || !onBattlefieldDrop) return;
-      // The legacy onBattlefieldDrop expects a DragItem with a card and
-      // an action. We synthesize a minimal item from the card id; the
-      // parent's handler dispatches CAST_SPELL / PLAY_LAND from there.
-      const item: DragItem = {
-        type: 'hand-card',
-        card: { id: cardId } as CardData,
-      } as DragItem;
-      onBattlefieldDrop(item);
+      onBattlefieldDrop(cardId);
     },
   });
   const isValidDropTarget = zone.isValid;
