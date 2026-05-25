@@ -8,8 +8,11 @@
 import type { CardData } from '../../types';
 import { getHearthstoneArtPaths } from '../../utils/cardArt';
 import React, { memo, useMemo, useRef, useState } from 'react';
-import { useDraggable } from '../../hooks/useDraggable';
+import { useHandCard } from '../../hooks/useHandCard';
 import { useCardPreviewBindings } from '../../hooks/useCardPreview';
+
+const HS_ENGINE_ID = 'hearthstone';
+const HS_ACCENT = '#fbbf24';
 
 interface HSMinionCardProps {
   card: CardData;
@@ -33,17 +36,25 @@ export const HSMinionCard = memo(function HSMinionCard({
   const dragEnabled = canAttack && !!attackableTargets && attackableTargets.length > 0;
   const didDragRef = useRef(false);
 
-  const { dragProps, isBeingDragged } = useDraggable({
-    item: {
-      type: 'field-card',
-      card,
-      gameMode: 'hs',
-      intent: 'attack',
-      sourceZone: 'battlefield',
-    },
-    validDropZones: attackableTargets || [],
+  // Field-card-as-source: a minion on the battlefield primes itself
+  // with 'attack' intent. Valid zones are the opponent minions + hero
+  // that this minion can hit, computed by HSGameBoard from canAttack +
+  // Taunt rules and passed in as `attackableTargets`.
+  const handCard = useHandCard({
+    cardId: card.id,
+    cardName: card.name,
+    engineId: HS_ENGINE_ID,
+    accent: HS_ACCENT,
+    validZones: attackableTargets || [],
+    intent: 'attack',
     disabled: !dragEnabled,
   });
+  const isBeingDragged = handCard.isDragging;
+  const dragProps = {
+    draggable: handCard.draggable,
+    onDragStart: handCard.onDragStart,
+    onDragEnd: handCard.onDragEnd,
+  };
 
   const hasTaunt = card.keywords?.includes('taunt');
   const hasDivineShield = card.divine_shield;

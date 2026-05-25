@@ -4,8 +4,10 @@
 
 import { memo } from 'react';
 import type { PlayerData } from '../../types';
-import { useDropTarget } from '../../hooks/useDropTarget';
+import { useCardZone } from '../../hooks/useCardZone';
 import type { DragItem } from '../../hooks/useDragDrop';
+
+const HS_ENGINE_ID = 'hearthstone';
 
 interface HSHeroPortraitProps {
   player: PlayerData;
@@ -30,17 +32,33 @@ export const HSHeroPortrait = memo(function HSHeroPortrait({
   heroDropZoneId,
   onHeroDrop,
 }: HSHeroPortraitProps) {
-  const { dropProps, isHovered: isDropHovered } = useDropTarget({
-    zoneId: heroDropZoneId || '__disabled__',
-    onDrop: (item: DragItem) => {
+  // Hero portrait as drop target — migrated to shared useCardZone. The
+  // upstream onHeroDrop expects a legacy DragItem; synthesize a minimal
+  // shell from the cardId fired by the new primitive.
+  const zone = useCardZone({
+    zoneId: heroDropZoneId || '__hs_hero_disabled__',
+    engineId: HS_ENGINE_ID,
+    onPlay: (cardId) => {
+      if (!heroDropZoneId) return;
       if (onHeroDrop) {
+        // Synthesize a minimal DragItem so the upstream handler signature
+        // doesn't change; it reads cardId from item.card.id.
+        const item = { type: 'hand-card', card: { id: cardId } } as unknown as DragItem;
         onHeroDrop(item);
       } else if (onHeroClick) {
         onHeroClick();
       }
     },
-    disabled: !heroDropZoneId,
   });
+  const dropProps = heroDropZoneId
+    ? {
+        onDragOver: zone.onDragOver,
+        onDragEnter: zone.onDragOver,
+        onDragLeave: zone.onDragLeave,
+        onDrop: zone.onDrop,
+      }
+    : undefined;
+  const isDropHovered = zone.isHovered;
 
   const hpPercent = Math.max(0, (player.life / (player.max_life || 30)) * 100);
 

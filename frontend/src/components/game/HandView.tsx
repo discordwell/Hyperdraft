@@ -76,7 +76,7 @@ interface HandViewProps {
 }
 
 // ---------------------------------------------------------------------------
-// HandCard — inline card with useDraggable (replaces DraggableCard wrapper)
+// HandCard — inline MTG hand card on the shared card-zone primitive
 // Badges (LAND / TARGET / CAST) are MTG-specific and preserved here.
 // ---------------------------------------------------------------------------
 interface HandCardProps {

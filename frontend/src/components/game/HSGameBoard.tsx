@@ -17,9 +17,9 @@ import { HSMinionCard } from './HSMinionCard';
 import { HSHandCard } from './HSHandCard';
 import HSCardDetailPanel from './HSCardDetailPanel';
 import type { GameState, CardData } from '../../types';
-import { useDropTarget } from '../../hooks/useDropTarget';
-import { useDragDropStore, type DragItem } from '../../hooks/useDragDrop';
+import { type DragItem } from '../../hooks/useDragDrop';
 import { useCardZone } from '../../hooks/useCardZone';
+import { useCardZoneStore } from '../../stores/cardZoneStore';
 import ZoneHighlight from '../cards/ZoneHighlight';
 import { useCardPreviewStore } from '../../hooks/useCardPreview';
 import { useCardInspector, type InspectorAction } from '../../hooks/useCardInspector';
@@ -98,15 +98,30 @@ function OpponentMinionDropWrapper({
   variant?: string | null;
   onClick: () => void;
 }) {
-  const handleDrop = useCallback(
-    (item: DragItem) => onDrop(card.id, item),
-    [card.id, onDrop],
-  );
-
-  const { dropProps, isValidTarget: isDropTarget, isHovered } = useDropTarget({
+  // Migrated to shared useCardZone. Minion-on-battlefield acts as a
+  // drop target for: (1) hand spells with this minion in their valid
+  // zones, and (2) attacking minions from the other side. Both fire the
+  // same onDrop callback; the parent handler dispatches the right
+  // engine action.
+  const zone = useCardZone({
     zoneId: card.id,
-    onDrop: handleDrop,
+    engineId: HS_ENGINE_ID,
+    onPlay: (sourceCardId) => {
+      // Synthesize a DragItem so the existing onDrop handler keeps its
+      // legacy signature; only the source-card-id is needed.
+      const item = { type: 'hand-card', card: { id: sourceCardId } } as unknown as DragItem;
+      onDrop(card.id, item);
+    },
   });
+  const dropProps = {
+    onDragOver: zone.onDragOver,
+    onDragEnter: zone.onDragOver,
+    onDragLeave: zone.onDragLeave,
+    onDrop: zone.onDrop,
+    onClick: zone.onClick,
+  };
+  const isDropTarget = zone.isValid;
+  const isHovered = zone.isHovered;
 
   // Dim cards that are not valid drop targets while dragging
   const isDimmed = storeDragging && !storeValidZones.includes(card.id);
@@ -150,9 +165,14 @@ export function HSGameBoard({
   // Wire damage/heal/death floaters
   useBattlefieldEvents(gameState, 'hs');
 
-  // Drag-drop state
-  const storeDragging = useDragDropStore((s) => s.isDragging);
-  const storeValidZones = useDragDropStore((s) => s.validDropZones);
+  // Drag-drop state — read from the shared cardZoneStore (now the
+  // single source of truth across all engines).
+  const storeDragging = useCardZoneStore((s) => s.dragCardId !== null);
+  const storeValidZonesSet = useCardZoneStore((s) => s.validZoneIds);
+  const storeValidZones = useMemo(
+    () => Array.from(storeValidZonesSet),
+    [storeValidZonesSet],
+  );
 
   // Shared card-inspector modal — opening a hand card surfaces the
   // Play / Attune actions through this primitive instead of firing the
