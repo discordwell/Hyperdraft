@@ -37,6 +37,30 @@ import {
   type ClankersAction,
 } from '../hooks/useClankersGame';
 import { useCardInspector } from '../hooks/useCardInspector';
+import { useHandCard } from '../hooks/useHandCard';
+import { useCardZone } from '../hooks/useCardZone';
+import ZoneHighlight from '../components/cards/ZoneHighlight';
+
+const CLANK_ENGINE_ID = 'clankers';
+const CLANK_ACCENT = '#60a5fa';
+// Zone IDs are seat-scoped so only the viewer's own zones light up — the
+// opponent's mirrored floor/structures use the '-them' suffix and never
+// appear in any of the viewer's hand-card validZones.
+const CLANK_ASSEMBLY_FLOOR_ME = 'clankers-assembly-floor-me';
+const CLANK_ASSEMBLY_FLOOR_THEM = 'clankers-assembly-floor-them';
+const CLANK_STRUCTURES_ME = 'clankers-structures-me';
+const CLANK_STRUCTURES_THEM = 'clankers-structures-them';
+
+function clankersValidZones(
+  card: ClankersCard,
+  playable: boolean,
+  affordable: boolean,
+): string[] {
+  if (!playable || !affordable) return [];
+  if (card.card_type === 'CLANKERS_STRUCTURE') return [CLANK_STRUCTURES_ME];
+  // Transients resolve immediately; assembly floor is the universal stage.
+  return [CLANK_ASSEMBLY_FLOOR_ME];
+}
 
 // ---------------------------------------------------------------------------
 // Visual palette — kept on one object so we can tune the industrial identity
@@ -622,7 +646,15 @@ function PlayerArea({
             isActive={isActive}
             computePool={state.compute_pool}
           />
-          <StructuresRow structures={state.structures} seat={seat} />
+          <StructuresRow
+            structures={state.structures}
+            seat={seat}
+            hand={state.hand}
+            isActive={isActive}
+            phase={phase}
+            computePool={state.compute_pool}
+            onAction={onAction}
+          />
         </div>
 
         {/* Right: stacks (library / scrap) */}
@@ -1050,43 +1082,43 @@ function AssemblyFloor({
     !!isActive &&
     (phase === 'assemble' || phase === 'reassemble') &&
     Array.isArray(hand);
-  const [isDragOver, setIsDragOver] = useState(false);
   const findHandCard = (id: string) =>
     (hand ?? []).find((c) => c.id === id);
-  const handleDragOver = (e: React.DragEvent) => {
-    if (!canDrop) return;
-    if (e.dataTransfer.types.includes('application/x-clankers-card')) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      if (!isDragOver) setIsDragOver(true);
-    }
-  };
-  const handleDragLeave = () => setIsDragOver(false);
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    if (!canDrop) return;
-    const cardId = e.dataTransfer.getData('application/x-clankers-card');
-    const card = findHandCard(cardId);
-    if (!card) return;
-    if ((computePool ?? 0) < card.compute_cost) return;
-    playFromHand(card, onAction);
-  };
+  const zone = useCardZone({
+    zoneId: isMe ? CLANK_ASSEMBLY_FLOOR_ME : CLANK_ASSEMBLY_FLOOR_THEM,
+    engineId: CLANK_ENGINE_ID,
+    onPlay: (cardId) => {
+      if (!canDrop) return;
+      const card = findHandCard(cardId);
+      if (!card) return;
+      if ((computePool ?? 0) < card.compute_cost) return;
+      playFromHand(card, onAction);
+    },
+  });
+  const isDragOver = zone.isHovered;
   return (
     <div
-      className="rounded-sm border px-2 pb-3 pt-2"
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      className="relative rounded-sm border px-2 pb-3 pt-2"
+      onClick={zone.onClick}
+      onDragOver={zone.onDragOver}
+      onDragLeave={zone.onDragLeave}
+      onDrop={zone.onDrop}
       style={{
         borderColor: isDragOver ? CLANK.coolantBlue : CLANK.steelLight,
         borderWidth: isDragOver ? 2 : 1,
         background: isDragOver ? 'rgba(96, 165, 250, 0.10)' : 'rgba(15, 23, 32, 0.65)',
         minHeight: 220,
         transition: 'border-color 120ms ease, background 120ms ease',
+        cursor: zone.isValid ? 'pointer' : 'default',
       }}
-      aria-label={canDrop ? 'Assembly floor — drop a card here to play it' : 'Assembly floor'}
+      aria-label={canDrop ? 'Assembly floor — drop or click to play' : 'Assembly floor'}
     >
+      <ZoneHighlight
+        isValid={zone.isValid}
+        isHovered={zone.isHovered}
+        hasActiveCard={zone.hasActiveCard}
+        activeAccent={zone.activeAccent}
+      />
       <div
         className="mb-2 flex items-center justify-between text-[10px] uppercase"
         style={{ color: CLANK.inkFaint, fontFamily: MONO, letterSpacing: '0.22em' }}
@@ -1431,21 +1463,62 @@ function SoloPartCard({ part }: { part: ClankersCard }) {
 
 function StructuresRow({
   structures,
-  seat: _seat,
+  seat,
+  hand,
+  isActive,
+  phase,
+  computePool,
+  onAction,
 }: {
   structures: ClankersCard[];
   seat: ClankersSeat;
+  hand?: ClankersCard[];
+  isActive?: boolean;
+  phase?: ClankersPhase;
+  computePool?: number;
+  onAction?: (a: ClankersAction) => void;
 }) {
+  const isMe = seat === 'me';
+  const canDrop =
+    isMe &&
+    !!isActive &&
+    !!phase &&
+    (phase === 'assemble' || phase === 'reassemble') &&
+    Array.isArray(hand) &&
+    !!onAction;
+  const zone = useCardZone({
+    zoneId: isMe ? CLANK_STRUCTURES_ME : CLANK_STRUCTURES_THEM,
+    engineId: CLANK_ENGINE_ID,
+    onPlay: (cardId) => {
+      if (!canDrop) return;
+      const card = (hand ?? []).find((c) => c.id === cardId);
+      if (!card || card.card_type !== 'CLANKERS_STRUCTURE') return;
+      if ((computePool ?? 0) < card.compute_cost) return;
+      playFromHand(card, onAction!);
+    },
+  });
   return (
     <div
-      className="rounded-sm border px-2 pb-2 pt-1.5"
+      className="relative rounded-sm border px-2 pb-2 pt-1.5"
+      onClick={zone.onClick}
+      onDragOver={zone.onDragOver}
+      onDragLeave={zone.onDragLeave}
+      onDrop={zone.onDrop}
       style={{
-        borderColor: CLANK.steelLight,
-        background: 'rgba(192, 132, 252, 0.05)',
+        borderColor: zone.isHovered ? CLANK.coolantBlue : CLANK.steelLight,
+        background: zone.isHovered ? 'rgba(96, 165, 250, 0.10)' : 'rgba(192, 132, 252, 0.05)',
         minHeight: 56,
+        transition: 'border-color 120ms ease, background 120ms ease',
+        cursor: zone.isValid ? 'pointer' : 'default',
       }}
-      aria-label="Structures"
+      aria-label={canDrop ? 'Structures — drop or click to install' : 'Structures'}
     >
+      <ZoneHighlight
+        isValid={zone.isValid}
+        isHovered={zone.isHovered}
+        hasActiveCard={zone.hasActiveCard}
+        activeAccent={zone.activeAccent}
+      />
       <div
         className="mb-1 text-[10px] uppercase"
         style={{ color: CLANK.inkFaint, fontFamily: MONO, letterSpacing: '0.22em' }}
@@ -1622,39 +1695,67 @@ function MyHand({
       <div className="flex flex-wrap gap-2">
         {cards.map((card) => {
           const affordable = card.compute_cost <= computePool;
-          const enabled = playable && affordable;
           return (
-            <button
+            <ClankersHandCard
               key={card.id}
-              type="button"
-              draggable={enabled}
-              onDragStart={(e) => {
-                if (!enabled) {
-                  e.preventDefault();
-                  return;
-                }
-                e.dataTransfer.effectAllowed = 'move';
-                e.dataTransfer.setData('application/x-clankers-card', card.id);
-                e.dataTransfer.setData('text/plain', card.name);
-              }}
-              onClick={() => openInspector(card, affordable)}
-              className="group transition-transform"
-              style={{
-                cursor: enabled ? 'grab' : 'pointer',
-                opacity: enabled ? 1 : 0.55,
-              }}
-            >
-              <span
-                className="inline-block transition-transform group-hover:-translate-y-1 group-focus:-translate-y-1"
-                style={{ display: 'inline-block' }}
-              >
-                <CardFrame card={card} variant="hand" tint={CARD_TYPE_TINT[card.card_type]} />
-              </span>
-            </button>
+              card={card}
+              playable={playable}
+              affordable={affordable}
+              onInspect={() => openInspector(card, affordable)}
+            />
           );
         })}
       </div>
     </div>
+  );
+}
+
+function ClankersHandCard({
+  card,
+  playable,
+  affordable,
+  onInspect,
+}: {
+  card: ClankersCard;
+  playable: boolean;
+  affordable: boolean;
+  onInspect: () => void;
+}) {
+  const enabled = playable && affordable;
+  const handCard = useHandCard({
+    cardId: card.id,
+    cardName: card.name,
+    engineId: CLANK_ENGINE_ID,
+    accent: CLANK_ACCENT,
+    validZones: clankersValidZones(card, playable, affordable),
+    disabled: !enabled,
+  });
+  return (
+    <button
+      type="button"
+      draggable={handCard.draggable}
+      onDragStart={handCard.onDragStart}
+      onDragEnd={handCard.onDragEnd}
+      onClick={() => {
+        handCard.onClick();
+        onInspect();
+      }}
+      className="group transition-transform"
+      style={{
+        cursor: handCard.draggable ? 'grab' : 'pointer',
+        opacity: enabled ? 1 : 0.55,
+        transform: handCard.isPrimed ? 'translateY(-4px)' : undefined,
+        filter: handCard.isPrimed ? `drop-shadow(0 0 8px ${CLANK_ACCENT})` : undefined,
+        transition: 'transform 120ms ease, filter 120ms ease',
+      }}
+    >
+      <span
+        className="inline-block transition-transform group-hover:-translate-y-1 group-focus:-translate-y-1"
+        style={{ display: 'inline-block' }}
+      >
+        <CardFrame card={card} variant="hand" tint={CARD_TYPE_TINT[card.card_type]} />
+      </span>
+    </button>
   );
 }
 

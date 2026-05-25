@@ -29,6 +29,17 @@ import { defaultFormatType } from './types';
 import { StackedBar } from './StackedBar';
 import { getDepthsArtPaths } from '../utils/cardArt';
 import { useCardInspector } from '../hooks/useCardInspector';
+import { useHandCard } from '../hooks/useHandCard';
+import { useCardZone } from '../hooks/useCardZone';
+import ZoneHighlight from '../components/cards/ZoneHighlight';
+
+// Shared card-zone primitive — engine constants.
+// Drop zones are seat-scoped per depth band ('-me' suffix) so only the
+// viewer's friendly bands ever appear in any hand card's validZones.
+const DEPTHS_ENGINE_ID = 'depths';
+const DEPTHS_ACCENT = '#22d3ee'; // sonar cyan
+const DEPTHS_BAND_ZONE = (band: string, seat: 'me' | 'them') =>
+  `depths-band-${band.toLowerCase()}-${seat}`;
 
 // -- Depth ladder ----------------------------------------------------------
 
@@ -363,6 +374,7 @@ function DepthRow({
   onClickOppVessel,
   onClickOppFlagship,
   onClickMyVessel,
+  onDropCard,
 }: {
   band: DepthBand;
   myVessels: CardData[];
@@ -377,16 +389,38 @@ function DepthRow({
   onClickOppVessel: (card: CardData) => void;
   onClickOppFlagship: () => void;
   onClickMyVessel: (card: CardData) => void;
+  onDropCard?: (cardId: string, band: DepthBand) => void;
 }) {
   const accent = BAND_ACCENT[band];
   const showOppFlagship = oppFlagship && bandOf(oppFlagship) === band;
   const showMyFlagship = myFlagship && bandOf(myFlagship) === band;
 
+  // Friendly half of this band is a drop zone for hand cards. The
+  // engine handles the actual play resolution (vessel vs. mine) — we just
+  // forward cardId + band via onDropCard.
+  const zone = useCardZone({
+    zoneId: DEPTHS_BAND_ZONE(band, 'me'),
+    engineId: DEPTHS_ENGINE_ID,
+    onPlay: (cardId) => {
+      if (onDropCard) onDropCard(cardId, band);
+    },
+  });
+
   return (
     <div
-      className="grid grid-cols-[88px_1fr] gap-2 border-y border-cyan-900/30"
+      className="relative grid grid-cols-[88px_1fr] gap-2 border-y border-cyan-900/30"
       style={{ background: BAND_BG[band] }}
+      onClick={zone.onClick}
+      onDragOver={zone.onDragOver}
+      onDragLeave={zone.onDragLeave}
+      onDrop={zone.onDrop}
     >
+      <ZoneHighlight
+        isValid={zone.isValid}
+        isHovered={zone.isHovered}
+        hasActiveCard={zone.hasActiveCard}
+        activeAccent={zone.activeAccent}
+      />
       <div
         className="flex flex-col items-start justify-center px-2 py-2"
         style={{ borderRight: `1px solid ${accent}33` }}
@@ -1012,6 +1046,15 @@ export function DepthsGameBoard({
                     onClickMyVessel={handleClickMyVessel}
                     onClickOppVessel={handleClickOppVessel}
                     onClickOppFlagship={handleClickOppFlagship}
+                    onDropCard={(cardId, targetBand) => {
+                      const card = gameState.hand.find((c) => c.id === cardId);
+                      if (!card) return;
+                      if (isMine(card)) {
+                        onLayMine(card.id, targetBand);
+                      } else {
+                        onPlayCard(card.id, targetBand);
+                      }
+                    }}
                   />
                 ))}
               </div>
@@ -1070,46 +1113,15 @@ export function DepthsGameBoard({
             </div>
           </div>
           <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-2 overflow-x-auto px-1 pb-1">
-            {gameState.hand.map((card) => {
-              const playable = canPlayCard(card);
-              const isMineCard = isMine(card);
-              return (
-                <button
-                  key={card.id}
-                  onClick={() => handleHandClick(card)}
-                  className={`border bg-slate-950/80 p-1.5 text-left transition ${
-                    pendingMineCardId === card.id
-                      ? 'border-amber-300'
-                      : playable
-                        ? 'border-cyan-700 hover:border-cyan-300'
-                        : 'border-slate-800 opacity-50'
-                  }`}
-                  title={card.text}
-                >
-                  <div className="flex items-start justify-between gap-1">
-                    <div className="text-[11px] font-bold text-slate-100 leading-tight">{card.name}</div>
-                    {(card.power !== null || card.toughness !== null) && (
-                      <span className="rounded-sm bg-black/70 px-1 text-[10px] font-bold text-amber-200 border border-amber-500/40">
-                        {card.power ?? 0}/{card.hull ?? card.toughness ?? 0}
-                      </span>
-                    )}
-                  </div>
-                  <DepthsArt
-                    cardName={card.name}
-                    imageUrl={card.image_url}
-                    variant={variantForCard(card, false)}
-                    className="mt-1 h-16 border border-cyan-900/50"
-                  />
-                  <div className="mt-1 line-clamp-2 text-[10px] text-slate-400 leading-snug">{card.text}</div>
-                  <div className="mt-1 flex items-center justify-between text-[10px]">
-                    <Cost cost={card.depths_cost} />
-                    {isMineCard && (
-                      <span className="text-amber-300 uppercase tracking-wider">Mine</span>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
+            {gameState.hand.map((card) => (
+              <DepthsHandCard
+                key={card.id}
+                card={card}
+                playable={canPlayCard(card)}
+                pending={pendingMineCardId === card.id}
+                onInspect={() => handleHandClick(card)}
+              />
+            ))}
             {gameState.hand.length === 0 && (
               <div className="border border-dashed border-slate-800 bg-black/20 px-3 py-4 text-center text-[10px] uppercase tracking-wider text-slate-500">
                 No cards in hand
@@ -1119,6 +1131,89 @@ export function DepthsGameBoard({
         </footer>
       </div>
     </div>
+  );
+}
+
+/**
+ * Hand-card tile wired to the shared card-zone primitive. Drag onto any of
+ * the five friendly depth bands (or click-prime + click a band) to play.
+ * Click on the tile itself opens the inspector — both flows are independent
+ * (matches Cats / Clankers).
+ *
+ * `validZones`: when the card is playable, all five friendly band zones are
+ * legal. The engine resolves which one is actually legal per card; for the
+ * MVP we accept the broad set and let the play action sort it out.
+ */
+function DepthsHandCard({
+  card,
+  playable,
+  pending,
+  onInspect,
+}: {
+  card: CardData;
+  playable: boolean;
+  pending: boolean;
+  onInspect: () => void;
+}) {
+  const isMineCard = isMine(card);
+  const validZones = playable
+    ? DEPTH_BANDS.map((b) => DEPTHS_BAND_ZONE(b, 'me'))
+    : [];
+  const handCard = useHandCard({
+    cardId: card.id,
+    cardName: card.name,
+    engineId: DEPTHS_ENGINE_ID,
+    accent: DEPTHS_ACCENT,
+    validZones,
+    disabled: !playable,
+  });
+  return (
+    <button
+      type="button"
+      draggable={handCard.draggable}
+      onDragStart={handCard.onDragStart}
+      onDragEnd={handCard.onDragEnd}
+      onClick={() => {
+        handCard.onClick();
+        onInspect();
+      }}
+      className={`border bg-slate-950/80 p-1.5 text-left transition ${
+        pending
+          ? 'border-amber-300'
+          : playable
+            ? 'border-cyan-700 hover:border-cyan-300'
+            : 'border-slate-800 opacity-50'
+      }`}
+      style={{
+        cursor: handCard.draggable ? 'grab' : 'pointer',
+        transform: handCard.isPrimed ? 'translateY(-4px)' : undefined,
+        filter: handCard.isPrimed ? `drop-shadow(0 0 8px ${DEPTHS_ACCENT})` : undefined,
+        transition: 'transform 120ms ease, filter 120ms ease, border-color 120ms ease',
+      }}
+      title={card.text}
+    >
+      <div className="flex items-start justify-between gap-1">
+        <div className="text-[11px] font-bold text-slate-100 leading-tight">{card.name}</div>
+        {(card.power !== null || card.toughness !== null) && (
+          <span className="rounded-sm bg-black/70 px-1 text-[10px] font-bold text-amber-200 border border-amber-500/40">
+            {card.power ?? 0}/{card.hull ?? card.toughness ?? 0}
+          </span>
+        )}
+      </div>
+      <DepthsArt
+        cardName={card.name}
+        imageUrl={card.image_url}
+        variant={variantForCard(card, false)}
+        className="mt-1 h-16 border border-cyan-900/50"
+      />
+      <div className="mt-1 line-clamp-2 text-[10px] text-slate-400 leading-snug">{card.text}</div>
+      <div className="mt-1 flex items-center justify-between text-[10px]">
+        <Cost cost={card.depths_cost} />
+        {isMineCard && (
+          <span className="text-amber-300 uppercase tracking-wider">Mine</span>
+        )}
+      </div>
+    </button>
   );
 }
 

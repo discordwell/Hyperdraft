@@ -17,7 +17,30 @@ import {
 } from '../components/game/SCPBoard';
 import { useCardInspector } from '../hooks/useCardInspector';
 import type { InspectorAction } from '../hooks/useCardInspector';
+import { useHandCard } from '../hooks/useHandCard';
+import { useCardZone } from '../hooks/useCardZone';
+import ZoneHighlight from '../components/cards/ZoneHighlight';
 import type { CardData, SCPIncident } from '../types';
+
+// ---- Shared card-zone primitive ----------------------------------------
+//
+// SCP wires two drop zones for the viewer's side:
+//   - SCP_ACTIVE_ANOMALY_ZONE — the universal "Open" intake. Any dossier
+//     (anomaly, personnel, facility, etc.) can be dropped here; the engine
+//     decides whether it actually enters as an active anomaly or routes
+//     through Pending. This mirrors the existing inline "Open" button.
+//   - SCP_CONTAINED_ZONE — anomaly-only "Seal" lane. Dropping fires the
+//     same action as the inline "Seal" button (`openDossier(card.id,
+//     false, true)`).
+//
+// Drop dispatches the FIRST step of the play; any follow-up flow (protocol
+// picker, personnel assignment) is still driven by the existing chrome
+// below — same "drop then engine resolves" pattern as Clankers.
+
+const SCP_ENGINE_ID = 'scp';
+const SCP_ACCENT = '#f97316'; // orange — anomaly warning
+const SCP_ACTIVE_ANOMALY_ZONE = 'scp-active-anomaly-me';
+const SCP_CONTAINED_ZONE = 'scp-contained-me';
 
 // SCPGameView is the *interactive* SCP match page. The pure visual primitives
 // (SCPSitePanel / SCPCardPanel / SCPSection / SCPStat / SCPEmpty) live in
@@ -32,6 +55,21 @@ const MOODS = ['docile', 'agitated', 'cryptic', 'cooperative'];
 function formatLabel(value: string | null | undefined): string {
   if (!value) return 'none';
   return value.replace(/_/g, ' ');
+}
+
+/**
+ * Compute the legal drop-zone IDs for a hand card. Empty when the viewer
+ * can't act — that keeps the zones dim and the card non-draggable.
+ *
+ * Anomaly cards get both lanes: the universal Open lane (active anomaly
+ * intake) and the anomaly-only Seal lane (contained archive). Non-anomaly
+ * cards only get the Open lane — the engine handles whether they actually
+ * land in Active or in Pending after the play resolves.
+ */
+function scpValidZonesFor(canAct: boolean, isAnomalyCard: boolean): string[] {
+  if (!canAct) return [];
+  if (isAnomalyCard) return [SCP_ACTIVE_ANOMALY_ZONE, SCP_CONTAINED_ZONE];
+  return [SCP_ACTIVE_ANOMALY_ZONE];
 }
 
 function ActionButton({
@@ -84,6 +122,101 @@ function IncidentRow({
         <div className="text-xs text-slate-500">Turn {String(incident.turn ?? '-')} · breach {String(incident.breach ?? '-')}</div>
       </div>
       <ActionButton onClick={() => onResolve(index)} disabled={disabled}>Resolve</ActionButton>
+    </div>
+  );
+}
+
+/**
+ * Hand-card wrapper that adds drag/click-prime behavior to an SCPCardPanel.
+ * The card stays click-to-inspect via `onInspect` (the inspector's Play
+ * actions are unchanged) — this only adds the secondary drag + prime path
+ * so the user can drop directly onto the Active or Contained zone instead
+ * of having to roundtrip through the modal.
+ */
+function SCPHandDossier({
+  card,
+  canAct,
+  isAnomalyCard,
+  onInspect,
+  children,
+}: {
+  card: CardData;
+  canAct: boolean;
+  isAnomalyCard: boolean;
+  onInspect: () => void;
+  children?: ReactNode;
+}) {
+  const validZones = scpValidZonesFor(canAct, isAnomalyCard);
+  const handCard = useHandCard({
+    cardId: card.id,
+    cardName: card.name,
+    engineId: SCP_ENGINE_ID,
+    accent: SCP_ACCENT,
+    validZones,
+    disabled: !canAct,
+  });
+  return (
+    <div
+      draggable={handCard.draggable}
+      onDragStart={handCard.onDragStart}
+      onDragEnd={handCard.onDragEnd}
+      style={{
+        cursor: handCard.draggable ? 'grab' : undefined,
+        transform: handCard.isPrimed ? 'translateY(-6px)' : undefined,
+        filter: handCard.isPrimed ? `drop-shadow(0 0 8px ${SCP_ACCENT})` : undefined,
+        transition: 'transform 120ms ease, filter 120ms ease',
+      }}
+    >
+      <SCPCardPanel
+        card={card}
+        onClick={() => {
+          handCard.onClick();
+          onInspect();
+        }}
+      >
+        {children}
+      </SCPCardPanel>
+    </div>
+  );
+}
+
+/**
+ * Drop-zone wrapper used by the Active Anomalies and Contained Archive
+ * sections. Renders a ZoneHighlight inside a position:relative container,
+ * binds the useCardZone handlers, and lets its children render the panel
+ * contents (the SCPCardPanel list + SCPEmpty fallback). The zone IS the
+ * SCPSection wrapper — we add a thin extra container so the highlight can
+ * lift the whole pile.
+ */
+function SCPDropZone({
+  zoneId,
+  onPlay,
+  children,
+}: {
+  zoneId: string;
+  onPlay: (cardId: string) => void;
+  children: ReactNode;
+}) {
+  const zone = useCardZone({ zoneId, engineId: SCP_ENGINE_ID, onPlay });
+  return (
+    <div
+      onClick={zone.onClick}
+      onDragOver={zone.onDragOver}
+      onDragLeave={zone.onDragLeave}
+      onDrop={zone.onDrop}
+      style={{
+        position: 'relative',
+        borderRadius: 4,
+        cursor: zone.isValid ? 'pointer' : undefined,
+      }}
+    >
+      <ZoneHighlight
+        isValid={zone.isValid}
+        isHovered={zone.isHovered}
+        hasActiveCard={zone.hasActiveCard}
+        activeAccent={zone.activeAccent}
+      />
+      {children}
     </div>
   );
 }
@@ -341,10 +474,12 @@ export function SCPGameView() {
           <SCPSection title={`Hand (${hand.length})`}>
             {hand.length === 0 && <SCPEmpty label="No cards in hand" />}
             {hand.map((card) => (
-              <SCPCardPanel
+              <SCPHandDossier
                 key={card.id}
                 card={card}
-                onClick={() => openHandCardInspector(card)}
+                canAct={canAct}
+                isAnomalyCard={isAnomaly(card)}
+                onInspect={() => openHandCardInspector(card)}
               >
                 <ActionButton onClick={() => openDossier(card.id)} disabled={!canAct}>Open</ActionButton>
                 {(card.scp_red_tape ?? 0) > 0 && (
@@ -353,7 +488,7 @@ export function SCPGameView() {
                 {isAnomaly(card) && (
                   <ActionButton onClick={() => openDossier(card.id, false, true)} disabled={!canAct}>Seal</ActionButton>
                 )}
-              </SCPCardPanel>
+              </SCPHandDossier>
             ))}
           </SCPSection>
         </aside>
@@ -366,27 +501,37 @@ export function SCPGameView() {
             <SCPStat label="Incidents" value={incidents.length} tone="text-amber-300" />
           </div>
 
-          <SCPSection title="Active Anomalies">
-            {activeAnomalies.length === 0 && <SCPEmpty label="No active anomalies" />}
-            {activeAnomalies.map((card) => (
-              <SCPCardPanel
-                key={card.id}
-                card={card}
-                selected={selectedAnomaly?.id === card.id}
-                onClick={() => setSelectedAnomalyId(card.id)}
-              >
-                <ActionButton onClick={() => research(card.id, selectedStaffIds)} disabled={!canAct} tone="warn">
-                  Research ({selectedStaffCount})
-                </ActionButton>
-                <ActionButton onClick={() => contain(card.id, selectedStaffIds)} disabled={!canAct} tone="good">
-                  Contain ({selectedStaffCount})
-                </ActionButton>
-                <ActionButton onClick={() => suppress(card.id, selectedStaffIds)} disabled={!canAct}>
-                  Suppress ({selectedStaffCount})
-                </ActionButton>
-              </SCPCardPanel>
-            ))}
-          </SCPSection>
+          <SCPDropZone
+            zoneId={SCP_ACTIVE_ANOMALY_ZONE}
+            onPlay={(cardId) => {
+              // Drop fires the same first step the inline "Open" button does.
+              // Any follow-up flow (personnel assignment, protocol picker)
+              // is still driven by the chrome below.
+              void openDossier(cardId);
+            }}
+          >
+            <SCPSection title="Active Anomalies">
+              {activeAnomalies.length === 0 && <SCPEmpty label="No active anomalies" />}
+              {activeAnomalies.map((card) => (
+                <SCPCardPanel
+                  key={card.id}
+                  card={card}
+                  selected={selectedAnomaly?.id === card.id}
+                  onClick={() => setSelectedAnomalyId(card.id)}
+                >
+                  <ActionButton onClick={() => research(card.id, selectedStaffIds)} disabled={!canAct} tone="warn">
+                    Research ({selectedStaffCount})
+                  </ActionButton>
+                  <ActionButton onClick={() => contain(card.id, selectedStaffIds)} disabled={!canAct} tone="good">
+                    Contain ({selectedStaffCount})
+                  </ActionButton>
+                  <ActionButton onClick={() => suppress(card.id, selectedStaffIds)} disabled={!canAct}>
+                    Suppress ({selectedStaffCount})
+                  </ActionButton>
+                </SCPCardPanel>
+              ))}
+            </SCPSection>
+          </SCPDropZone>
 
           <div className="grid gap-4 lg:grid-cols-2">
             <SCPSection title="Available Personnel">
@@ -474,14 +619,25 @@ export function SCPGameView() {
               ))}
             </SCPSection>
 
-            <SCPSection title="Contained Archive">
-              {containedAnomalies.length === 0 && <SCPEmpty label="No contained anomalies" />}
-              {containedAnomalies.map((card) => (
-                <SCPCardPanel key={card.id} card={card}>
-                  <ActionButton onClick={() => memoryHole(card.id)} disabled={!canAct} tone="danger">Memory hole</ActionButton>
-                </SCPCardPanel>
-              ))}
-            </SCPSection>
+            <SCPDropZone
+              zoneId={SCP_CONTAINED_ZONE}
+              onPlay={(cardId) => {
+                // Seal lane — fires the same action as the inline "Seal"
+                // button (openDossier with sealed=true). Only anomaly hand
+                // cards list this zone in their validZones, so non-anomaly
+                // drops can't accidentally land here.
+                void openDossier(cardId, false, true);
+              }}
+            >
+              <SCPSection title="Contained Archive">
+                {containedAnomalies.length === 0 && <SCPEmpty label="No contained anomalies" />}
+                {containedAnomalies.map((card) => (
+                  <SCPCardPanel key={card.id} card={card}>
+                    <ActionButton onClick={() => memoryHole(card.id)} disabled={!canAct} tone="danger">Memory hole</ActionButton>
+                  </SCPCardPanel>
+                ))}
+              </SCPSection>
+            </SCPDropZone>
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">

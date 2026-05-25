@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import type { CardData, GameState, PlayerData } from '../../types';
 import { getMinecraftArtPaths } from '../../utils/cardArt';
 import { useCardInspector } from '../../hooks/useCardInspector';
+import { useHandCard } from '../../hooks/useHandCard';
+import { useCardZone } from '../../hooks/useCardZone';
+import ZoneHighlight from '../cards/ZoneHighlight';
 
 const MATERIALS = [
   ['wood', 'Wood'],
@@ -12,6 +15,13 @@ const MATERIALS = [
 ] as const;
 
 const COLUMN_COUNT = 3;
+
+// Shared card-zone primitive — engine constants.
+// Drop zones are scoped to the viewer's own 3x3 base columns; the opponent
+// grid is read-only so it never appears in any hand card's validZones.
+const MC_ENGINE_ID = 'minecraft';
+const MC_ACCENT = '#a3e635'; // grass / leaves green
+const MC_COLUMN_ZONE_ME = (col: number) => `mc-column-${col}-me`;
 
 interface MCGameBoardProps {
   gameState: GameState;
@@ -189,6 +199,160 @@ function Grid({
         )))}
       </div>
     </section>
+  );
+}
+
+/**
+ * Player-side 3x3 base, laid out as three column drop zones. Each column is
+ * a `useCardZone` target: dropping or click-priming + clicking a column
+ * fires `onColumnPlay(card, col)`. Cells inside the column still drive the
+ * legacy onCell click flow so cell-specific placement (structures / blocks)
+ * keeps working after the drop. The opponent's read-only grid continues to
+ * use the original `Grid` component.
+ */
+function MyGridZones({
+  rows,
+  placing,
+  onCell,
+  onColumnPlay,
+}: {
+  rows: (CardData | null)[][];
+  placing: CardData | null;
+  onCell: (x: number, y: number) => void;
+  onColumnPlay: (cardId: string, col: number) => void;
+}) {
+  return (
+    <section className="min-w-0">
+      <div className="mb-1 flex items-center justify-between">
+        <div className="text-xs font-bold uppercase tracking-wide text-stone-200">Your 3x3 Base</div>
+        {placing && <div className="text-[11px] text-yellow-200">Place {placing.name}</div>}
+      </div>
+      <div className="grid grid-cols-3 gap-1">
+        {[0, 1, 2].map((col) => (
+          <MCColumnZone
+            key={`col-${col}`}
+            col={col}
+            rows={rows}
+            placing={placing}
+            onCell={onCell}
+            onColumnPlay={onColumnPlay}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function MCColumnZone({
+  col,
+  rows,
+  placing,
+  onCell,
+  onColumnPlay,
+}: {
+  col: number;
+  rows: (CardData | null)[][];
+  placing: CardData | null;
+  onCell: (x: number, y: number) => void;
+  onColumnPlay: (cardId: string, col: number) => void;
+}) {
+  const zone = useCardZone({
+    zoneId: MC_COLUMN_ZONE_ME(col),
+    engineId: MC_ENGINE_ID,
+    onPlay: (cardId) => onColumnPlay(cardId, col),
+  });
+  return (
+    <div
+      className="relative flex flex-col gap-1"
+      onClick={zone.onClick}
+      onDragOver={zone.onDragOver}
+      onDragLeave={zone.onDragLeave}
+      onDrop={zone.onDrop}
+      style={{ cursor: zone.isValid ? 'pointer' : 'default' }}
+      aria-label={`Column ${col + 1} drop zone`}
+    >
+      <ZoneHighlight
+        isValid={zone.isValid}
+        isHovered={zone.isHovered}
+        hasActiveCard={zone.hasActiveCard}
+        activeAccent={zone.activeAccent}
+      />
+      {[0, 1, 2].map((y) => {
+        const card = rows[y]?.[col] ?? null;
+        return (
+          <button
+            key={`${col}-${y}`}
+            onClick={() => {
+              // When a card is primed and this column is valid, the outer
+              // column click handles the play via `zone.onClick` (the cell
+              // button is disabled while `placing` is null, so this branch
+              // only fires from the structure / block cell-picker flow).
+              if (zone.isValid) return;
+              onCell(col, y);
+            }}
+            disabled={!placing || !!card}
+            className={`aspect-square border bg-[linear-gradient(135deg,#254d31_0_50%,#2f5938_50%)] p-1 text-left transition border-black/40 ${
+              !card && placing ? 'hover:border-yellow-300' : ''
+            }`}
+          >
+            {card ? <CardTile card={card} compact /> : <div className="h-full border border-white/5 bg-black/10" />}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Single hand card slot. Wraps the existing CardTile in the shared
+ * `useHandCard` primitive so the card can be clicked (prime) or dragged
+ * onto one of the three column drop zones. The inspector modal still opens
+ * on click — both flows are independent (matching Cats / Clankers).
+ */
+function MCHandCard({
+  card,
+  playable,
+  selected,
+  onInspect,
+}: {
+  card: CardData;
+  playable: boolean;
+  selected: boolean;
+  onInspect: () => void;
+}) {
+  const handCard = useHandCard({
+    cardId: card.id,
+    cardName: card.name,
+    engineId: MC_ENGINE_ID,
+    accent: MC_ACCENT,
+    validZones: playable
+      ? [MC_COLUMN_ZONE_ME(0), MC_COLUMN_ZONE_ME(1), MC_COLUMN_ZONE_ME(2)]
+      : [],
+    disabled: !playable,
+  });
+  return (
+    <div
+      draggable={handCard.draggable}
+      onDragStart={handCard.onDragStart}
+      onDragEnd={handCard.onDragEnd}
+      className="border border-slate-800 bg-black/20 p-1"
+      style={{
+        cursor: handCard.draggable ? 'grab' : 'pointer',
+        transform: handCard.isPrimed ? 'translateY(-4px)' : undefined,
+        filter: handCard.isPrimed ? `drop-shadow(0 0 8px ${MC_ACCENT})` : undefined,
+        transition: 'transform 120ms ease, filter 120ms ease',
+      }}
+    >
+      <CardTile
+        card={card}
+        selected={selected}
+        onClick={() => {
+          handCard.onClick();
+          onInspect();
+        }}
+      />
+      <div className="mt-1 text-[10px] text-slate-300"><Cost cost={card.mc_cost} /></div>
+    </div>
   );
 }
 
@@ -599,10 +763,13 @@ export function MCGameBoard({
                 <div className="mb-1 text-xs font-bold uppercase tracking-wide text-slate-300">Hand</div>
                 <div className="grid grid-cols-[repeat(auto-fit,minmax(118px,1fr))] gap-2">
                   {gameState.hand.map((card) => (
-                    <div key={card.id} className="border border-slate-800 bg-black/20 p-1">
-                      <CardTile card={card} selected={placingCard?.id === card.id} onClick={() => handleHandClick(card)} />
-                      <div className="mt-1 text-[10px] text-slate-300"><Cost cost={card.mc_cost} /></div>
-                    </div>
+                    <MCHandCard
+                      key={card.id}
+                      card={card}
+                      playable={canPlayCard(card)}
+                      selected={placingCard?.id === card.id}
+                      onInspect={() => handleHandClick(card)}
+                    />
                   ))}
                 </div>
               </div>
@@ -610,16 +777,29 @@ export function MCGameBoard({
           </div>
 
           <div className="space-y-3 overflow-y-auto">
-            <Grid
-              title="Your 3x3 Base"
+            <MyGridZones
               rows={myGrid}
-              exposed={[]}
-              isMine
               placing={placingCard}
               onCell={(x, y) => {
                 if (!placingCard) return;
                 onPlayCard(placingCard.id, { x, y });
                 setPlacingCard(null);
+              }}
+              onColumnPlay={(cardId, col) => {
+                const card = gameState.hand.find((c) => c.id === cardId);
+                if (!card) return;
+                // Structures / blocks need a specific cell — defer to the
+                // existing cell-picker via placingCard. The user drags onto
+                // the column, then clicks a cell in that column to commit.
+                if (
+                  card.types.includes('MC_STRUCTURE') ||
+                  card.types.includes('MC_BLOCK')
+                ) {
+                  setPlacingCard(card);
+                  return;
+                }
+                // Everything else plays into the column directly.
+                onPlayCard(card.id, undefined, col);
               }}
             />
             <section className="border border-slate-800 bg-slate-900/60 p-3">

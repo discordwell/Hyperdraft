@@ -25,6 +25,21 @@ import { FinanceResponseWindow } from './finance/ResponseWindow';
 import { useFinanceSounds } from '../hooks/useFinanceSounds';
 import { getFinanceArtPaths } from '../utils/cardArt';
 import { useCardInspector } from '../hooks/useCardInspector';
+import { useHandCard } from '../hooks/useHandCard';
+import { useCardZone } from '../hooks/useCardZone';
+import ZoneHighlight from '../components/cards/ZoneHighlight';
+
+// ---- Shared card-zone primitive ----------------------------------------
+//
+// One drop zone covers Finance's whole "Trading Floor" because every card
+// type (Trader / Asset / Structure / Derivative / Order / Strategy) goes
+// through the same `onPlayCard(cardId)` action — the engine routes the
+// card into the right pile internally. This mirrors the Cats pattern of a
+// single staging zone rather than Clankers' per-card-type zones.
+
+const FIN_ENGINE_ID = 'finance';
+const FIN_ACCENT = '#34d399'; // emerald — markets up
+const FIN_PORTFOLIO_ZONE_ME = 'finance-portfolio-me';
 
 // ---- CSS keyframes (injected once into the document) --------------------
 
@@ -594,9 +609,31 @@ function HandCard({
   const canAfford = liquidity >= cost;
   const typeLabel = cardTypeLabel(card);
 
+  // Cards are only legal drop sources when they're actually playable AND
+  // affordable — otherwise the Trading Floor stays dim instead of lighting
+  // up for an unpayable card.
+  const enabled = playable && canAfford;
+  const handCard = useHandCard({
+    cardId: card.id,
+    cardName: card.name,
+    engineId: FIN_ENGINE_ID,
+    accent: FIN_ACCENT,
+    validZones: enabled ? [FIN_PORTFOLIO_ZONE_ME] : [],
+    disabled: !enabled,
+  });
+
   return (
     <button
-      onClick={onClick}
+      draggable={handCard.draggable}
+      onDragStart={handCard.onDragStart}
+      onDragEnd={handCard.onDragEnd}
+      onClick={() => {
+        // Prime the card for the click-zone path; the inspector modal still
+        // opens via the existing `onClick` so the right-click detail flow,
+        // selection state, and the inspector's Play button keep working.
+        handCard.onClick();
+        onClick();
+      }}
       onContextMenu={e => { e.preventDefault(); onShowDetail(card); }}
       disabled={!playable}
       className={`relative border-2 ${border} bg-[#050d1a] text-left transition overflow-hidden
@@ -604,7 +641,14 @@ function HandCard({
         ${selected ? 'shadow-[0_0_10px_#ffd70066]' : ''}
       `}
       title="Right-click to inspect"
-      style={{ minWidth: 120, maxWidth: 160 }}
+      style={{
+        minWidth: 120,
+        maxWidth: 160,
+        cursor: handCard.draggable ? 'grab' : (playable ? 'pointer' : 'default'),
+        transform: handCard.isPrimed ? 'translateY(-6px)' : undefined,
+        filter: handCard.isPrimed ? `drop-shadow(0 0 8px ${FIN_ACCENT})` : undefined,
+        transition: 'transform 120ms ease, filter 120ms ease',
+      }}
     >
       {/* Art header */}
       <CardArt card={card} className="h-16 w-full" />
@@ -754,6 +798,7 @@ function TradingFloorRow({
   onClickTrader,
   onShowDetail,
   flipped = false,
+  onPlayDroppedCard,
 }: {
   label: string;
   traders: CardData[];
@@ -765,14 +810,51 @@ function TradingFloorRow({
   onClickTrader: (card: CardData) => void;
   onShowDetail: (card: CardData) => void;
   flipped?: boolean;
+  /** Only the viewer's row is a drop target; opponent row leaves this undefined. */
+  onPlayDroppedCard?: (cardId: string) => void;
 }) {
   const empty = traders.length === 0 && assets.length === 0 && structures.length === 0;
+
+  // Wire the drop zone only on the viewer's row. The hook is called
+  // unconditionally (rules-of-hooks) — when `onPlayDroppedCard` is missing
+  // we feed the zone a no-op `onPlay` and never assign the wrapper to
+  // ZoneHighlight (validZones still come from hand-card state, but the
+  // opponent's portfolio zone id isn't in any hand-card's validZones list
+  // so it never lights up).
+  const zone = useCardZone({
+    zoneId: FIN_PORTFOLIO_ZONE_ME,
+    engineId: FIN_ENGINE_ID,
+    onPlay: (cardId) => {
+      if (onPlayDroppedCard) onPlayDroppedCard(cardId);
+    },
+  });
+  const dropProps = isMe
+    ? {
+        onClick: zone.onClick,
+        onDragOver: zone.onDragOver,
+        onDragLeave: zone.onDragLeave,
+        onDrop: zone.onDrop,
+      }
+    : {};
 
   return (
     <div
       className="border border-slate-700/50 bg-[#07101e]/80 px-3 py-2"
-      style={{ borderLeft: isMe ? '3px solid #0ea5e9' : '3px solid #ef4444' }}
+      style={{
+        borderLeft: isMe ? '3px solid #0ea5e9' : '3px solid #ef4444',
+        position: isMe ? 'relative' : undefined,
+        cursor: isMe && zone.isValid ? 'pointer' : undefined,
+      }}
+      {...dropProps}
     >
+      {isMe && (
+        <ZoneHighlight
+          isValid={zone.isValid}
+          isHovered={zone.isHovered}
+          hasActiveCard={zone.hasActiveCard}
+          activeAccent={zone.activeAccent}
+        />
+      )}
       <div className="mb-1 text-[9px] font-bold uppercase tracking-[0.25em] text-slate-500">
         {label}
       </div>
@@ -1321,6 +1403,13 @@ export function FinanceGameBoard({
               selectableIds={selectableMyTraders}
               onClickTrader={handleMyTraderClick}
               onShowDetail={setDetailCard}
+              onPlayDroppedCard={(cardId) => {
+                // Drop fires the same action the inspector's Play button
+                // does — onPlayCard dispatches the engine play. The local
+                // selection state for combat targeting is unaffected.
+                onPlayCard(cardId);
+                setSelectedHandCardId(null);
+              }}
             />
 
           </div>

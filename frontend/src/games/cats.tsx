@@ -33,6 +33,13 @@ import {
   type CatsAction,
 } from '../hooks/useCatsGame';
 import { useCardInspector } from '../hooks/useCardInspector';
+import { useHandCard } from '../hooks/useHandCard';
+import { useCardZone } from '../hooks/useCardZone';
+import ZoneHighlight from '../components/cards/ZoneHighlight';
+
+const CATS_ENGINE_ID = 'cats';
+const CATS_ACCENT = '#e7b35a';
+const CATS_TRICK_ZONE_ID = 'cats-trick';
 
 // ---------------------------------------------------------------------------
 // Visual palette — kept on a single object so the cozy/cream identity is
@@ -509,23 +516,14 @@ function TrickZone({
   onDropCard?: (cardId: string) => void;
   canDropCard?: boolean;
 }) {
-  const [isDragOver, setIsDragOver] = useState(false);
-  const handleDragOver = (e: React.DragEvent) => {
-    if (!canDropCard) return;
-    if (e.dataTransfer.types.includes('application/x-cats-card')) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      if (!isDragOver) setIsDragOver(true);
-    }
-  };
-  const handleDragLeave = () => setIsDragOver(false);
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    if (!canDropCard) return;
-    const cardId = e.dataTransfer.getData('application/x-cats-card');
-    if (cardId && onDropCard) onDropCard(cardId);
-  };
+  const zone = useCardZone({
+    zoneId: CATS_TRICK_ZONE_ID,
+    engineId: CATS_ENGINE_ID,
+    onPlay: (cardId) => {
+      if (canDropCard && onDropCard) onDropCard(cardId);
+    },
+  });
+  const isDragOver = zone.isHovered;
   const ruleKey: CatsCategory | 'default' = trick.installed_rule ?? 'default';
   const ruleColor =
     ruleKey === 'default' ? COZY.warmTan : CATEGORY_TINT[ruleKey];
@@ -541,9 +539,10 @@ function TrickZone({
   return (
     <section
       className="relative flex items-center justify-center overflow-hidden rounded-xl border px-6 py-6"
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      onClick={zone.onClick}
+      onDragOver={zone.onDragOver}
+      onDragLeave={zone.onDragLeave}
+      onDrop={zone.onDrop}
       style={{
         background: isDragOver
           ? 'radial-gradient(ellipse at center, rgba(231,179,90,0.45) 0%, rgba(244,230,200,0.6) 100%)'
@@ -552,9 +551,16 @@ function TrickZone({
         borderWidth: isDragOver ? 2 : 1,
         minHeight: 180,
         transition: 'background 120ms ease, border-color 120ms ease',
+        cursor: zone.isValid ? 'pointer' : 'default',
       }}
-      aria-label="Trick zone — drop a card here to play it"
+      aria-label="Trick zone — drop or click to play"
     >
+      <ZoneHighlight
+        isValid={zone.isValid}
+        isHovered={zone.isHovered}
+        hasActiveCard={zone.hasActiveCard}
+        activeAccent={zone.activeAccent}
+      />
       {/* Ambient drifting paw print — only visible when the stage is quiet so
           it never competes with played cards. */}
       {bothEmpty && <DriftingPaw />}
@@ -890,40 +896,65 @@ function MyHand({
   return (
     <div className="flex flex-col gap-1.5">
       <div className="text-[10px] uppercase tracking-[0.22em] opacity-60">
-        Your paw {playable ? '· tap to inspect · drag to the mood mat to play' : '· tap to inspect'}
+        Your paw {playable ? '· click or drag a card to play' : '· tap to inspect'}
       </div>
       <div className="flex flex-wrap gap-3">
         {cards.map((card) => (
-          <button
+          <HandPawCard
             key={card.id}
-            type="button"
-            draggable={playable}
-            onDragStart={(e) => {
-              if (!playable) {
-                e.preventDefault();
-                return;
-              }
-              e.dataTransfer.effectAllowed = 'move';
-              e.dataTransfer.setData('application/x-cats-card', card.id);
-              e.dataTransfer.setData('text/plain', card.name);
-            }}
-            onClick={() => openInspector(card)}
-            className="group transition-transform"
-            style={{
-              cursor: playable ? 'grab' : 'pointer',
-              opacity: playable ? 1 : 0.78,
-            }}
-          >
-            <span
-              className="block group-hover:-translate-y-2 group-focus:-translate-y-2 transition-transform"
-              style={{ display: 'inline-block' }}
-            >
-              <CatCard card={card} variant="hand" />
-            </span>
-          </button>
+            card={card}
+            playable={playable}
+            onInspect={() => openInspector(card)}
+          />
         ))}
       </div>
     </div>
+  );
+}
+
+function HandPawCard({
+  card,
+  playable,
+  onInspect,
+}: {
+  card: CatsCard;
+  playable: boolean;
+  onInspect: () => void;
+}) {
+  const handCard = useHandCard({
+    cardId: card.id,
+    cardName: card.name,
+    engineId: CATS_ENGINE_ID,
+    accent: CATS_ACCENT,
+    validZones: playable ? [CATS_TRICK_ZONE_ID] : [],
+    disabled: !playable,
+  });
+  return (
+    <button
+      type="button"
+      draggable={handCard.draggable}
+      onDragStart={handCard.onDragStart}
+      onDragEnd={handCard.onDragEnd}
+      onClick={() => {
+        handCard.onClick();
+        onInspect();
+      }}
+      className="group transition-transform"
+      style={{
+        cursor: handCard.draggable ? 'grab' : 'pointer',
+        opacity: playable ? 1 : 0.78,
+        transform: handCard.isPrimed ? 'translateY(-6px)' : undefined,
+        filter: handCard.isPrimed ? `drop-shadow(0 0 8px ${CATS_ACCENT})` : undefined,
+        transition: 'transform 120ms ease, filter 120ms ease',
+      }}
+    >
+      <span
+        className="block group-hover:-translate-y-2 group-focus:-translate-y-2 transition-transform"
+        style={{ display: 'inline-block' }}
+      >
+        <CatCard card={card} variant="hand" />
+      </span>
+    </button>
   );
 }
 

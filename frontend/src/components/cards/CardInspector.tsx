@@ -21,6 +21,7 @@ import {
   type InspectorAction,
   type InspectableCardType,
 } from '../../hooks/useCardInspector';
+import { useCardZoneStore } from '../../stores/cardZoneStore';
 
 const ENGINE_ACCENT: Record<InspectableCardType, string> = {
   creature: '#86efac',
@@ -85,6 +86,11 @@ export default function CardInspector() {
   const card = useCardInspectorStore((s) => s.card);
   const actions = useCardInspectorStore((s) => s.actions);
   const close = useCardInspectorStore((s) => s.close);
+  // When the inspected card is primed in the shared card-zone store, dim
+  // the backdrop and remove the blur so the primed/highlighted drop
+  // zones underneath remain visible (click-prime → click-zone path).
+  const primedCardId = useCardZoneStore((s) => s.primedCardId);
+  const isPrimed = card !== null && primedCardId === card.id;
   const backdropRef = useRef<HTMLDivElement>(null);
   const primaryRef = useRef<HTMLButtonElement>(null);
 
@@ -127,8 +133,8 @@ export default function CardInspector() {
         position: 'fixed',
         inset: 0,
         zIndex: 1000,
-        background: 'rgba(2, 6, 23, 0.78)',
-        backdropFilter: 'blur(6px)',
+        background: isPrimed ? 'rgba(2, 6, 23, 0.32)' : 'rgba(2, 6, 23, 0.78)',
+        backdropFilter: isPrimed ? 'none' : 'blur(6px)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
