@@ -32,6 +32,7 @@ from .models import (
     LegalActionData, CombatData, PlayerActionRequest, ReplayFrame,
     PendingChoiceData, PendingChoiceWaitingData, GameLogEntry,
     PendingTriggerData,
+    DivideAllocationData, TargetGroupMetadataData,
 )
 from .modes import get_server_mode_adapter
 
@@ -595,6 +596,29 @@ class GameSession:
                 raw_hint = cb_data.get("interaction_mode")
                 if raw_hint in ("overlay", "modal"):
                     interaction_mode = raw_hint
+                # Arc B — pass target_metadata through. The engine
+                # populates it on cast-time target / divide-allocation
+                # choices; absent for modal / scry / surveil / etc.
+                tm_obj = getattr(pending_choice, "target_metadata", None)
+                target_metadata_data: Optional[TargetGroupMetadataData] = None
+                if tm_obj is not None:
+                    divide_data: Optional[DivideAllocationData] = None
+                    if tm_obj.divide is not None:
+                        divide_data = DivideAllocationData(
+                            total=tm_obj.divide.total,
+                            min_per_target=tm_obj.divide.min_per_target,
+                            allow_zero=tm_obj.divide.allow_zero,
+                        )
+                    target_metadata_data = TargetGroupMetadataData(
+                        label=tm_obj.label,
+                        predicate_description=tm_obj.predicate_description,
+                        min=tm_obj.min,
+                        max=tm_obj.max,
+                        unique=tm_obj.unique,
+                        divide=divide_data,
+                        group_index=tm_obj.group_index,
+                        total_groups=tm_obj.total_groups,
+                    )
                 pending_choice_data = PendingChoiceData(
                     id=pending_choice.id,
                     choice_type=pending_choice.choice_type,
@@ -605,6 +629,7 @@ class GameSession:
                     min_choices=pending_choice.min_choices,
                     max_choices=pending_choice.max_choices,
                     interaction_mode=interaction_mode,
+                    target_metadata=target_metadata_data,
                 )
             else:
                 # Another player is making a choice

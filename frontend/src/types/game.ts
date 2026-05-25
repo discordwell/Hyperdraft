@@ -319,6 +319,41 @@ export interface ChoiceOption {
   requires_targeting?: boolean;
 }
 
+/**
+ * Mirrors src/engine/types.py:DivideAllocation. Surfaced on
+ * TargetGroupMetadata.divide when a spell asks the player to distribute
+ * a quantity (damage, counters, life) across targets.
+ *
+ * Engine-agnostic — any TCG with "deal X divided among targets" uses the
+ * same shape.
+ */
+export interface DivideAllocation {
+  total: number;
+  min_per_target?: number;
+  allow_zero?: boolean;
+}
+
+/**
+ * Mirrors src/engine/types.py:TargetGroupMetadata. Engine-supplied
+ * structured target hint for the client, surfaced via
+ * `PendingChoice.target_metadata` when `choice_type === 'target'` or
+ * `'divide_allocation'`.
+ *
+ * The frontend renders this directly — no card-text parsing, no
+ * per-card frontend logic. Any future user-generated game that emits
+ * target requirements inherits the targeting UX for free.
+ */
+export interface TargetGroupMetadata {
+  label: string;
+  predicate_description: string;
+  min: number;
+  max: number;
+  unique?: boolean;
+  divide?: DivideAllocation;
+  group_index?: number;
+  total_groups?: number;
+}
+
 export interface PendingChoice {
   id: string;
   choice_type: 'modal' | 'target' | 'scry' | 'surveil' | string;
@@ -332,6 +367,11 @@ export interface PendingChoice {
   // click-to-target board highlights (Phase 5b MTG cast-time targets);
   // absent or ``'modal'`` => standard ChoiceModal panel.
   interaction_mode?: 'modal' | 'overlay';
+  // Arc B — structured target metadata. Populated for 'target' and
+  // 'divide_allocation' choice types; absent for modal/scry/surveil/etc.
+  // The frontend's overlay pill renders directly from this; falls back
+  // to min_choices/max_choices/prompt when missing.
+  target_metadata?: TargetGroupMetadata;
 }
 
 // Game Log Entry

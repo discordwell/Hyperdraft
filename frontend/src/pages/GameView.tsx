@@ -470,6 +470,12 @@ export function GameView() {
   // its options as valid zones. Each click on a lit zone appends to
   // pendingTargets; the overlay pill (in ChoiceModal) submits via
   // matchAPI.submitChoice when min/max satisfied.
+  //
+  // Arc B — when the engine supplies `target_metadata`, thread it
+  // straight through. The overlay pill renders proper "Pick 3 of 6 —
+  // different creatures" labels without any frontend heuristics.
+  // Falls back to a synthesized min/max shape when metadata is absent
+  // (e.g. older engine emissions or choice_types that aren't 'target').
   useEffect(() => {
     const store = useCardZoneStore.getState();
     if (overlayPendingChoice && gameState?.game_mode) {
@@ -479,6 +485,7 @@ export function GameView() {
         .filter((id): id is string => typeof id === 'string');
       // Re-prime on id transition (engine emitted a new choice).
       if (store.activeChoiceId !== overlayPendingChoice.id) {
+        const engineMetadata = overlayPendingChoice.target_metadata;
         store.primeFromChoice({
           choiceId: overlayPendingChoice.id,
           sourceId: overlayPendingChoice.source_id ?? null,
@@ -486,14 +493,22 @@ export function GameView() {
           engineId: gameState.game_mode,
           accent,
           optionIds,
-          // Arc B will populate target_metadata; until then, synthesize
-          // a minimal shape from min/max so the pill renders progress.
-          metadata: {
-            label: overlayPendingChoice.prompt ?? 'Target',
-            predicate_description: '',
-            min: overlayPendingChoice.min_choices ?? 1,
-            max: overlayPendingChoice.max_choices ?? 1,
-          },
+          metadata: engineMetadata
+            ? {
+                label: engineMetadata.label,
+                predicate_description: engineMetadata.predicate_description,
+                min: engineMetadata.min,
+                max: engineMetadata.max,
+                unique: engineMetadata.unique,
+                group_index: engineMetadata.group_index,
+                total_groups: engineMetadata.total_groups,
+              }
+            : {
+                label: overlayPendingChoice.prompt ?? 'Target',
+                predicate_description: '',
+                min: overlayPendingChoice.min_choices ?? 1,
+                max: overlayPendingChoice.max_choices ?? 1,
+              },
         });
       }
     } else if (store.activeChoiceId !== null) {

@@ -1410,6 +1410,44 @@ class CardDefinition:
 # =============================================================================
 
 @dataclass
+class DivideAllocation:
+    """
+    Damage / counter / life allocation metadata for spells that distribute
+    a quantity among multiple targets (Disintegrate X, Bituminous Blast,
+    divide-damage spells). Surfaced on TargetGroupMetadata so the
+    frontend can render its divide UI directly from the engine's spec.
+
+    Engine-agnostic — any TCG with "deal X divided among targets" uses
+    the same shape.
+    """
+    total: int  # Total points to distribute across targets in this group
+    min_per_target: int = 0  # Minimum each chosen target must receive
+    allow_zero: bool = True  # True = some targets in the group may receive 0
+
+
+@dataclass
+class TargetGroupMetadata:
+    """
+    Structured metadata about ONE target group in a PendingChoice. The
+    engine populates this when it emits a target-type pending choice so
+    the frontend can render proper UI ("Pick 3 of 6 — six different
+    creatures") without parsing card text.
+
+    Engine-agnostic: every game with targeting eventually needs
+    min/max/predicate/unique/divide/group-progress. Any future user-gen
+    game inherits the targeting UX by populating this struct.
+    """
+    label: str  # "Exile target", "Pick attacker", etc. — group-level label.
+    predicate_description: str  # "creature with power 3 or less", "opponent's monster".
+    min: int  # Minimum picks required (may equal max for "exactly N").
+    max: int  # Maximum picks allowed (1 for single-target; 6 for Hex; large for "up to N").
+    unique: bool = False  # "Different" / "distinct" constraint within the group.
+    divide: Optional[DivideAllocation] = None  # Distribute-quantity spells.
+    group_index: int = 0  # Zero-based; for multi-group spells.
+    total_groups: int = 1  # Frontend renders "Step 2 of 3" when > 1.
+
+
+@dataclass
 class PendingChoice:
     """
     Tracks when the game needs player input.
@@ -1427,6 +1465,10 @@ class PendingChoice:
     max_choices: int = 1  # Maximum number of choices allowed
     callback_data: dict = field(default_factory=dict)  # Data needed to continue after choice
     id: str = field(default_factory=new_id)  # Unique identifier for this choice
+    # Arc B — engine-supplied structured target hint for the client.
+    # Populated when choice_type == "target"; None otherwise. Frontend
+    # falls back to min_choices/max_choices/prompt when absent.
+    target_metadata: Optional[TargetGroupMetadata] = None
 
     def validate_selection(self, selected: list[Any]) -> tuple[bool, str]:
         """

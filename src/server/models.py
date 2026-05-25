@@ -386,6 +386,33 @@ class LegalActionData(BaseModel):
     requires_mana: bool = False
 
 
+class DivideAllocationData(BaseModel):
+    """Mirrors engine.types.DivideAllocation for serialization to the client.
+    Surfaced via PendingChoiceData.target_metadata.divide when the engine
+    is asking the player to distribute a quantity across targets."""
+    total: int
+    min_per_target: int = 0
+    allow_zero: bool = True
+
+
+class TargetGroupMetadataData(BaseModel):
+    """Mirrors engine.types.TargetGroupMetadata for serialization to the
+    client. Surfaced on PendingChoiceData when choice_type='target' or
+    'divide_allocation' so the targeting overlay pill can render proper
+    UI ("Pick 3 of 6 — different creatures") without parsing card text.
+
+    Engine-agnostic: any future user-gen game with targeting populates
+    this struct; the frontend inherits the targeting UX for free."""
+    label: str
+    predicate_description: str
+    min: int
+    max: int
+    unique: bool = False
+    divide: Optional[DivideAllocationData] = None
+    group_index: int = 0
+    total_groups: int = 1
+
+
 class PendingChoiceData(BaseModel):
     """Pending choice data for API responses."""
     id: str
@@ -402,6 +429,10 @@ class PendingChoiceData(BaseModel):
     # or ``"modal"`` keeps the legacy modal rendering used by every other
     # engine that emits a PendingChoice.
     interaction_mode: Optional[str] = None
+    # Arc B — structured target metadata for the client. Populated when
+    # the engine emits a 'target' or 'divide_allocation' choice. None
+    # for other choice_types; the frontend falls back to min/max + prompt.
+    target_metadata: Optional[TargetGroupMetadataData] = None
 
 
 class PendingChoiceWaitingData(BaseModel):

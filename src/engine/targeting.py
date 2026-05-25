@@ -215,6 +215,81 @@ class TargetFilter:
 
         return True
 
+    def describe(self) -> str:
+        """
+        Human-readable predicate, surfaced to the client via
+        PendingChoice.target_metadata.predicate_description so the
+        targeting overlay pill can render labels like
+        "creature with power 3 or less" without parsing card text.
+
+        The output is composed from the populated flag fields. Engines
+        that add custom predicate kinds (via custom_filter) should set
+        a fallback description in the filter's caller — we don't try
+        to introspect arbitrary callables.
+        """
+        parts: list[str] = []
+
+        # Controller scope ("opponent's", "your", or unspecified).
+        if self.controller == 'opponent':
+            parts.append("opponent's")
+        elif self.controller == 'you':
+            parts.append('your')
+
+        # Color hints (red, blue, ...).
+        if self.colors:
+            parts.append('/'.join(c.name.lower() for c in self.colors))
+        elif self.is_colorless:
+            parts.append('colorless')
+
+        # Type / subtype noun. Falls back to "target" when nothing's set.
+        if self.types:
+            type_names = sorted(t.name.lower() for t in self.types)
+            noun = ' or '.join(type_names)
+        elif self.includes_players and not self.types:
+            noun = 'any target'
+        else:
+            noun = 'target'
+        parts.append(noun)
+
+        if self.subtypes:
+            parts.append('(' + ' or '.join(sorted(self.subtypes)) + ')')
+
+        # State + stat filters in a parenthetical aside if any.
+        modifiers: list[str] = []
+        if self.power_max is not None and self.power_min is None:
+            modifiers.append(f'power ≤ {self.power_max}')
+        elif self.power_min is not None and self.power_max is None:
+            modifiers.append(f'power ≥ {self.power_min}')
+        elif self.power_max is not None and self.power_min is not None:
+            modifiers.append(f'power {self.power_min}-{self.power_max}')
+        if self.toughness_max is not None and self.toughness_min is None:
+            modifiers.append(f'toughness ≤ {self.toughness_max}')
+        elif self.toughness_min is not None and self.toughness_max is None:
+            modifiers.append(f'toughness ≥ {self.toughness_min}')
+        if self.mana_value_max is not None and self.mana_value_min is None:
+            modifiers.append(f'mana value ≤ {self.mana_value_max}')
+        elif self.mana_value_min is not None and self.mana_value_max is None:
+            modifiers.append(f'mana value ≥ {self.mana_value_min}')
+        if self.tapped is True:
+            modifiers.append('tapped')
+        if self.untapped is True:
+            modifiers.append('untapped')
+        if self.attacking:
+            modifiers.append('attacking')
+        if self.blocking:
+            modifiers.append('blocking')
+        if self.abilities:
+            modifiers.append('with ' + ', '.join(self.abilities))
+
+        if modifiers:
+            parts.append('(' + ', '.join(modifiers) + ')')
+
+        # exclude_self → "another"
+        if self.exclude_self:
+            parts.insert(0, 'another')
+
+        return ' '.join(parts).strip()
+
 
 @dataclass
 class TargetRequirement:

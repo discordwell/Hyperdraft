@@ -175,6 +175,7 @@ def create_choice_and_resolve(
     max_choices: int = 1,
     handler: Optional[Callable] = None,
     heuristic_pick: Any = None,
+    target_metadata: Any = None,  # Optional[TargetGroupMetadata] — Arc B.
     **extra_callback_data: Any,
 ) -> list[Event]:
     """Build a ``PendingChoice``, stash on ``state``, resolve if AI.
@@ -209,6 +210,7 @@ def create_choice_and_resolve(
         min_choices=min_choices,
         max_choices=max_choices,
         callback_data=callback_data,
+        target_metadata=target_metadata,
     )
     state.pending_choice = choice
     events, _selected = resolve_pending_choice_inline(state)

@@ -612,6 +612,20 @@ class PrioritySystem:
             heuristic = [{"target_id": legal_ids[0], "amount": total_amount}]
 
             prompt = req.label or f"Allocate {total_amount} damage among targets"
+            # Arc B — surface structured metadata so the frontend's
+            # divide-allocation UI renders proper labels + total.
+            from .types import TargetGroupMetadata, DivideAllocation
+            divide_metadata = TargetGroupMetadata(
+                label=req.label or "Allocate damage",
+                predicate_description=req.filter.describe(),
+                min=1,
+                max=len(options),
+                unique=False,
+                divide=DivideAllocation(total=total_amount, min_per_target=1, allow_zero=False),
+                group_index=idx,
+                total_groups=len(reqs),
+            )
+
             return create_choice_and_resolve(
                 self.state,
                 choice_type="divide_allocation",
@@ -623,6 +637,7 @@ class PrioritySystem:
                 max_choices=len(options),
                 handler=divide_handler,
                 heuristic_pick=heuristic,
+                target_metadata=divide_metadata,
                 total_amount=total_amount,
                 effect="damage",
                 interaction_mode="overlay",
@@ -672,6 +687,28 @@ class PrioritySystem:
         # propagated through ``callback_data`` to the client; other
         # engines that build choices via ``create_choice_and_resolve``
         # omit this hint and keep modal-style rendering.
+        #
+        # Arc B — TargetGroupMetadata gives the client structured info
+        # (label + predicate description + min/max + group progress) so
+        # the overlay pill renders proper UI ("Pick 1 of 3 — opponent's
+        # creature, Step 2 of 3") without parsing card text. Builders'
+        # describe() is engine-extensible — any new TargetFilter
+        # subclass / engine just emits the right string.
+        from .types import TargetGroupMetadata
+        max_int = int(max_t) if max_t != float('inf') else len(options)
+        metadata = TargetGroupMetadata(
+            label=req.label or "Choose a target",
+            predicate_description=req.filter.describe(),
+            min=min_t,
+            max=max_int,
+            # "Different" / "another" constraint: filter.exclude_self is the
+            # canonical signal; cross-target builders also set exclude_ids
+            # when they want unique-across-groups.
+            unique=bool(req.filter.exclude_self),
+            divide=None,
+            group_index=idx,
+            total_groups=len(reqs),
+        )
         return create_choice_and_resolve(
             self.state,
             choice_type="target",
@@ -680,9 +717,10 @@ class PrioritySystem:
             options=options,
             source_id=card.id,
             min_choices=min_t,
-            max_choices=int(max_t) if max_t != float('inf') else len(options),
+            max_choices=max_int,
             handler=handler,
             heuristic_pick=heuristic_picks,
+            target_metadata=metadata,
             interaction_mode="overlay",
         )
 
