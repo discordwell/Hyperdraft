@@ -17,8 +17,29 @@ import YGOExtraDeckModal from './YGOExtraDeckModal';
 import { YGODropChoicePopup } from './YGODropChoicePopup';
 import { useDraggable } from '../../hooks/useDraggable';
 import { useDropTarget } from '../../hooks/useDropTarget';
+import { useHandCard } from '../../hooks/useHandCard';
+import { useCardZone } from '../../hooks/useCardZone';
+import { type CardIntent } from '../../stores/cardZoneStore';
+import ZoneHighlight from '../cards/ZoneHighlight';
 import { cardSummon, handStagger, modalBackdrop, modalContent, gameOverOverlay } from '../../utils/ygoAnimations';
 import type { DragItem } from '../../hooks/useDragDrop';
+
+// YGO engine constants for the shared card-zone primitive. Monster zones
+// and spell/trap zones each have 5 slots per side; field spell is a single
+// shared slot. Attack-drag (own face-up ATK monster on opponent's monster)
+// stays on the legacy useDraggable in this PR — that's PR 4.1 scope.
+const YGO_ENGINE_ID = 'yugioh';
+const YGO_ACCENT = '#c4b5fd'; // duelist violet — distinguishes from MTG arcane
+const YGO_MZONE = (i: number) => `ygo-mzone-${i}`;
+const YGO_STZONE = (i: number) => `ygo-stzone-${i}`;
+const YGO_FIELD_SPELL = 'ygo-field-spell';
+
+function ygoIntent(isMonster: boolean, isSpell: boolean, isTrap: boolean): CardIntent {
+  if (isMonster) return 'summon';
+  if (isSpell) return 'activate';
+  if (isTrap) return 'set';
+  return 'play';
+}
 import { useCardPreviewStore, useCardPreviewBindings } from '../../hooks/useCardPreview';
 import { useCardInspector } from '../../hooks/useCardInspector';
 import CardPreviewWrapper from './shared/CardPreviewWrapper';
@@ -80,39 +101,45 @@ function YGODraggableHandCard({
   const isTrap = card.types?.includes('YGO_TRAP') ?? false;
   const isFieldSpell = isSpell && card.ygo_spell_type === 'Field';
 
-  const intent: DragItem['intent'] = isMonster ? 'summon' : isSpell ? 'activate' : 'set';
+  const intent: CardIntent = ygoIntent(isMonster, isSpell, isTrap);
 
-  const validDropZones = useMemo(() => {
+  // Valid zones depend on card type. Monsters land in empty m-zones,
+  // spells/traps land in empty st-zones, field spells go to the field
+  // spell slot (or any free st-zone). Engine validates server-side.
+  const validZones = useMemo(() => {
     const zones: string[] = [];
     if (isMonster) {
       myMonsterZones.forEach((slot, i) => {
-        if (!slot) zones.push(`ygo-mzone-${i}`);
+        if (!slot) zones.push(YGO_MZONE(i));
       });
     } else if (isFieldSpell) {
-      zones.push('ygo-field-spell');
-      // Also allow regular spell/trap zones
+      zones.push(YGO_FIELD_SPELL);
       mySpellTrapZones.forEach((slot, i) => {
-        if (!slot) zones.push(`ygo-stzone-${i}`);
+        if (!slot) zones.push(YGO_STZONE(i));
       });
     } else if (isSpell || isTrap) {
       mySpellTrapZones.forEach((slot, i) => {
-        if (!slot) zones.push(`ygo-stzone-${i}`);
+        if (!slot) zones.push(YGO_STZONE(i));
       });
     }
     return zones;
   }, [isMonster, isSpell, isTrap, isFieldSpell, myMonsterZones, mySpellTrapZones]);
 
-  const { dragProps, isBeingDragged } = useDraggable({
-    item: {
-      type: 'hand-card',
-      card,
-      gameMode: 'ygo',
-      intent,
-      sourceZone: 'hand',
-    },
-    validDropZones,
+  const handCard = useHandCard({
+    cardId: card.id,
+    cardName: card.name,
+    engineId: YGO_ENGINE_ID,
+    accent: YGO_ACCENT,
+    validZones: !isMyTurn ? [] : validZones,
+    intent,
     disabled: !isMyTurn,
   });
+  const isBeingDragged = handCard.isDragging;
+  const dragProps = {
+    draggable: handCard.draggable,
+    onDragStart: handCard.onDragStart,
+    onDragEnd: handCard.onDragEnd,
+  };
 
   // Preview bindings: right-click / long-press to pin the hand card preview.
   const previewProps = useCardPreviewBindings(card, { disabled: isBeingDragged });
@@ -141,11 +168,19 @@ function YGODraggableHandCard({
       }}
       whileHover={{ y: -20, scale: 1.1, zIndex: 20, rotate: 0 }}
     >
-      <span {...previewProps} className="inline-block">
+      <span
+        {...previewProps}
+        className="inline-block"
+        style={
+          handCard.isPrimed
+            ? { transform: 'translateY(-8px)', filter: `drop-shadow(0 0 10px ${YGO_ACCENT})`, transition: 'transform 120ms ease, filter 120ms ease' }
+            : undefined
+        }
+      >
         <YGOCard
           card={card}
           size="sm"
-          onClick={onClick}
+          onClick={() => { handCard.onClick(); onClick(); }}
           selected={selectedHandCard === card.id}
           animate={false}
           onHoverStart={onHoverStart}
@@ -193,12 +228,35 @@ function YGOMonsterZoneSlot({
   onMonsterDrop,
   onAttackDrop,
 }: YGOMonsterZoneSlotProps) {
-  // Drop target: my empty monster zone accepts monster hand cards
-  const { dropProps, isValidTarget, isHovered } = useDropTarget({
-    zoneId: `ygo-mzone-${index}`,
-    onDrop: (item: DragItem) => onMonsterDrop(item, index),
-    disabled: !isMine || !isMyTurn,
+  // Drop target: my empty monster zone accepts monster hand cards.
+  // Migrated to shared card-zone primitive. The onPlay callback
+  // synthesizes a DragItem-shaped value so the upstream onMonsterDrop
+  // handler (which expects DragItem) keeps working without modification.
+  const ownZone = useCardZone({
+    zoneId: YGO_MZONE(index),
+    engineId: YGO_ENGINE_ID,
+    onPlay: (cardId) => {
+      if (!isMine || !isMyTurn) return;
+      const item: DragItem = {
+        type: 'hand-card',
+        card: { id: cardId } as CardData,
+      } as DragItem;
+      onMonsterDrop(item, index);
+    },
   });
+  // onDragEnter aliased to onDragOver: legacy DropPropsType requires it,
+  // but the shared primitive uses onDragOver for both enter + over.
+  const dropProps = !isMine || !isMyTurn
+    ? undefined
+    : {
+        onClick: ownZone.onClick,
+        onDragOver: ownZone.onDragOver,
+        onDragEnter: ownZone.onDragOver,
+        onDragLeave: ownZone.onDragLeave,
+        onDrop: ownZone.onDrop,
+      };
+  const isValidTarget = ownZone.isValid;
+  const isHovered = ownZone.isHovered;
 
   // Drop target for opponent monsters: accept attack drags
   const oppDropZoneId = card ? card.id : `ygo-opp-mzone-empty-${index}`;
@@ -247,6 +305,7 @@ function YGOMonsterZoneSlot({
   return (
     <div
       className={`
+        relative
         w-[76px] h-[106px] border border-dashed rounded-lg flex items-center justify-center
         border-ygo-gold-dim/30
         ${!card ? 'bg-ygo-dark/40' : ''}
@@ -256,8 +315,16 @@ function YGOMonsterZoneSlot({
         transition-colors duration-200
       `}
       style={{ boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.3)' }}
-      {...(!card && isMine ? dropProps : {})}
+      {...(!card && isMine && dropProps ? dropProps : {})}
     >
+      {!card && isMine && (
+        <ZoneHighlight
+          isValid={ownZone.isValid}
+          isHovered={ownZone.isHovered}
+          hasActiveCard={ownZone.hasActiveCard}
+          activeAccent={ownZone.activeAccent}
+        />
+      )}
       <AnimatePresence mode="popLayout">
         {card && (
           <motion.div
@@ -323,15 +390,33 @@ function YGOSpellTrapZoneSlot({
   onHoverEnd,
   onSpellTrapDrop,
 }: YGOSpellTrapZoneSlotProps) {
-  const { dropProps, isValidTarget, isHovered } = useDropTarget({
-    zoneId: `ygo-stzone-${index}`,
-    onDrop: (item: DragItem) => onSpellTrapDrop(item, index),
-    disabled: !isMine || !isMyTurn,
+  const zone = useCardZone({
+    zoneId: YGO_STZONE(index),
+    engineId: YGO_ENGINE_ID,
+    onPlay: (cardId) => {
+      if (!isMine || !isMyTurn) return;
+      const item: DragItem = {
+        type: 'hand-card',
+        card: { id: cardId } as CardData,
+      } as DragItem;
+      onSpellTrapDrop(item, index);
+    },
   });
+  const dropProps = !isMine || !isMyTurn
+    ? undefined
+    : {
+        onClick: zone.onClick,
+        onDragOver: zone.onDragOver,
+        onDragLeave: zone.onDragLeave,
+        onDrop: zone.onDrop,
+      };
+  const isValidTarget = zone.isValid;
+  const isHovered = zone.isHovered;
 
   return (
     <div
       className={`
+        relative
         w-[76px] h-[106px] border border-dashed rounded-lg flex items-center justify-center
         border-teal-800/30
         ${!card ? 'bg-ygo-dark/40' : ''}
@@ -341,8 +426,16 @@ function YGOSpellTrapZoneSlot({
         transition-colors duration-200
       `}
       style={{ boxShadow: 'inset 0 2px 8px rgba(0,0,0,0.3)' }}
-      {...(!card && isMine ? dropProps : {})}
+      {...(!card && isMine && dropProps ? dropProps : {})}
     >
+      {!card && isMine && (
+        <ZoneHighlight
+          isValid={zone.isValid}
+          isHovered={zone.isHovered}
+          hasActiveCard={zone.hasActiveCard}
+          activeAccent={zone.activeAccent}
+        />
+      )}
       <AnimatePresence mode="popLayout">
         {card && (
           <motion.div
@@ -392,15 +485,24 @@ function YGOFieldSpellZone({
   onHoverStart,
   onHoverEnd,
 }: YGOFieldSpellZoneProps) {
-  const { dropProps, isValidTarget, isHovered } = useDropTarget({
-    zoneId: 'ygo-field-spell',
-    onDrop: (item: DragItem) => {
-      if (item.card?.id) {
-        onActivateCard(item.card.id);
-      }
+  const zone = useCardZone({
+    zoneId: YGO_FIELD_SPELL,
+    engineId: YGO_ENGINE_ID,
+    onPlay: (cardId) => {
+      if (!isMine || !isMyTurn) return;
+      onActivateCard(cardId);
     },
-    disabled: !isMine || !isMyTurn,
   });
+  const dropProps = !isMine || !isMyTurn
+    ? undefined
+    : {
+        onClick: zone.onClick,
+        onDragOver: zone.onDragOver,
+        onDragLeave: zone.onDragLeave,
+        onDrop: zone.onDrop,
+      };
+  const isValidTarget = zone.isValid;
+  const isHovered = zone.isHovered;
 
   if (card) {
     return (
@@ -414,13 +516,23 @@ function YGOFieldSpellZone({
   return (
     <div
       className={`
+        relative
         w-16 h-[88px] border border-dashed rounded-lg opacity-30
         ${isHovered ? 'border-ygo-gold opacity-100 bg-ygo-gold/10' : ''}
         ${isValidTarget ? 'border-green-800/60 opacity-60 bg-green-900/10' : 'border-green-800/20'}
         transition-all duration-200
       `}
-      {...(isMine ? dropProps : {})}
-    />
+      {...(isMine && dropProps ? dropProps : {})}
+    >
+      {isMine && (
+        <ZoneHighlight
+          isValid={zone.isValid}
+          isHovered={zone.isHovered}
+          hasActiveCard={zone.hasActiveCard}
+          activeAccent={zone.activeAccent}
+        />
+      )}
+    </div>
   );
 }
 
