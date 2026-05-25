@@ -518,6 +518,21 @@ export function GameView() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [ui.autoPassMode, ui.selectedAction, setAutoPassMode, enablePassUntilEndOfTurn, canAct, pass]);
 
+  // HD-CRIT-018 — derive pipeline events from game_log when present, fall
+  // back to sample data so the overlay always renders something demoable.
+  // Hook must live ABOVE the engine-route early-returns so React's hook
+  // counter stays stable across re-renders (otherwise the next render
+  // calls one more useMemo than the previous and crashes the page).
+  const pipelineEvents = useMemo<PipelineEvent[]>(() => {
+    if (gameState?.game_log && gameState.game_log.length > 0) {
+      return gameLogToPipelineEvents(
+        gameState.game_log,
+        gameState.players,
+      );
+    }
+    return SAMPLE_PIPELINE_EVENTS;
+  }, [gameState?.game_log, gameState?.players]);
+
   // Route to HS view for hearthstone-engine games
   if (gameState?.game_mode === 'hearthstone') {
     return <HSGameView />;
@@ -591,25 +606,6 @@ export function GameView() {
   const opponentName = opponentEntry ? (opponentEntry[1] as { name?: string }).name : undefined;
   const playerEntry = gameState?.players?.[playerId] as { name?: string } | undefined;
   const playerName = playerEntry?.name;
-
-  // HD-CRIT-018 — derive pipeline events from game_log when present, fall
-  // back to sample data so the overlay always renders something demoable.
-  //
-  // Real wiring TODO: the engine publishes events tagged with their
-  // InterceptorPriority stage in `src/engine/types.py`. The Socket.IO
-  // bridge currently flattens to GameLogEntry with a free-form event_type
-  // string; the stage tag is lost. To surface real stages, extend the
-  // server bridge to carry `stage` alongside `event_type`, then drop the
-  // heuristic here in favour of the server-supplied value.
-  const pipelineEvents = useMemo<PipelineEvent[]>(() => {
-    if (gameState?.game_log && gameState.game_log.length > 0) {
-      return gameLogToPipelineEvents(
-        gameState.game_log,
-        gameState.players,
-      );
-    }
-    return SAMPLE_PIPELINE_EVENTS;
-  }, [gameState?.game_log, gameState?.players]);
 
   // HD-CRIT 17 — read-only Timeline rail. During a live game we don't
   // know the total length, so we floor the right edge a few turns out and

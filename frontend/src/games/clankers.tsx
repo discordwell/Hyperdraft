@@ -613,7 +613,15 @@ function PlayerArea({
 
         {/* Center: assembly floor (top) + structures (bottom) */}
         <div className="col-span-7 flex flex-col gap-2">
-          <AssemblyFloor floor={state.assembly_floor} seat={seat} phase={phase} onAction={onAction} />
+          <AssemblyFloor
+            floor={state.assembly_floor}
+            seat={seat}
+            phase={phase}
+            onAction={onAction}
+            hand={state.hand}
+            isActive={isActive}
+            computePool={state.compute_pool}
+          />
           <StructuresRow structures={state.structures} seat={seat} />
         </div>
 
@@ -1017,11 +1025,17 @@ function AssemblyFloor({
   seat,
   phase,
   onAction,
+  hand,
+  isActive,
+  computePool,
 }: {
   floor: ClankersCard[];
   seat: ClankersSeat;
   phase: ClankersPhase;
   onAction: (a: ClankersAction) => void;
+  hand?: ClankersCard[];
+  isActive?: boolean;
+  computePool?: number;
 }) {
   // Show chassis first (with attached parts visible alongside them), then
   // any solo parts that aren't currently attached to a host.
@@ -1031,15 +1045,47 @@ function AssemblyFloor({
   );
   const isMe = seat === 'me';
   const canAttack = isMe && phase === 'combat';
+  const canDrop =
+    isMe &&
+    !!isActive &&
+    (phase === 'assemble' || phase === 'reassemble') &&
+    Array.isArray(hand);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const findHandCard = (id: string) =>
+    (hand ?? []).find((c) => c.id === id);
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!canDrop) return;
+    if (e.dataTransfer.types.includes('application/x-clankers-card')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (!isDragOver) setIsDragOver(true);
+    }
+  };
+  const handleDragLeave = () => setIsDragOver(false);
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    if (!canDrop) return;
+    const cardId = e.dataTransfer.getData('application/x-clankers-card');
+    const card = findHandCard(cardId);
+    if (!card) return;
+    if ((computePool ?? 0) < card.compute_cost) return;
+    playFromHand(card, onAction);
+  };
   return (
     <div
       className="rounded-sm border px-2 pb-3 pt-2"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       style={{
-        borderColor: CLANK.steelLight,
-        background: 'rgba(15, 23, 32, 0.65)',
+        borderColor: isDragOver ? CLANK.coolantBlue : CLANK.steelLight,
+        borderWidth: isDragOver ? 2 : 1,
+        background: isDragOver ? 'rgba(96, 165, 250, 0.10)' : 'rgba(15, 23, 32, 0.65)',
         minHeight: 220,
+        transition: 'border-color 120ms ease, background 120ms ease',
       }}
-      aria-label="Assembly floor"
+      aria-label={canDrop ? 'Assembly floor — drop a card here to play it' : 'Assembly floor'}
     >
       <div
         className="mb-2 flex items-center justify-between text-[10px] uppercase"
@@ -1581,10 +1627,20 @@ function MyHand({
             <button
               key={card.id}
               type="button"
+              draggable={enabled}
+              onDragStart={(e) => {
+                if (!enabled) {
+                  e.preventDefault();
+                  return;
+                }
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('application/x-clankers-card', card.id);
+                e.dataTransfer.setData('text/plain', card.name);
+              }}
               onClick={() => openInspector(card, affordable)}
               className="group transition-transform"
               style={{
-                cursor: 'pointer',
+                cursor: enabled ? 'grab' : 'pointer',
                 opacity: enabled ? 1 : 0.55,
               }}
             >

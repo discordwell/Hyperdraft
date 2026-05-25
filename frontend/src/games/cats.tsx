@@ -278,7 +278,13 @@ export function CatsBoardInner({ state, onAction }: BoardProps) {
 
       <div className="mx-auto flex max-w-7xl flex-col gap-4 px-6 pb-10 pt-2">
         <OpponentArea state={state.opponent} />
-        <TrickZone trick={state.current_trick} lead={state.lead_player} phase={state.phase} />
+        <TrickZone
+          trick={state.current_trick}
+          lead={state.lead_player}
+          phase={state.phase}
+          onDropCard={(cardId) => onAction({ type: 'CATS_PLAY_CARD', cardId })}
+          canDropCard={state.phase === 'pounce' || state.phase === 'counter_pounce'}
+        />
         <MyArea state={state.player} onAction={onAction} phase={state.phase} />
       </div>
 
@@ -494,11 +500,32 @@ function TrickZone({
   trick,
   lead,
   phase,
+  onDropCard,
+  canDropCard,
 }: {
   trick: CatsTrick;
   lead: 'me' | 'opponent';
   phase: CatsPhase;
+  onDropCard?: (cardId: string) => void;
+  canDropCard?: boolean;
 }) {
+  const [isDragOver, setIsDragOver] = useState(false);
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!canDropCard) return;
+    if (e.dataTransfer.types.includes('application/x-cats-card')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (!isDragOver) setIsDragOver(true);
+    }
+  };
+  const handleDragLeave = () => setIsDragOver(false);
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    if (!canDropCard) return;
+    const cardId = e.dataTransfer.getData('application/x-cats-card');
+    if (cardId && onDropCard) onDropCard(cardId);
+  };
   const ruleKey: CatsCategory | 'default' = trick.installed_rule ?? 'default';
   const ruleColor =
     ruleKey === 'default' ? COZY.warmTan : CATEGORY_TINT[ruleKey];
@@ -514,13 +541,19 @@ function TrickZone({
   return (
     <section
       className="relative flex items-center justify-center overflow-hidden rounded-xl border px-6 py-6"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       style={{
-        background:
-          'radial-gradient(ellipse at center, rgba(255,248,231,0.95) 0%, rgba(244,230,200,0.6) 100%)',
-        borderColor: COZY.warmTan,
+        background: isDragOver
+          ? 'radial-gradient(ellipse at center, rgba(231,179,90,0.45) 0%, rgba(244,230,200,0.6) 100%)'
+          : 'radial-gradient(ellipse at center, rgba(255,248,231,0.95) 0%, rgba(244,230,200,0.6) 100%)',
+        borderColor: isDragOver ? COZY.butterscotch : COZY.warmTan,
+        borderWidth: isDragOver ? 2 : 1,
         minHeight: 180,
+        transition: 'background 120ms ease, border-color 120ms ease',
       }}
-      aria-label="Trick zone"
+      aria-label="Trick zone — drop a card here to play it"
     >
       {/* Ambient drifting paw print — only visible when the stage is quiet so
           it never competes with played cards. */}
@@ -857,17 +890,27 @@ function MyHand({
   return (
     <div className="flex flex-col gap-1.5">
       <div className="text-[10px] uppercase tracking-[0.22em] opacity-60">
-        Your paw {playable ? '· tap a card to inspect, then Play' : '· tap to inspect'}
+        Your paw {playable ? '· tap to inspect · drag to the mood mat to play' : '· tap to inspect'}
       </div>
       <div className="flex flex-wrap gap-3">
         {cards.map((card) => (
           <button
             key={card.id}
             type="button"
+            draggable={playable}
+            onDragStart={(e) => {
+              if (!playable) {
+                e.preventDefault();
+                return;
+              }
+              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData('application/x-cats-card', card.id);
+              e.dataTransfer.setData('text/plain', card.name);
+            }}
             onClick={() => openInspector(card)}
             className="group transition-transform"
             style={{
-              cursor: 'pointer',
+              cursor: playable ? 'grab' : 'pointer',
               opacity: playable ? 1 : 0.78,
             }}
           >
