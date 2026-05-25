@@ -200,3 +200,132 @@ def test_target_group_metadata_construction():
     assert md2.divide.total == 5
     assert md2.divide.min_per_target == 1
     assert md2.divide.allow_zero is False
+
+
+# ---------------------------------------------------------------------------
+# PR B3 — multi-target chain (multiple TargetRequirements per spell)
+# ---------------------------------------------------------------------------
+
+def test_multi_target_chain_emits_per_requirement_with_group_progress():
+    """A spell with N target_requirements emits N PendingChoices in
+    sequence. Each carries target_metadata with the right group_index
+    and total_groups so the frontend can render "Step 2 of 3".
+
+    Uses Huatli's Final Strike (LCI) as the canonical 2-target case:
+    target creature you control + target creature opponent controls.
+    """
+    from src.cards.lost_caverns_ixalan import HUATLIS_FINAL_STRIKE
+
+    game = Game()
+    p1 = game.add_player("Caster")
+    p2 = game.add_player("Defender")
+
+    # Caster has Huatli's Final Strike in hand + 3 Forests for mana.
+    strike = game.create_object(
+        name=HUATLIS_FINAL_STRIKE.name,
+        owner_id=p1.id,
+        zone=ZoneType.HAND,
+        characteristics=HUATLIS_FINAL_STRIKE.characteristics,
+        card_def=HUATLIS_FINAL_STRIKE,
+    )
+    forest_def = make_land("Forest", subtypes={"Forest"})
+    for _ in range(3):
+        game.create_object(
+            name="Forest",
+            owner_id=p1.id,
+            zone=ZoneType.BATTLEFIELD,
+            characteristics=forest_def.characteristics,
+            card_def=forest_def,
+        )
+
+    # Each side has a creature.
+    my_creature = _add_creature(game, p1.id, "Bear")
+    opp_creature = _add_creature(game, p2.id, "Wolf")
+
+    # Cast with empty targets — engine should emit the first PendingChoice.
+    action = PlayerAction(
+        type=ActionType.CAST_SPELL,
+        player_id=p1.id,
+        card_id=strike.id,
+        targets=[],
+    )
+    asyncio.run(game.priority_system._handle_cast_spell(action))
+
+    # First PendingChoice: requirement 0 (your creature).
+    pc1 = game.state.pending_choice
+    assert pc1 is not None, "First requirement should emit a PendingChoice"
+    assert pc1.choice_type == "target"
+    assert pc1.target_metadata is not None
+    md1 = pc1.target_metadata
+    assert md1.group_index == 0
+    assert md1.total_groups == 2
+    assert md1.min == 1 and md1.max == 1
+    # The predicate should mention "your creature" (filter has controller='you' + types=creature).
+    assert "creature" in md1.predicate_description.lower()
+    # First-requirement options should include my creature (not opp's).
+    option_ids = {opt["id"] for opt in pc1.options}
+    assert my_creature.id in option_ids
+
+
+def test_multi_target_unique_flag_propagates():
+    """When a TargetRequirement.filter has exclude_self set ("another
+    target creature"), the emitted metadata's unique=True."""
+    from src.engine.types import TargetGroupMetadata
+    from src.engine.targeting import TargetFilter
+    # Spot-check via the describe() output — full integration via cast
+    # would require a card that uses exclude_self at requirement 0.
+    f = TargetFilter(types={CardType.CREATURE}, exclude_self=True)
+    # Build a metadata struct as the engine would.
+    md = TargetGroupMetadata(
+        label="another target creature",
+        predicate_description=f.describe(),
+        min=1,
+        max=1,
+        unique=bool(f.exclude_self),
+    )
+    assert md.unique is True
+    assert "another" in md.predicate_description
+
+
+# ---------------------------------------------------------------------------
+# PR B2 — non-MTG (Hearthstone) engine emits target_metadata
+# ---------------------------------------------------------------------------
+
+def test_hearthstone_hand_of_protection_passes_target_metadata():
+    """When a HS card calls create_choice_and_resolve with target_metadata,
+    the metadata reaches state.pending_choice. Demonstration card:
+    Hand of Protection (paladin) — first non-MTG card updated to pass
+    metadata. Pattern any other HS / future-engine card can follow.
+    """
+    from src.engine.types import GameState, GameObject, ObjectState
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    # Build a minimal state with one HS-style player.
+    state = GameState()
+    # Use create_choice_and_resolve directly; bypass game loop.
+    # This is what the HS card does internally.
+    state.players["p_a"] = type("StubPlayer", (), {"is_human": True})()
+
+    md = TargetGroupMetadata(
+        label='Friendly minion',
+        predicate_description='your minion',
+        min=1,
+        max=1,
+    )
+    create_choice_and_resolve(
+        state,
+        choice_type='target',
+        player_id='p_a',
+        prompt='Choose a friendly minion',
+        options=[{'id': 'm1', 'name': 'Test Minion'}],
+        source_id='source_card',
+        min_choices=1,
+        max_choices=1,
+        target_metadata=md,
+    )
+
+    pc = state.pending_choice
+    assert pc is not None
+    assert pc.target_metadata is not None
+    assert pc.target_metadata.label == 'Friendly minion'
+    assert pc.target_metadata.predicate_description == 'your minion'

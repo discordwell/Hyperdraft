@@ -85,6 +85,18 @@ def hand_of_protection_effect(obj, state, targets):
             tid = tid.get('id', best.id)
         return _hand_of_protection_resolve(obj, st, tid, friendly_set)
 
+    # Arc B — pass target_metadata so the frontend overlay pill renders
+    # "Friendly minion / your minion / Pick 1 of 1" (vs. the generic
+    # fallback). Any HS / non-MTG card emitting a target choice should
+    # follow this pattern; the metadata is a pure addition and never
+    # changes engine behavior.
+    from src.engine.types import TargetGroupMetadata
+    metadata = TargetGroupMetadata(
+        label='Friendly minion',
+        predicate_description='your minion',
+        min=1,
+        max=1,
+    )
     return create_choice_and_resolve(
         state,
         choice_type='target',
@@ -96,6 +108,8 @@ def hand_of_protection_effect(obj, state, targets):
         max_choices=1,
         handler=_resolve_handler,
         heuristic_pick=[best.id],
+        target_metadata=metadata,
+        interaction_mode='overlay',
     )
 
 HAND_OF_PROTECTION = make_spell(
