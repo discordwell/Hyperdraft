@@ -14,12 +14,12 @@ import YGOCardDetailPanel from './YGOCardDetailPanel';
 import YGOTurnBanner from './YGOTurnBanner';
 import YGOBanishedModal from './YGOBanishedModal';
 import YGOExtraDeckModal from './YGOExtraDeckModal';
-import { YGODropChoicePopup } from './YGODropChoicePopup';
 import { useDraggable } from '../../hooks/useDraggable';
 import { useDropTarget } from '../../hooks/useDropTarget';
 import { useHandCard } from '../../hooks/useHandCard';
 import { useCardZone } from '../../hooks/useCardZone';
 import { type CardIntent } from '../../stores/cardZoneStore';
+import { useDropChoiceStore } from '../../stores/dropChoiceStore';
 import ZoneHighlight from '../cards/ZoneHighlight';
 import { cardSummon, handStagger, modalBackdrop, modalContent, gameOverOverlay } from '../../utils/ygoAnimations';
 import type { DragItem } from '../../hooks/useDragDrop';
@@ -771,12 +771,12 @@ export function YGOGameBoard({
   const [showTurnBanner, setShowTurnBanner] = useState(false);
   const [graveyardFilter, setGraveyardFilter] = useState<'all' | 'monster' | 'spell' | 'trap'>('all');
 
-  // Drop choice popup state
-  const [dropChoice, setDropChoice] = useState<{
-    visible: boolean;
-    cardName: string;
-    choices: { label: string; action: () => void }[];
-  } | null>(null);
+  // Drop choice popup — migrated to shared dropChoiceStore (PR 1). The
+  // <DropChoicePopup /> is mounted once at App root and listens for
+  // open() calls from any engine. YGO uses it for Normal Summon vs Set
+  // (monster zones) and Activate vs Set (spell zones). The bespoke
+  // YGODropChoicePopup component was deleted in PR 4.1.
+  const openDropChoice = useDropChoiceStore((s) => s.open);
 
   // LP tracking for flash effects
   const prevMyLP = useRef(myPlayer?.lp ?? 8000);
@@ -971,30 +971,23 @@ export function YGOGameBoard({
     const cardId = item.card?.id;
     if (!cardId) return;
     const cardName = item.card?.name || 'Monster';
-    // Show choice popup: Normal Summon or Set
-    setDropChoice({
-      visible: true,
-      cardName,
-      choices: [
+    // Normal Summon vs Set — shared DropChoicePopup (mounted at App root).
+    openDropChoice(
+      { id: cardId, name: cardName, subtitle: 'Monster' },
+      [
         {
           label: 'Normal Summon',
-          action: () => {
-            onNormalSummon(cardId);
-            setDropChoice(null);
-            clearSelections();
-          },
+          variant: 'primary',
+          onClick: () => { onNormalSummon(cardId); clearSelections(); },
         },
         {
           label: 'Set',
-          action: () => {
-            onSetMonster(cardId);
-            setDropChoice(null);
-            clearSelections();
-          },
+          variant: 'secondary',
+          onClick: () => { onSetMonster(cardId); clearSelections(); },
         },
       ],
-    });
-  }, [onNormalSummon, onSetMonster, clearSelections]);
+    );
+  }, [onNormalSummon, onSetMonster, clearSelections, openDropChoice]);
 
   const handleSpellTrapZoneDrop = useCallback((item: DragItem, _slotIndex: number) => {
     const cardId = item.card?.id;
@@ -1003,35 +996,28 @@ export function YGOGameBoard({
     const isTrapCard = item.card?.types?.includes('YGO_TRAP');
 
     if (isTrapCard) {
-      // Traps can only be set
+      // Traps can only be set face-down — no choice needed.
       onSetSpellTrap(cardId);
       clearSelections();
-    } else {
-      // Spell: show choice popup: Activate or Set
-      setDropChoice({
-        visible: true,
-        cardName,
-        choices: [
-          {
-            label: 'Activate',
-            action: () => {
-              onActivateCard(cardId);
-              setDropChoice(null);
-              clearSelections();
-            },
-          },
-          {
-            label: 'Set',
-            action: () => {
-              onSetSpellTrap(cardId);
-              setDropChoice(null);
-              clearSelections();
-            },
-          },
-        ],
-      });
+      return;
     }
-  }, [onActivateCard, onSetSpellTrap, clearSelections]);
+    // Spell: Activate vs Set via shared DropChoicePopup.
+    openDropChoice(
+      { id: cardId, name: cardName, subtitle: 'Spell' },
+      [
+        {
+          label: 'Activate',
+          variant: 'primary',
+          onClick: () => { onActivateCard(cardId); clearSelections(); },
+        },
+        {
+          label: 'Set',
+          variant: 'secondary',
+          onClick: () => { onSetSpellTrap(cardId); clearSelections(); },
+        },
+      ],
+    );
+  }, [onActivateCard, onSetSpellTrap, clearSelections, openDropChoice]);
 
   const handleAttackDrop = useCallback((attackerId: string, targetId: string) => {
     onDeclareAttack(attackerId, targetId);
@@ -1339,13 +1325,9 @@ export function YGOGameBoard({
         onEndTurn={() => { onEndTurn(); clearSelections(); }}
       />
 
-      {/* Drop Choice Popup */}
-      <YGODropChoicePopup
-        visible={dropChoice?.visible ?? false}
-        cardName={dropChoice?.cardName ?? ''}
-        choices={dropChoice?.choices ?? []}
-        onCancel={() => setDropChoice(null)}
-      />
+      {/* Drop Choice Popup — replaced by shared <DropChoicePopup />
+          (PR 4.1) which is mounted once at App root and driven from
+          dropChoiceStore via openDropChoice() above. */}
 
       {/* Game over overlay */}
       <AnimatePresence>
