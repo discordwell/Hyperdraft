@@ -170,7 +170,11 @@ export function GameBoard({
     );
   }, [gameState.legal_actions]);
 
-  // Determine valid drop zones for a card being dragged
+  // Determine valid drop zones for a card being dragged. Returns
+  // engine-prefixed zone IDs (mtg-*) so cardZoneStore.validZoneIds
+  // matches the zoneId each MTG drop target registers under. Fixed
+  // PR 3 latent bug where 'battlefield-self' (legacy) didn't match
+  // 'mtg-battlefield-me' (new).
   const getValidDropZones = useCallback((card: CardData): string[] => {
     const zones: string[] = [];
     const action = getCardAction(card.id);
@@ -179,7 +183,7 @@ export function GameBoard({
 
     // Lands can be dropped on your battlefield
     if (action.type === 'PLAY_LAND') {
-      zones.push('battlefield-self');
+      zones.push('mtg-battlefield-me');
       return zones;
     }
 
@@ -188,14 +192,14 @@ export function GameBoard({
       if (action.requires_targets) {
         // Add all permanents as potential targets (server will validate)
         gameState.battlefield.forEach((perm) => {
-          zones.push(`card-${perm.id}`);
+          zones.push(`mtg-card-${perm.id}`);
         });
-        // Add players as targets
-        zones.push(`player-${playerId}`);
-        zones.push(`player-${opponentId}`);
+        // Add players as targets (player-portrait drop zones are PR 3.2)
+        zones.push(`mtg-player-${playerId}`);
+        zones.push(`mtg-player-${opponentId}`);
       } else {
         // Non-targeted spells can be dropped on your battlefield to cast
-        zones.push('battlefield-self');
+        zones.push('mtg-battlefield-me');
       }
     }
 

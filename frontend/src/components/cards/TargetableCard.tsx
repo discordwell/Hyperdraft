@@ -5,12 +5,16 @@
  * Used for targeted spells like removal, auras, etc.
  */
 
-import { useCallback, useState } from 'react';
 import clsx from 'clsx';
 import { Card } from './Card';
-import { useDragDropStore, type DragItem } from '../../hooks/useDragDrop';
+import { type DragItem } from '../../hooks/useDragDrop';
+import { useCardZone } from '../../hooks/useCardZone';
+import ZoneHighlight from './ZoneHighlight';
 import { useCardPreviewBindings } from '../../hooks/useCardPreview';
 import type { CardData } from '../../types';
+
+const MTG_ENGINE_ID = 'mtg';
+const MTG_CARD_ZONE = (id: string) => `mtg-card-${id}`;
 
 interface TargetableCardProps {
   card: CardData;
@@ -35,52 +39,31 @@ export function TargetableCard({
   onDrop,
   size = 'small',
 }: TargetableCardProps) {
-  const isDragging = useDragDropStore((s) => s.isDragging);
-  const validDropZones = useDragDropStore((s) => s.validDropZones);
-  const setHoveredZone = useDragDropStore((s) => s.setHoveredZone);
-  const hoveredDropZone = useDragDropStore((s) => s.hoveredDropZone);
-  const [isOver, setIsOver] = useState(false);
-
-  const dropZoneId = `card-${card.id}`;
-  const isValidDropTarget = isDragging && validDropZones.includes(dropZoneId);
-  const isActiveTarget = hoveredDropZone === dropZoneId;
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    if (!isValidDropTarget) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  }, [isValidDropTarget]);
-
-  const handleDragEnter = useCallback((e: React.DragEvent) => {
-    if (!isValidDropTarget) return;
-    e.preventDefault();
-    setIsOver(true);
-    setHoveredZone(dropZoneId);
-  }, [isValidDropTarget, dropZoneId, setHoveredZone]);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
-    setIsOver(false);
-    setHoveredZone(null);
-  }, [setHoveredZone]);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    if (!isValidDropTarget || !onDrop) return;
-    e.preventDefault();
-    e.stopPropagation();
-    setIsOver(false);
-    setHoveredZone(null);
-
-    try {
-      const data = e.dataTransfer.getData('application/json');
-      if (data) {
-        const item: DragItem = JSON.parse(data);
-        onDrop(item, card);
-      }
-    } catch (err) {
-      console.error('Failed to parse drag data:', err);
-    }
-  }, [isValidDropTarget, onDrop, card, setHoveredZone]);
+  // Migrated to shared card-zone primitive. Each permanent on the
+  // battlefield registers as a drop target with its own zoneId. When a
+  // hand-card's validZones includes this card's zoneId (computed by
+  // GameBoard.getValidDropZones for targeted spells), the zone glows
+  // arcane violet via <ZoneHighlight>.
+  //
+  // The legacy onDrop callback expects a DragItem with action + card.
+  // useCardZone gives us only the cardId at play-time, so we synthesize
+  // a minimal DragItem shell — GameBoard.handleCardDrop reads it back
+  // and looks up the full action from gameState.legal_actions.
+  const zone = useCardZone({
+    zoneId: MTG_CARD_ZONE(card.id),
+    engineId: MTG_ENGINE_ID,
+    onPlay: (handCardId) => {
+      if (!onDrop) return;
+      const item: DragItem = {
+        type: 'hand-card',
+        card: { id: handCardId } as CardData,
+      } as DragItem;
+      onDrop(item, card);
+    },
+  });
+  const isValidDropTarget = zone.isValid;
+  const isActiveTarget = zone.isHovered;
+  const isOver = zone.isHovered;
 
   // Preview (hover + pin) — disabled while being targeted by a drag so drop
   // interactions aren't disturbed.
@@ -96,11 +79,17 @@ export function TargetableCard({
           'ring-4 ring-emerald-400 rounded-xl scale-110 shadow-lg shadow-emerald-500/30': isActiveTarget || isOver,
         }
       )}
-      onDragOver={handleDragOver}
-      onDragEnter={handleDragEnter}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      onClick={zone.onClick}
+      onDragOver={zone.onDragOver}
+      onDragLeave={zone.onDragLeave}
+      onDrop={zone.onDrop}
     >
+      <ZoneHighlight
+        isValid={zone.isValid}
+        isHovered={zone.isHovered}
+        hasActiveCard={zone.hasActiveCard}
+        activeAccent={zone.activeAccent}
+      />
       <Card
         card={card}
         size={size}
