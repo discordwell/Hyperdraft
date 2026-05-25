@@ -171,6 +171,9 @@ interface PKMDropTargetCardProps {
   onHover?: (card: CardData | null) => void;
   onDropAttach: (energyCardId: string, pokemonId: string) => void;
   onDropEvolve: (evolutionCardId: string, pokemonId: string) => void;
+  /** Retreat — bench Pokemon receives the swap. Engine reads the active
+   *  Pokemon from primedCardId; this callback only needs the bench id. */
+  onDropRetreat: (benchPokemonId: string) => void;
 }
 
 function PKMDropTargetCard({
@@ -185,6 +188,7 @@ function PKMDropTargetCard({
   onHover,
   onDropAttach,
   onDropEvolve,
+  onDropRetreat,
 }: PKMDropTargetCardProps) {
   // Migrated to the shared card-zone primitive. The active intent ('attach'
   // for energy / 'evolve' for stage-1+) is set by the hand-card at drag /
@@ -198,6 +202,7 @@ function PKMDropTargetCard({
       const intent = useCardZoneStore.getState().activeIntent;
       if (intent === 'attach') onDropAttach(cardId, card.id);
       else if (intent === 'evolve') onDropEvolve(cardId, card.id);
+      else if (intent === 'retreat') onDropRetreat(card.id);
     },
   });
   const dropProps = isOpponent
@@ -519,15 +524,36 @@ export function PKMGameBoard({
     handleCancel();
   }, [onAttack, handleCancel]);
 
-  // Handle retreat button
+  // Handle retreat button — single bench Pokemon auto-resolves; multiple
+  // bench primes the active Pokemon in the shared card-zone store with
+  // intent='retreat' and the bench zones lit. Bench Pokemon's useCardZone
+  // routes the 'retreat' intent to onRetreat(thisBenchId) on click.
   const handleRetreatClick = useCallback(() => {
+    if (!myActivePokemon) return;
     if (myBench.length === 0) return;
     if (myBench.length === 1) {
       onRetreat(myBench[0].id);
-    } else {
-      setMode('select_retreat_target');
+      return;
     }
-  }, [myBench, onRetreat]);
+    const benchZoneIds = myBench.map((b) => PKM_POKEMON_ZONE(b.id));
+    useCardZoneStore
+      .getState()
+      .primeCard(myActivePokemon.id, PKM_ENGINE_ID, benchZoneIds, PKM_ACCENT, 'retreat');
+  }, [myActivePokemon, myBench, onRetreat]);
+
+  // Cancel a primed retreat (Esc, click-off, or any other dismissal).
+  // Bound to the existing handleCancel path so the old mode-state-machine
+  // cancel UX still works during the transition.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        const intent = useCardZoneStore.getState().activeIntent;
+        if (intent === 'retreat') useCardZoneStore.getState().clearAll();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // Handle ability use
   const handleAbilityClick = useCallback((pokemonId: string) => {
@@ -734,6 +760,7 @@ export function PKMGameBoard({
                   onHover={handleCardHover}
                   onDropAttach={onAttachEnergy}
                   onDropEvolve={onEvolve}
+                  onDropRetreat={onRetreat}
                 />
               </div>
             </motion.div>
@@ -778,6 +805,7 @@ export function PKMGameBoard({
                   onHover={handleCardHover}
                   onDropAttach={onAttachEnergy}
                   onDropEvolve={onEvolve}
+                  onDropRetreat={onRetreat}
                 />
               </motion.div>
             ))

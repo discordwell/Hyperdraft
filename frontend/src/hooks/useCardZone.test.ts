@@ -121,6 +121,36 @@ describe('useCardZone', () => {
     expect(onPlay).not.toHaveBeenCalled();
   });
 
+  it('routes retreat intent (PKM field-card flow)', () => {
+    // Retreat is field-card-origin: the active Pokemon primes itself
+    // with intent='retreat' and the bench zones are listed valid. A
+    // bench Pokemon's onPlay reads activeIntent and dispatches a retreat
+    // call. Pin the contract.
+    let observedIntent: string | null | undefined = 'unread';
+    const { result } = renderHook(() =>
+      useCardZone({
+        zoneId: 'pkm-pokemon-BENCH',
+        engineId: 'pokemon',
+        onPlay: () => {
+          observedIntent = useCardZoneStore.getState().activeIntent;
+        },
+      }),
+    );
+
+    act(() => {
+      useCardZoneStore
+        .getState()
+        .primeCard('ACTIVE', 'pokemon', ['pkm-pokemon-BENCH'], '#fca5a5', 'retreat');
+    });
+
+    act(() => {
+      result.current.onClick();
+    });
+
+    expect(observedIntent).toBe('retreat');
+    expect(useCardZoneStore.getState().activeIntent).toBeNull();
+  });
+
   it('onClick ignores clicks on zones not in the validZoneIds set', () => {
     const onPlay = vi.fn();
     const { result } = renderHook(() =>

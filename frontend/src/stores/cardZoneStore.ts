@@ -29,6 +29,11 @@ import { create } from 'zustand';
  *
  * The verb taxonomy mirrors the legacy `dragDropStore` DragIntent so
  * engines migrating off dnd-kit keep their existing routing logic.
+ *
+ * `retreat` is field-card-origin (not from hand): the active Pokemon
+ * primes itself, valid zones = the bench. Same primitive, different
+ * source. Lets the retreat flow share the click-prime / lit-zone /
+ * click-target vocabulary instead of running on its own state machine.
  */
 export type CardIntent =
   | 'play'
@@ -37,7 +42,8 @@ export type CardIntent =
   | 'evolve'
   | 'summon'
   | 'set'
-  | 'activate';
+  | 'activate'
+  | 'retreat';
 
 export interface CardZoneState {
   /** Card the user has clicked to commit (click-prime path). */
