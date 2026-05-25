@@ -10,7 +10,25 @@ import { useGame } from '../hooks/useGame';
 import { useDiscoveryStore } from '../stores/discoveryStore';
 import { useGameStore } from '../stores/gameStore';
 import { useDragDropStore } from '../hooks/useDragDrop';
+import { useCardZoneStore } from '../stores/cardZoneStore';
 import { useAltP } from '../hooks/useAltP';
+
+// Engine accent palette for overlay-mode pending_choice highlighting.
+// Mirrors the per-engine accents used by each game's hand-card primitive.
+// Kept here (rather than in cardZoneStore) so the store stays
+// engine-agnostic — the caller picks the accent.
+const ENGINE_ACCENT_BY_MODE: Record<string, string> = {
+  mtg: '#a78bfa',
+  hearthstone: '#fbbf24',
+  pokemon: '#fca5a5',
+  yugioh: '#c4b5fd',
+  cats: '#fbbf24',
+  clankers: '#60a5fa',
+  minecraft: '#a3e635',
+  depths: '#22d3ee',
+  finance: '#86efac',
+  scp: '#f97316',
+};
 import { GameBoard, GraveyardModal, PriorityPrompt } from '../components/game';
 import { GameLog } from '../components/game/GameLog';
 import { AnimationsToggle } from '../components/game/shared/AnimationsToggle';
@@ -444,6 +462,42 @@ export function GameView() {
     if (!pendingChoice) return null;
     return pendingChoice.interaction_mode === 'overlay' ? pendingChoice : null;
   }, [pendingChoice]);
+
+  // Arc A — fold MTG cast-time targeting into the shared cardZoneStore.
+  // When an overlay-mode pending_choice arrives, prime the store with
+  // its options as valid zones. Each click on a lit zone appends to
+  // pendingTargets; the overlay pill (in ChoiceModal) submits via
+  // matchAPI.submitChoice when min/max satisfied.
+  useEffect(() => {
+    const store = useCardZoneStore.getState();
+    if (overlayPendingChoice && gameState?.game_mode) {
+      const accent = ENGINE_ACCENT_BY_MODE[gameState.game_mode] ?? '#a78bfa';
+      const optionIds = (overlayPendingChoice.options ?? [])
+        .map((opt) => (typeof opt === 'string' ? opt : opt.id))
+        .filter((id): id is string => typeof id === 'string');
+      // Re-prime on id transition (engine emitted a new choice).
+      if (store.activeChoiceId !== overlayPendingChoice.id) {
+        store.primeFromChoice({
+          choiceId: overlayPendingChoice.id,
+          sourceId: overlayPendingChoice.source_id ?? null,
+          prompt: overlayPendingChoice.prompt ?? 'Pick a target',
+          engineId: gameState.game_mode,
+          accent,
+          optionIds,
+          // Arc B will populate target_metadata; until then, synthesize
+          // a minimal shape from min/max so the pill renders progress.
+          metadata: {
+            label: overlayPendingChoice.prompt ?? 'Target',
+            predicate_description: '',
+            min: overlayPendingChoice.min_choices ?? 1,
+            max: overlayPendingChoice.max_choices ?? 1,
+          },
+        });
+      }
+    } else if (store.activeChoiceId !== null) {
+      store.clearChoice();
+    }
+  }, [overlayPendingChoice, gameState?.game_mode]);
 
   // Handle choice submission
   const handleChoiceSubmit = useCallback(async (selectedIds: string[]) => {

@@ -121,6 +121,66 @@ describe('useCardZone', () => {
     expect(onPlay).not.toHaveBeenCalled();
   });
 
+  it('choice-driven path: onClick appends to pendingTargets and does NOT call onPlay', () => {
+    // Arc A: when a server PendingChoice (or synthesized one) primes the
+    // store, clicks on lit zones accumulate via togglePendingTarget. The
+    // overlay pill submits the final selection — useCardZone.onPlay is
+    // not invoked in the choice-driven path.
+    const onPlay = vi.fn();
+    const { result } = renderHook(() =>
+      useCardZone({ zoneId: 'mtg-card-A', engineId: 'mtg', onPlay }),
+    );
+
+    act(() => {
+      useCardZoneStore.getState().primeFromChoice({
+        choiceId: 'mtg-multi-spell',
+        sourceId: 'spell',
+        prompt: 'Pick second target',
+        engineId: 'mtg',
+        accent: '#a78bfa',
+        optionIds: ['mtg-card-A', 'mtg-card-B'],
+        metadata: { label: '', predicate_description: '', min: 1, max: 1 },
+      });
+    });
+
+    act(() => {
+      result.current.onClick();
+    });
+
+    expect(onPlay).not.toHaveBeenCalled();
+    expect(useCardZoneStore.getState().pendingTargets).toEqual(['mtg-card-A']);
+    // Choice still active — pill drives the submit.
+    expect(useCardZoneStore.getState().activeChoiceId).toBe('mtg-multi-spell');
+  });
+
+  it('choice-driven path: drag drop also toggles pendingTargets', () => {
+    const onPlay = vi.fn();
+    const { result } = renderHook(() =>
+      useCardZone({ zoneId: 'mtg-card-A', engineId: 'mtg', onPlay }),
+    );
+
+    act(() => {
+      useCardZoneStore.getState().primeFromChoice({
+        choiceId: 'c', sourceId: null, prompt: '', engineId: 'mtg', accent: '#a78bfa',
+        optionIds: ['mtg-card-A'],
+        metadata: { label: '', predicate_description: '', min: 1, max: 1 },
+      });
+    });
+
+    const mockData: Record<string, string> = { 'application/x-mtg-card': 'spell-id' };
+    const fakeEvt = {
+      preventDefault: vi.fn(),
+      dataTransfer: { getData: (type: string) => mockData[type] ?? '' },
+    } as unknown as React.DragEvent;
+
+    act(() => {
+      result.current.onDrop(fakeEvt);
+    });
+
+    expect(onPlay).not.toHaveBeenCalled();
+    expect(useCardZoneStore.getState().pendingTargets).toEqual(['mtg-card-A']);
+  });
+
   it('multi-target second pick: primeCard arms second-target zones', () => {
     // Mirrors MTG PR 3.3: after the user drops a multi-target spell on
     // the first target, GameBoard primes the spell with the second-

@@ -59,20 +59,34 @@ export function useCardZone(opts: UseCardZoneOptions): UseCardZoneResult {
   const accentColor = useCardZoneStore((s) => s.accentColor);
   const activeEngine = useCardZoneStore((s) => s.engineId);
   const activeIntent = useCardZoneStore((s) => s.activeIntent);
+  const activeChoiceId = useCardZoneStore((s) => s.activeChoiceId);
   const setHoveredZone = useCardZoneStore((s) => s.setHoveredZone);
   const clearAll = useCardZoneStore((s) => s.clearAll);
+  const togglePendingTarget = useCardZoneStore((s) => s.togglePendingTarget);
 
+  // The "active card" is either: a click-primed card, a drag-in-progress
+  // card, or a choice-driven target hunt. All three light up the same
+  // valid zones and show the same accent.
   const activeCardId = dragCardId ?? primedCardId;
-  const hasActiveCard = activeCardId !== null;
+  const hasActiveCard = activeCardId !== null || activeChoiceId !== null;
   const isValid =
     hasActiveCard && activeEngine === engineId && validZoneIds.has(zoneId);
   const isHovered = hoveredZoneId === zoneId;
 
   const onClick = useCallback(() => {
-    // Only the click-prime path triggers here — drag path uses onDrop.
-    if (!primedCardId) return;
     if (activeEngine !== engineId) return;
     if (!validZoneIds.has(zoneId)) return;
+
+    // Choice-driven path: zone is a target option for a PendingChoice.
+    // Append to pendingTargets; do NOT call onPlay (the choice modal /
+    // overlay pill submits the accumulated selection to the server).
+    if (activeChoiceId) {
+      togglePendingTarget(zoneId);
+      return;
+    }
+
+    // Card-driven path: hand card primed, click commits the play.
+    if (!primedCardId) return;
     const cardId = primedCardId;
     // Fire onPlay BEFORE clearAll: engines like Pokemon read
     // `useCardZoneStore.getState().activeIntent` inside onPlay to route
@@ -80,7 +94,7 @@ export function useCardZone(opts: UseCardZoneOptions): UseCardZoneResult {
     // after-clear gives the wrong answer.
     onPlay(cardId);
     clearAll();
-  }, [primedCardId, activeEngine, engineId, validZoneIds, zoneId, clearAll, onPlay]);
+  }, [primedCardId, activeEngine, engineId, validZoneIds, zoneId, clearAll, onPlay, activeChoiceId, togglePendingTarget]);
 
   const onDragOver = useCallback(
     (e: React.DragEvent) => {
@@ -103,12 +117,19 @@ export function useCardZone(opts: UseCardZoneOptions): UseCardZoneResult {
       if (!cardId) return;
       if (!validZoneIds.has(zoneId)) return;
       e.preventDefault();
-      // Same ordering as onClick — onPlay reads activeIntent (and other
-      // store state); clearAll only after dispatch.
+
+      // Choice-driven: a drag landed on a target option. Same as click.
+      if (activeChoiceId) {
+        togglePendingTarget(zoneId);
+        return;
+      }
+
+      // Card-driven: same ordering as onClick — onPlay reads activeIntent
+      // (and other store state); clearAll only after dispatch.
       onPlay(cardId);
       clearAll();
     },
-    [engineId, validZoneIds, zoneId, clearAll, onPlay],
+    [engineId, validZoneIds, zoneId, clearAll, onPlay, activeChoiceId, togglePendingTarget],
   );
 
   return {

@@ -5,7 +5,7 @@
  * Manages drag and drop interactions between hand and battlefield.
  */
 
-import { useMemo, useCallback, useEffect } from 'react';
+import { useMemo, useCallback, useEffect, useState } from 'react';
 import { TargetablePlayer } from './TargetablePlayer';
 import { PhaseIndicator } from './PhaseIndicator';
 import { Battlefield } from './Battlefield';
@@ -13,11 +13,12 @@ import { HandView } from './HandView';
 import { StackView } from './StackView';
 import { TriggerQueuePanel } from './TriggerQueuePanel';
 import MTGCardDetailPanel from './MTGCardDetailPanel';
-import { MultiTargetModal } from '../actions/MultiTargetModal';
+// MultiTargetModal removed in PR A1 — second-target selection flows
+// through cardZoneStore + the overlay pill in ChoiceModal.
 import { LegendaryEntranceOverlay } from './shared/LegendaryEntranceOverlay';
 import { BattlefieldEventLayer } from './shared/DamageFloater';
 import { useBattlefieldEvents } from '../../hooks/useBattlefieldEvents';
-import { useDragDropStore, type DragItem } from '../../hooks/useDragDrop';
+import { type DragItem } from '../../hooks/useDragDrop';
 import { useCardZoneStore } from '../../stores/cardZoneStore';
 import { useCardPreviewStore } from '../../hooks/useCardPreview';
 import type { GameState, CardData, LegalActionData, PendingChoice } from '../../types';
@@ -63,13 +64,21 @@ export function GameBoard({
   overlayPendingChoice = null,
   onSubmitOverlayChoice,
 }: GameBoardProps) {
-  const multiTargetMode = useDragDropStore((s) => s.multiTargetMode);
-  const multiTargetSpell = useDragDropStore((s) => s.multiTargetSpell);
-  const multiTargetCardId = useDragDropStore((s) => s.multiTargetCardId);
-  const firstTarget = useDragDropStore((s) => s.firstTarget);
-  const secondTargetOptions = useDragDropStore((s) => s.secondTargetOptions);
-  const startMultiTargetMode = useDragDropStore((s) => s.startMultiTargetMode);
-  const cancelMultiTarget = useDragDropStore((s) => s.cancelMultiTarget);
+  // Arc A — multi-target second-pick now lives in cardZoneStore instead
+  // of dragDropStore. GameBoard tracks just the cast context (card +
+  // first target + dispatch kind) so the auto-confirm useEffect can fire
+  // onCastMultiTargetSpell when the second target lands. The heuristic
+  // detectMultiTarget stays for now; Arc B removes it once the engine
+  // emits target metadata directly.
+  const [multiTargetContext, setMultiTargetContext] = useState<{
+    cardId: string;
+    firstTarget: string;
+    // Whether the second target is expected to be a player (vs. a permanent).
+    // Used to strip the right engine-prefix from the zone id when dispatching.
+    secondIsPlayer: boolean;
+  } | null>(null);
+  const activeChoiceId = useCardZoneStore((s) => s.activeChoiceId);
+  const pendingTargets = useCardZoneStore((s) => s.pendingTargets);
 
   // Wire damage/heal/death floaters
   useBattlefieldEvents(gameState, 'mtg');
@@ -286,26 +295,17 @@ export function GameBoard({
     return { needsSecond: false, secondTargetType: 'any_permanent' };
   }, []);
 
-  // Handle dropping/clicking a spell on a target card. There are three
-  // distinct phases here:
-  //   1. First drop of a multi-target spell    → start multi-target mode
-  //      and prime cardZoneStore so the second-target candidates glow.
-  //   2. Click/drop on a glowing second-target → fire the cast with both.
-  //   3. Single-target drop                    → cast immediately.
+  // Handle dropping/clicking a spell on a target card. Two phases now:
+  //   1. First drop of a multi-target spell → prime cardZoneStore with
+  //      the second-target options + store cast context locally. The
+  //      auto-confirm effect below dispatches onCastMultiTargetSpell
+  //      when the user picks the second target via lit zone.
+  //   2. Single-target drop → cast immediately.
+  //
+  // (The legacy "Phase 2" branch — handling the second-target click
+  // here in handleCardDrop — is gone. The second click now flows
+  // through useCardZone → togglePendingTarget → the effect.)
   const handleCardDrop = useCallback((item: DragItem, targetCard: CardData) => {
-    // Phase 2 — we're already in multi-target mode; this click/drop is
-    // the second target. Read state from the store directly to avoid
-    // stale closure values.
-    const dd = useDragDropStore.getState();
-    if (dd.multiTargetMode && dd.multiTargetCardId && dd.firstTarget) {
-      onCastMultiTargetSpell?.(dd.multiTargetCardId, [[dd.firstTarget], [targetCard.id]]);
-      // Clear both stores so no second-target glow lingers and the
-      // legacy modal closes.
-      useCardZoneStore.getState().clearAll();
-      cancelMultiTarget();
-      return;
-    }
-
     if (!item.action || !item.card) return;
 
     if (item.action.type === 'CAST_SPELL' && item.action.requires_targets) {
@@ -337,17 +337,35 @@ export function GameBoard({
         }
 
         if (secondTargets.length > 0) {
-          startMultiTargetMode(item.action, item.card.id, targetCard.id, secondTargets);
-          // Phase 1 — prime cardZoneStore with the second-target options
-          // so they light up arcane violet (matches the rest of MTG
-          // vocabulary). The existing MultiTargetModal still renders as
-          // the secondary hint.
-          const validZones = secondTargetType === 'player'
+          const secondIsPlayer = secondTargetType === 'player';
+          const validZones = secondIsPlayer
             ? secondTargets.map(MTG_PLAYER_ZONE)
             : secondTargets.map(MTG_CARD_ZONE);
-          useCardZoneStore
-            .getState()
-            .primeCard(item.card.id, MTG_ENGINE_ID, validZones, MTG_ACCENT, 'play');
+          // Store cast context; the auto-confirm effect picks it up
+          // when pendingTargets fills.
+          setMultiTargetContext({
+            cardId: item.card.id,
+            firstTarget: targetCard.id,
+            secondIsPlayer,
+          });
+          // Synthesize a choice for the second target. choiceId is
+          // prefixed `mtg-multi-` so it never collides with a real
+          // server-side pending_choice id. Arc B replaces this
+          // synthesis with a real engine-emitted PendingChoice.
+          useCardZoneStore.getState().primeFromChoice({
+            choiceId: `mtg-multi-${item.card.id}`,
+            sourceId: item.card.id,
+            prompt: 'Pick second target',
+            engineId: MTG_ENGINE_ID,
+            accent: MTG_ACCENT,
+            optionIds: validZones,
+            metadata: {
+              label: 'Second target',
+              predicate_description: '',
+              min: 1,
+              max: 1,
+            },
+          });
           return;
         }
       }
@@ -355,23 +373,11 @@ export function GameBoard({
       // Single target spell - cast immediately
       onCastSpell?.(item.card.id, [targetCard.id]);
     }
-  }, [gameState.battlefield, playerId, opponentId, onCastSpell, onCastMultiTargetSpell, startMultiTargetMode, cancelMultiTarget, detectMultiTarget]);
+  }, [gameState.battlefield, playerId, opponentId, onCastSpell, detectMultiTarget]);
 
-  // Handle dropping/clicking a spell on a player portrait. Same three
-  // phases as handleCardDrop. Most multi-target spells second-target a
-  // permanent, not a player, so this path is rarely the cast-finisher,
-  // but Wear // Tear and friends use it.
+  // Handle dropping/clicking a spell on a player portrait. Same two
+  // phases as handleCardDrop, second-target via cardZoneStore.
   const handlePlayerDrop = useCallback((item: DragItem, targetPlayerId: string) => {
-    // Phase 2 — already in multi-target mode; this click is the second
-    // target (player).
-    const dd = useDragDropStore.getState();
-    if (dd.multiTargetMode && dd.multiTargetCardId && dd.firstTarget) {
-      onCastMultiTargetSpell?.(dd.multiTargetCardId, [[dd.firstTarget], [targetPlayerId]]);
-      useCardZoneStore.getState().clearAll();
-      cancelMultiTarget();
-      return;
-    }
-
     if (!item.action || !item.card) return;
 
     if (item.action.type === 'CAST_SPELL' && item.action.requires_targets) {
@@ -379,46 +385,60 @@ export function GameBoard({
 
       if (needsSecond && secondTargetType === 'player') {
         const otherPlayer = targetPlayerId === playerId ? opponentId : playerId;
-        startMultiTargetMode(item.action, item.card.id, targetPlayerId, [otherPlayer]);
-        useCardZoneStore
-          .getState()
-          .primeCard(item.card.id, MTG_ENGINE_ID, [MTG_PLAYER_ZONE(otherPlayer)], MTG_ACCENT, 'play');
+        setMultiTargetContext({
+          cardId: item.card.id,
+          firstTarget: targetPlayerId,
+          secondIsPlayer: true,
+        });
+        useCardZoneStore.getState().primeFromChoice({
+          choiceId: `mtg-multi-${item.card.id}`,
+          sourceId: item.card.id,
+          prompt: 'Pick second target',
+          engineId: MTG_ENGINE_ID,
+          accent: MTG_ACCENT,
+          optionIds: [MTG_PLAYER_ZONE(otherPlayer)],
+          metadata: {
+            label: 'Second target',
+            predicate_description: 'player',
+            min: 1,
+            max: 1,
+          },
+        });
         return;
       }
 
       // Single target spell targeting player - cast immediately
       onCastSpell?.(item.card.id, [targetPlayerId]);
     }
-  }, [playerId, opponentId, onCastSpell, onCastMultiTargetSpell, startMultiTargetMode, cancelMultiTarget, detectMultiTarget]);
+  }, [playerId, opponentId, onCastSpell, detectMultiTarget]);
 
-  // Handle selecting the second target in multi-target mode. Called by
-  // the legacy <MultiTargetModal> when the user clicks a candidate in
-  // the modal. The new card-zone click-prime path (clicking a glowing
-  // permanent on the board) routes through handleCardDrop / handlePlayerDrop
-  // → both paths converge on onCastMultiTargetSpell.
-  const handleSecondTargetSelect = useCallback((targetId: string) => {
-    if (!multiTargetCardId || !firstTarget) return;
-    onCastMultiTargetSpell?.(multiTargetCardId, [[firstTarget], [targetId]]);
-    useCardZoneStore.getState().clearAll();
-  }, [multiTargetCardId, firstTarget, onCastMultiTargetSpell]);
-
-  // Handle canceling multi-target selection. Clear cardZoneStore too so
-  // the second-target glow disappears.
-  const handleMultiTargetCancel = useCallback(() => {
-    cancelMultiTarget();
-    useCardZoneStore.getState().clearAll();
-  }, [cancelMultiTarget]);
-
-  // Get cards for multi-target modal
-  const multiTargetCards = useMemo(() => {
-    return gameState.battlefield.filter((p) => secondTargetOptions.includes(p.id));
-  }, [gameState.battlefield, secondTargetOptions]);
-
-  // Get the first target card for display in modal
-  const firstTargetCard = useMemo(() => {
-    if (!firstTarget) return undefined;
-    return gameState.battlefield.find((p) => p.id === firstTarget);
-  }, [gameState.battlefield, firstTarget]);
+  // Auto-confirm effect — when the user picks the second target via
+  // cardZoneStore (lit zone click), the choice's pendingTargets fills.
+  // For MTG multi-target this means we have everything we need to fire
+  // onCastMultiTargetSpell. Also clears the local context when the
+  // choice is cancelled (activeChoiceId goes null) without completing.
+  useEffect(() => {
+    if (!multiTargetContext) return;
+    if (!activeChoiceId) {
+      // Choice was cleared (Cancel pill or other), abandon cast.
+      setMultiTargetContext(null);
+      return;
+    }
+    if (pendingTargets.length >= 1) {
+      // Got the second target — recover the raw id from the zone prefix.
+      // Same prefix the primeFromChoice call used above.
+      const prefix = multiTargetContext.secondIsPlayer ? 'mtg-player-' : 'mtg-card-';
+      const rawSecondTarget = pendingTargets[0].startsWith(prefix)
+        ? pendingTargets[0].slice(prefix.length)
+        : pendingTargets[0];
+      onCastMultiTargetSpell?.(
+        multiTargetContext.cardId,
+        [[multiTargetContext.firstTarget], [rawSecondTarget]],
+      );
+      useCardZoneStore.getState().clearChoice();
+      setMultiTargetContext(null);
+    }
+  }, [activeChoiceId, pendingTargets, multiTargetContext, onCastMultiTargetSpell]);
 
   return (
     <div className="flex flex-col h-full gap-3 p-4 bg-game-bg">
@@ -537,16 +557,11 @@ export function GameBoard({
         </div>
       )}
 
-      {/* Multi-Target Modal */}
-      {multiTargetMode && (
-        <MultiTargetModal
-          availableTargets={multiTargetCards}
-          firstTargetCard={firstTargetCard}
-          targetPrompt={multiTargetSpell?.description || 'Select a permanent to target'}
-          onSelect={handleSecondTargetSelect}
-          onCancel={handleMultiTargetCancel}
-        />
-      )}
+      {/* Multi-Target Modal removed in PR A1. Second-target selection now
+          goes through cardZoneStore: the spell drops on the first target,
+          cardZoneStore is primed with second-target candidates, lit zones
+          show on the board, and the overlay pill in ChoiceModal handles
+          progress + Confirm + Cancel. Auto-confirm at max fires the cast. */}
     </div>
   );
 }

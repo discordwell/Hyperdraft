@@ -146,4 +146,109 @@ describe('cardZoneStore', () => {
       expect(selectIsZoneHovered('z2')(s)).toBe(false);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Arc A — choice-driven flow (PR A1).
+  // -------------------------------------------------------------------------
+  describe('primeFromChoice (Arc A)', () => {
+    it('lights up option zones with engine accent + intent=target', () => {
+      useCardZoneStore.getState().primeFromChoice({
+        choiceId: 'choice-1',
+        sourceId: 'spell-bolt',
+        prompt: 'Pick a target',
+        engineId: 'mtg',
+        accent: '#a78bfa',
+        optionIds: ['mtg-card-A', 'mtg-card-B'],
+      });
+      const s = useCardZoneStore.getState();
+      expect(s.activeChoiceId).toBe('choice-1');
+      expect(s.activeIntent).toBe('target');
+      expect(s.engineId).toBe('mtg');
+      expect(s.accentColor).toBe('#a78bfa');
+      expect(Array.from(s.validZoneIds).sort()).toEqual(['mtg-card-A', 'mtg-card-B']);
+      expect(s.pendingTargets).toEqual([]);
+    });
+
+    it('clears any card-driven prime when a choice arrives', () => {
+      useCardZoneStore.getState().primeCard('hand-spell', 'mtg', ['mtg-battlefield-me'], '#a78bfa');
+      useCardZoneStore.getState().primeFromChoice({
+        choiceId: 'choice-1',
+        sourceId: 'spell-bolt',
+        prompt: 'Pick',
+        engineId: 'mtg',
+        accent: '#a78bfa',
+        optionIds: ['mtg-card-A'],
+      });
+      expect(useCardZoneStore.getState().primedCardId).toBeNull();
+      expect(useCardZoneStore.getState().activeChoiceId).toBe('choice-1');
+    });
+
+    it('togglePendingTarget appends new picks', () => {
+      useCardZoneStore.getState().primeFromChoice({
+        choiceId: 'c', sourceId: null, prompt: '', engineId: 'mtg', accent: '#a78bfa',
+        optionIds: ['A', 'B', 'C'],
+        metadata: { label: '', predicate_description: '', min: 1, max: 3 },
+      });
+      useCardZoneStore.getState().togglePendingTarget('A');
+      useCardZoneStore.getState().togglePendingTarget('B');
+      expect(useCardZoneStore.getState().pendingTargets).toEqual(['A', 'B']);
+    });
+
+    it('togglePendingTarget toggles off when re-clicked', () => {
+      useCardZoneStore.getState().primeFromChoice({
+        choiceId: 'c', sourceId: null, prompt: '', engineId: 'mtg', accent: '#a78bfa',
+        optionIds: ['A', 'B'],
+        metadata: { label: '', predicate_description: '', min: 0, max: 2 },
+      });
+      useCardZoneStore.getState().togglePendingTarget('A');
+      useCardZoneStore.getState().togglePendingTarget('A');
+      expect(useCardZoneStore.getState().pendingTargets).toEqual([]);
+    });
+
+    it('togglePendingTarget swaps when at max=1 (FIFO replacement)', () => {
+      useCardZoneStore.getState().primeFromChoice({
+        choiceId: 'c', sourceId: null, prompt: '', engineId: 'mtg', accent: '#a78bfa',
+        optionIds: ['A', 'B'],
+        metadata: { label: '', predicate_description: '', min: 1, max: 1 },
+      });
+      useCardZoneStore.getState().togglePendingTarget('A');
+      expect(useCardZoneStore.getState().pendingTargets).toEqual(['A']);
+      // Click another option — should replace.
+      useCardZoneStore.getState().togglePendingTarget('B');
+      expect(useCardZoneStore.getState().pendingTargets).toEqual(['B']);
+    });
+
+    it('togglePendingTarget evicts oldest when at max>1', () => {
+      useCardZoneStore.getState().primeFromChoice({
+        choiceId: 'c', sourceId: null, prompt: '', engineId: 'mtg', accent: '#a78bfa',
+        optionIds: ['A', 'B', 'C'],
+        metadata: { label: '', predicate_description: '', min: 2, max: 2 },
+      });
+      useCardZoneStore.getState().togglePendingTarget('A');
+      useCardZoneStore.getState().togglePendingTarget('B');
+      expect(useCardZoneStore.getState().pendingTargets).toEqual(['A', 'B']);
+      // At max, pick C — should drop A (oldest).
+      useCardZoneStore.getState().togglePendingTarget('C');
+      expect(useCardZoneStore.getState().pendingTargets).toEqual(['B', 'C']);
+    });
+
+    it('togglePendingTarget is a no-op when no choice active', () => {
+      useCardZoneStore.getState().togglePendingTarget('A');
+      expect(useCardZoneStore.getState().pendingTargets).toEqual([]);
+    });
+
+    it('clearChoice wipes choice state and lit zones but leaves other primes alone', () => {
+      useCardZoneStore.getState().primeFromChoice({
+        choiceId: 'c', sourceId: null, prompt: '', engineId: 'mtg', accent: '#a78bfa',
+        optionIds: ['A', 'B'],
+      });
+      useCardZoneStore.getState().togglePendingTarget('A');
+      useCardZoneStore.getState().clearChoice();
+      const s = useCardZoneStore.getState();
+      expect(s.activeChoiceId).toBeNull();
+      expect(s.pendingTargets).toEqual([]);
+      expect(s.validZoneIds.size).toBe(0);
+      expect(s.activeIntent).toBeNull();
+    });
+  });
 });

@@ -43,7 +43,29 @@ export type CardIntent =
   | 'summon'
   | 'set'
   | 'activate'
-  | 'retreat';
+  | 'retreat'
+  // Choice-driven flow: a server PendingChoice with choice_type='target'
+  // has primed the store. Lit zones come from `choice.options`; clicks
+  // accumulate into `pendingTargets` until min/max satisfied; Confirm
+  // submits via matchAPI.submitChoice. Distinct from card-driven primes
+  // so engines can route accordingly.
+  | 'target';
+
+/**
+ * Target group metadata mirrored from the server's PendingChoice. Populated
+ * when Arc B lands and the engine surfaces structured target metadata. Until
+ * then, `primeFromChoice` synthesizes a minimal shape from `min_choices` /
+ * `max_choices` / `prompt` so the UI keeps working.
+ */
+export interface CardZoneTargetMetadata {
+  label: string;
+  predicate_description: string;
+  min: number;
+  max: number;
+  unique?: boolean;
+  group_index?: number;
+  total_groups?: number;
+}
 
 export interface CardZoneState {
   /** Card the user has clicked to commit (click-prime path). */
@@ -60,6 +82,24 @@ export interface CardZoneState {
   accentColor: string | null;
   /** Zone the user is currently dragging over (drag path). */
   hoveredZoneId: string | null;
+
+  // ---------------------------------------------------------------------
+  // Choice-driven flow (Arc A) — a server PendingChoice has primed the
+  // store. Independent of card-driven primes; they can coexist (a hand
+  // card primed for inspection while a separate choice asks for a target,
+  // though in practice the choice flow auto-clears card primes).
+  // ---------------------------------------------------------------------
+
+  /** ID of the active PendingChoice driving the prime; null if not choice-driven. */
+  activeChoiceId: string | null;
+  /** Source card/ability ID from the choice — for label rendering. */
+  activeChoiceSourceId: string | null;
+  /** Prompt text from the choice — fallback label when no metadata. */
+  activeChoicePrompt: string | null;
+  /** Structured metadata (Arc B-populated; minimal shape until then). */
+  targetMetadata: CardZoneTargetMetadata | null;
+  /** Accumulated selections for the active choice (multi-target). */
+  pendingTargets: string[];
 
   /** Begin a click-prime flow. Caller supplies the zones legal for this card. */
   primeCard: (
@@ -85,9 +125,37 @@ export interface CardZoneState {
   setHoveredZone: (zoneId: string | null) => void;
   /** Clear both prime + drag (e.g. after a successful play). */
   clearAll: () => void;
+
+  /**
+   * Prime the store from a server PendingChoice. Used by the GameView
+   * effect that watches `gameState.pending_choice` with
+   * `interaction_mode='overlay'`. After this call, valid zones glow in
+   * the engine accent and each click on a lit zone appends to
+   * `pendingTargets`.
+   */
+  primeFromChoice: (params: {
+    choiceId: string;
+    sourceId: string | null;
+    prompt: string;
+    engineId: string;
+    accent: string;
+    optionIds: string[];
+    metadata?: CardZoneTargetMetadata | null;
+  }) => void;
+  /**
+   * Toggle a single target id in `pendingTargets`. Adds if absent,
+   * removes if present (unless `unique:false` would allow duplicates —
+   * not supported in v1; engines that need it can extend later).
+   */
+  togglePendingTarget: (targetId: string) => void;
+  /**
+   * Clear only the choice-driven state. Used when the server emits a
+   * new choice (id transition) or when the choice resolves.
+   */
+  clearChoice: () => void;
 }
 
-export const useCardZoneStore = create<CardZoneState>((set) => ({
+export const useCardZoneStore = create<CardZoneState>((set, get) => ({
   primedCardId: null,
   dragCardId: null,
   engineId: null,
@@ -95,6 +163,11 @@ export const useCardZoneStore = create<CardZoneState>((set) => ({
   validZoneIds: new Set(),
   accentColor: null,
   hoveredZoneId: null,
+  activeChoiceId: null,
+  activeChoiceSourceId: null,
+  activeChoicePrompt: null,
+  targetMetadata: null,
+  pendingTargets: [],
 
   primeCard: (cardId, engineId, validZones, accent, intent = null) =>
     set({
@@ -105,6 +178,10 @@ export const useCardZoneStore = create<CardZoneState>((set) => ({
       validZoneIds: new Set(validZones),
       accentColor: accent,
       hoveredZoneId: null,
+      // Card-driven primes don't touch the choice-driven state, but they
+      // also can't coexist visually with a choice. The GameView effect
+      // is responsible for clearing the choice when a new card is primed,
+      // and the choice flow is responsible for clearing any card prime.
     }),
 
   unprime: () =>
@@ -148,6 +225,65 @@ export const useCardZoneStore = create<CardZoneState>((set) => ({
       validZoneIds: new Set(),
       accentColor: null,
       hoveredZoneId: null,
+      activeChoiceId: null,
+      activeChoiceSourceId: null,
+      activeChoicePrompt: null,
+      targetMetadata: null,
+      pendingTargets: [],
+    }),
+
+  primeFromChoice: ({ choiceId, sourceId, prompt, engineId, accent, optionIds, metadata = null }) =>
+    set({
+      // Choice-driven prime takes over: clear any card-driven state.
+      primedCardId: null,
+      dragCardId: null,
+      activeIntent: 'target',
+      engineId,
+      validZoneIds: new Set(optionIds),
+      accentColor: accent,
+      hoveredZoneId: null,
+      activeChoiceId: choiceId,
+      activeChoiceSourceId: sourceId,
+      activeChoicePrompt: prompt,
+      targetMetadata: metadata,
+      pendingTargets: [],
+    }),
+
+  togglePendingTarget: (targetId) => {
+    const state = get();
+    if (!state.activeChoiceId) return;
+    const current = state.pendingTargets;
+    const idx = current.indexOf(targetId);
+    const max = state.targetMetadata?.max ?? Infinity;
+    let next: string[];
+    if (idx >= 0) {
+      next = [...current.slice(0, idx), ...current.slice(idx + 1)];
+    } else {
+      if (current.length >= max) {
+        // At max — replace the oldest pick (FIFO) so the user can swap
+        // a selection without explicitly deselecting first. Cleanest UX
+        // for the common case where min=max=1.
+        next = max === 1 ? [targetId] : [...current.slice(1), targetId];
+      } else {
+        next = [...current, targetId];
+      }
+    }
+    set({ pendingTargets: next });
+  },
+
+  clearChoice: () =>
+    set({
+      activeChoiceId: null,
+      activeChoiceSourceId: null,
+      activeChoicePrompt: null,
+      targetMetadata: null,
+      pendingTargets: [],
+      // Also clear the lit zones — the choice owned them.
+      validZoneIds: new Set(),
+      accentColor: null,
+      hoveredZoneId: null,
+      activeIntent: null,
+      engineId: null,
     }),
 }));
 

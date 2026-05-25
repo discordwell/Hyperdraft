@@ -8,6 +8,7 @@
 import { useCallback, useMemo, useState, useEffect } from 'react';
 import clsx from 'clsx';
 import { Card } from '../cards';
+import { useCardZoneStore } from '../../stores/cardZoneStore';
 import type { PendingChoice, CardData, PlayerData } from '../../types';
 
 // Extended PendingChoice for divide_allocation
@@ -292,35 +293,20 @@ export function ChoiceModal({
     }
   }, [choice_type]);
 
-  // Overlay-mode rendering: no backdrop, no panel — just a fixed
-  // floating button so the player can cancel the targeting prompt.
-  // Highlighting / click-handling of legal targets lives in GameBoard
-  // (it reads ``pendingChoice`` and threads the option IDs through
-  // Battlefield's ``validTargets`` prop).
+  // Overlay-mode rendering: floating pill that shows progress + Confirm +
+  // Cancel. Click-to-target highlighting + click-handling of legal targets
+  // lives in cardZoneStore via the GameView effect (PR A1). The pill reads
+  // pendingTargets from the store to render progress and submits the
+  // accumulated selection when the user confirms.
   if (isOverlayMode) {
-    return (
-      <div
-        data-testid="choice-overlay"
-        className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2 pointer-events-none"
-      >
-        <div className="pointer-events-auto bg-amber-900/90 border border-amber-500/70 text-amber-100 text-xs px-3 py-2 rounded-lg shadow-lg max-w-xs">
-          <div className="font-semibold uppercase tracking-wide text-amber-300 mb-0.5">
-            Select Target
-          </div>
-          <div>{prompt}</div>
-        </div>
-        {onCancel && (
-          <button
-            data-testid="choice-overlay-cancel"
-            className="pointer-events-auto px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium shadow-lg border border-slate-500 transition-colors"
-            onClick={onCancel}
-            disabled={isLoading}
-          >
-            Cancel
-          </button>
-        )}
-      </div>
-    );
+    return <ChoiceOverlayPill
+      prompt={prompt}
+      minChoices={min_choices ?? 1}
+      maxChoices={max_choices ?? 1}
+      onSubmit={onSubmit}
+      onCancel={onCancel}
+      isLoading={isLoading}
+    />;
   }
 
   return (
@@ -695,3 +681,119 @@ export function ChoiceModal({
 }
 
 export default ChoiceModal;
+
+// ---------------------------------------------------------------------------
+// ChoiceOverlayPill — floating target-pick UI for overlay-mode pending_choice.
+// Reads accumulated selections from cardZoneStore.pendingTargets (Arc A);
+// submits via the onSubmit callback when user clicks Confirm.
+// ---------------------------------------------------------------------------
+
+interface ChoiceOverlayPillProps {
+  prompt: string;
+  minChoices: number;
+  maxChoices: number;
+  onSubmit: (selectedIds: string[]) => void;
+  onCancel?: () => void;
+  isLoading?: boolean;
+}
+
+function ChoiceOverlayPill({
+  prompt,
+  minChoices,
+  maxChoices,
+  onSubmit,
+  onCancel,
+  isLoading = false,
+}: ChoiceOverlayPillProps) {
+  const pendingTargets = useCardZoneStore((s) => s.pendingTargets);
+  const targetMetadata = useCardZoneStore((s) => s.targetMetadata);
+  const clearChoice = useCardZoneStore((s) => s.clearChoice);
+
+  const picked = pendingTargets.length;
+  // Prefer engine-supplied metadata when present (Arc B); fall back to
+  // the choice's flat min/max fields.
+  const min = targetMetadata?.min ?? minChoices;
+  const max = targetMetadata?.max ?? maxChoices;
+  const label = targetMetadata?.label || prompt;
+  const predicate = targetMetadata?.predicate_description;
+  const groupProgress =
+    targetMetadata && targetMetadata.total_groups && targetMetadata.total_groups > 1
+      ? `Step ${(targetMetadata.group_index ?? 0) + 1} of ${targetMetadata.total_groups}`
+      : null;
+
+  const canConfirm = picked >= min && picked <= max && !isLoading;
+  const canSubmitImmediately = picked === max;
+
+  // Auto-submit when max reached — saves a click for the common
+  // min=max=1 case. Players who want to swap a selection mid-flow can
+  // click another lit zone (togglePendingTarget swaps oldest for newest).
+  useEffect(() => {
+    if (canSubmitImmediately) {
+      // Defer one tick so the click that filled the max can settle in
+      // the store before we read pendingTargets and submit.
+      const t = setTimeout(() => {
+        onSubmit([...useCardZoneStore.getState().pendingTargets]);
+      }, 0);
+      return () => clearTimeout(t);
+    }
+  }, [canSubmitImmediately, onSubmit]);
+
+  const handleConfirm = useCallback(() => {
+    onSubmit([...pendingTargets]);
+  }, [onSubmit, pendingTargets]);
+
+  const handleCancel = useCallback(() => {
+    clearChoice();
+    onCancel?.();
+  }, [clearChoice, onCancel]);
+
+  return (
+    <div
+      data-testid="choice-overlay"
+      className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2 pointer-events-none"
+    >
+      <div className="pointer-events-auto bg-amber-900/90 border border-amber-500/70 text-amber-100 text-xs px-3 py-2 rounded-lg shadow-lg max-w-xs">
+        <div className="font-semibold uppercase tracking-wide text-amber-300 mb-0.5">
+          {label}
+        </div>
+        {predicate && (
+          <div className="text-amber-200/90 italic mb-0.5">{predicate}</div>
+        )}
+        <div className="text-amber-100">
+          Picked <span className="font-semibold">{picked}</span> of {max === Infinity ? '∞' : max}
+          {min !== max && min > 0 ? <span className="text-amber-200/80"> (min {min})</span> : null}
+        </div>
+        {groupProgress && (
+          <div className="text-[10px] text-amber-200/70 mt-0.5">{groupProgress}</div>
+        )}
+      </div>
+      <div className="flex gap-2 pointer-events-auto">
+        {onCancel && (
+          <button
+            data-testid="choice-overlay-cancel"
+            className="px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium shadow-lg border border-slate-500 transition-colors"
+            onClick={handleCancel}
+            disabled={isLoading}
+          >
+            Cancel
+          </button>
+        )}
+        {min < max && (
+          <button
+            data-testid="choice-overlay-confirm"
+            className={clsx(
+              'px-4 py-2 rounded-lg text-sm font-medium shadow-lg border transition-colors',
+              canConfirm
+                ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400'
+                : 'bg-slate-700 text-slate-400 border-slate-600 cursor-not-allowed',
+            )}
+            onClick={handleConfirm}
+            disabled={!canConfirm}
+          >
+            Confirm ({picked}/{max})
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
