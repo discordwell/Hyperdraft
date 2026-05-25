@@ -11,6 +11,7 @@ import { Home } from './pages';
 import { EnginePicker } from './components/lab/EnginePicker';
 import { RulesSheet } from './components/lab/RulesSheet';
 import CardInspector from './components/cards/CardInspector';
+import DropChoicePopup from './components/cards/DropChoicePopup';
 
 // Code-split: mode views + heavyweight pages are loaded on-demand
 const GameView = lazy(() => import('./pages/GameView'));
@@ -52,6 +53,7 @@ export function App() {
       <EnginePicker />
       <RulesSheet />
       <CardInspector />
+      <DropChoicePopup />
       <Suspense fallback={<LoadingFallback />}>
         <Routes>
           <Route path="/" element={<Home />} />

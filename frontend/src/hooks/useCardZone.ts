@@ -16,7 +16,7 @@
  */
 
 import { useCallback } from 'react';
-import { useCardZoneStore } from '../stores/cardZoneStore';
+import { useCardZoneStore, type CardIntent } from '../stores/cardZoneStore';
 
 export interface UseCardZoneOptions {
   /** Stable id for this zone (e.g. 'cats-trick-zone', 'clankers-assembly-floor'). */
@@ -36,6 +36,13 @@ export interface UseCardZoneResult {
   hasActiveCard: boolean;
   /** Engine accent color of the active card (for visual tinting). */
   activeAccent: string | null;
+  /**
+   * What the active card is asking this zone to do. Drop handlers
+   * inspect this to route between engine actions (energy attach vs
+   * basic play vs trainer activation, etc.). Null when no card is
+   * active or the engine doesn't surface intents.
+   */
+  activeIntent: CardIntent | null;
   /** Drop handlers — spread onto the zone container. */
   onClick: () => void;
   onDragOver: (e: React.DragEvent) => void;
@@ -51,6 +58,7 @@ export function useCardZone(opts: UseCardZoneOptions): UseCardZoneResult {
   const hoveredZoneId = useCardZoneStore((s) => s.hoveredZoneId);
   const accentColor = useCardZoneStore((s) => s.accentColor);
   const activeEngine = useCardZoneStore((s) => s.engineId);
+  const activeIntent = useCardZoneStore((s) => s.activeIntent);
   const setHoveredZone = useCardZoneStore((s) => s.setHoveredZone);
   const clearAll = useCardZoneStore((s) => s.clearAll);
 
@@ -102,6 +110,7 @@ export function useCardZone(opts: UseCardZoneOptions): UseCardZoneResult {
     isHovered,
     hasActiveCard,
     activeAccent: accentColor,
+    activeIntent,
     onClick,
     onDragOver,
     onDragLeave,

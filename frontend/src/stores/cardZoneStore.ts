@@ -21,6 +21,24 @@
 
 import { create } from 'zustand';
 
+/**
+ * Intent the active card is asking the destination zone to do. Engines
+ * with multi-action cards (Pokemon energy attach vs basic play, YGO
+ * normal summon vs set) inspect `activeIntent` in their `useCardZone`
+ * `onPlay` callback to route to the right action.
+ *
+ * The verb taxonomy mirrors the legacy `dragDropStore` DragIntent so
+ * engines migrating off dnd-kit keep their existing routing logic.
+ */
+export type CardIntent =
+  | 'play'
+  | 'attack'
+  | 'attach'
+  | 'evolve'
+  | 'summon'
+  | 'set'
+  | 'activate';
+
 export interface CardZoneState {
   /** Card the user has clicked to commit (click-prime path). */
   primedCardId: string | null;
@@ -28,6 +46,8 @@ export interface CardZoneState {
   dragCardId: string | null;
   /** Which engine the active card belongs to — drives accent + namespacing. */
   engineId: string | null;
+  /** What the active card wants the destination to do. Optional — single-action engines can ignore. */
+  activeIntent: CardIntent | null;
   /** Zone IDs that accept the currently primed / dragged card. */
   validZoneIds: Set<string>;
   /** Hex accent color used to tint valid zones. */
@@ -41,6 +61,7 @@ export interface CardZoneState {
     engineId: string,
     validZones: string[],
     accent: string,
+    intent?: CardIntent | null,
   ) => void;
   /** Cancel an in-progress click-prime (Esc, click off-board, invalid drop). */
   unprime: () => void;
@@ -50,6 +71,7 @@ export interface CardZoneState {
     engineId: string,
     validZones: string[],
     accent: string,
+    intent?: CardIntent | null,
   ) => void;
   /** Mark drag end (drop or cancel). Always clears drag state. */
   endDrag: () => void;
@@ -63,15 +85,17 @@ export const useCardZoneStore = create<CardZoneState>((set) => ({
   primedCardId: null,
   dragCardId: null,
   engineId: null,
+  activeIntent: null,
   validZoneIds: new Set(),
   accentColor: null,
   hoveredZoneId: null,
 
-  primeCard: (cardId, engineId, validZones, accent) =>
+  primeCard: (cardId, engineId, validZones, accent, intent = null) =>
     set({
       primedCardId: cardId,
       dragCardId: null,
       engineId,
+      activeIntent: intent,
       validZoneIds: new Set(validZones),
       accentColor: accent,
       hoveredZoneId: null,
@@ -82,16 +106,18 @@ export const useCardZoneStore = create<CardZoneState>((set) => ({
       primedCardId: null,
       dragCardId: null,
       engineId: null,
+      activeIntent: null,
       validZoneIds: new Set(),
       accentColor: null,
       hoveredZoneId: null,
     }),
 
-  startDrag: (cardId, engineId, validZones, accent) =>
+  startDrag: (cardId, engineId, validZones, accent, intent = null) =>
     set({
       dragCardId: cardId,
       primedCardId: null,
       engineId,
+      activeIntent: intent,
       validZoneIds: new Set(validZones),
       accentColor: accent,
       hoveredZoneId: null,
@@ -112,6 +138,7 @@ export const useCardZoneStore = create<CardZoneState>((set) => ({
       primedCardId: null,
       dragCardId: null,
       engineId: null,
+      activeIntent: null,
       validZoneIds: new Set(),
       accentColor: null,
       hoveredZoneId: null,

@@ -1,9 +1,18 @@
 import React, { memo, useMemo, useRef, useState } from 'react';
 import { CardData } from '../../types';
 import { getHearthstoneArtPaths } from '../../utils/cardArt';
-import { useDraggable } from '../../hooks/useDraggable';
-import { useDragDropStore } from '../../hooks/useDragDrop';
+import { useHandCard } from '../../hooks/useHandCard';
+import { useCardZoneStore, type CardIntent } from '../../stores/cardZoneStore';
 import { useCardPreviewBindings } from '../../hooks/useCardPreview';
+
+const HS_ENGINE_ID = 'hearthstone';
+const HS_ACCENT = '#fbbf24'; // tavern gold
+
+function hsIntent(card: CardData): CardIntent {
+  if (card.types.includes('MINION') || card.types.includes('CREATURE')) return 'play';
+  if (card.types.includes('WEAPON')) return 'attach';
+  return 'activate'; // spell
+}
 
 interface HSHandCardProps {
   card: CardData;
@@ -55,20 +64,24 @@ export const HSHandCard: React.FC<HSHandCardProps> = memo(({
       }
     : null;
 
-  const storeDragging = useDragDropStore((s) => s.isDragging);
+  const storeDragging = useCardZoneStore((s) => s.dragCardId !== null);
   const didDragRef = useRef(false);
 
-  const { dragProps, isBeingDragged } = useDraggable({
-    item: {
-      type: 'hand-card',
-      card,
-      gameMode: 'hs',
-      intent: 'play',
-      sourceZone: 'hand',
-    },
-    validDropZones: ['hs-battlefield-self'],
+  const handCard = useHandCard({
+    cardId: card.id,
+    cardName: card.name,
+    engineId: HS_ENGINE_ID,
+    accent: HS_ACCENT,
+    validZones: isPlayable ? ['hs-battlefield-me'] : [],
+    intent: hsIntent(card),
     disabled: !isPlayable,
   });
+  const isBeingDragged = handCard.isDragging;
+  const dragProps = {
+    draggable: handCard.draggable,
+    onDragStart: handCard.onDragStart,
+    onDragEnd: handCard.onDragEnd,
+  };
 
   const artPaths = useMemo(() => getHearthstoneArtPaths(card.name, variant), [card.name, variant]);
   const [artIndex, setArtIndex] = useState(0);
@@ -97,6 +110,10 @@ export const HSHandCard: React.FC<HSHandCardProps> = memo(({
       didDragRef.current = false;
       return;
     }
+    // Prime the card in the shared store (so valid zones light up + the
+    // primed-state visual fires) AND open the inspector for the same
+    // click. Two stores, two concerns — same trigger.
+    handCard.onClick();
     onClick();
   };
 
@@ -120,6 +137,11 @@ export const HSHandCard: React.FC<HSHandCardProps> = memo(({
       {...a11y}
       {...guardedDragProps}
       {...previewProps}
+      style={
+        handCard.isPrimed
+          ? { transform: 'translateY(-8px)', filter: `drop-shadow(0 0 10px ${HS_ACCENT})`, transition: 'transform 120ms ease, filter 120ms ease' }
+          : undefined
+      }
       className={`
         relative w-[120px] h-[170px] rounded-lg cursor-pointer
         bg-gradient-to-b from-gray-700 to-gray-800

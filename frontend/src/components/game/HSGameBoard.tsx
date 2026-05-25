@@ -19,11 +19,16 @@ import HSCardDetailPanel from './HSCardDetailPanel';
 import type { GameState, CardData } from '../../types';
 import { useDropTarget } from '../../hooks/useDropTarget';
 import { useDragDropStore, type DragItem } from '../../hooks/useDragDrop';
+import { useCardZone } from '../../hooks/useCardZone';
+import ZoneHighlight from '../cards/ZoneHighlight';
 import { useCardPreviewStore } from '../../hooks/useCardPreview';
 import { useCardInspector, type InspectorAction } from '../../hooks/useCardInspector';
 import { LegendaryEntranceOverlay } from './shared/LegendaryEntranceOverlay';
 import { BattlefieldEventLayer } from './shared/DamageFloater';
 import { useBattlefieldEvents } from '../../hooks/useBattlefieldEvents';
+
+const HS_ENGINE_ID = 'hearthstone';
+const HS_BATTLEFIELD_ME = 'hs-battlefield-me';
 
 // Parse "{N}" mana cost into a number for the inspector cost chip.
 function hsManaLabel(manaCost: string | null | undefined): string | undefined {
@@ -316,18 +321,24 @@ export function HSGameBoard({
     ],
   );
 
-  // Drop target: player battlefield (for playing hand cards)
-  const handleBattlefieldDrop = useCallback((item: DragItem) => {
-    if (item.type === 'hand-card' && item.intent === 'play') {
-      onPlayCard(item.card.id);
-    }
-  }, [onPlayCard]);
-
-  const { dropProps: battlefieldDropProps, isValidTarget: isBattlefieldDropTarget } = useDropTarget({
-    zoneId: 'hs-battlefield-self',
-    onDrop: handleBattlefieldDrop,
-    disabled: !isMyTurn,
+  // Drop target: player battlefield (for playing hand cards).
+  // Migrated to the shared card-zone primitive — same zoneId as the
+  // hand-card's validZones in HSHandCard.tsx ('hs-battlefield-me').
+  const battlefieldZone = useCardZone({
+    zoneId: HS_BATTLEFIELD_ME,
+    engineId: HS_ENGINE_ID,
+    onPlay: (cardId) => {
+      if (!isMyTurn) return;
+      onPlayCard(cardId);
+    },
   });
+  const isBattlefieldDropTarget = battlefieldZone.isValid;
+  const battlefieldDropProps = {
+    onClick: battlefieldZone.onClick,
+    onDragOver: battlefieldZone.onDragOver,
+    onDragLeave: battlefieldZone.onDragLeave,
+    onDrop: battlefieldZone.onDrop,
+  };
 
   // Drop handler for opponent minions (attack targets)
   const handleOpponentMinionDrop = useCallback((targetId: string, item: DragItem) => {
@@ -465,9 +476,15 @@ export function HSGameBoard({
 
       {/* Player battlefield */}
       <div
-        className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 min-h-[120px] transition-all duration-200 ${isBattlefieldDropTarget ? 'bg-green-900/20 ring-2 ring-green-500/40 ring-inset rounded-lg' : ''}`}
+        className={`relative flex-1 flex items-center justify-center gap-2 px-4 py-2 min-h-[120px] transition-all duration-200 rounded-lg`}
         {...battlefieldDropProps}
       >
+        <ZoneHighlight
+          isValid={battlefieldZone.isValid}
+          isHovered={battlefieldZone.isHovered}
+          hasActiveCard={battlefieldZone.hasActiveCard}
+          activeAccent={battlefieldZone.activeAccent}
+        />
         {myMinions.length === 0 ? (
           <div className="text-gray-600 text-sm">{isBattlefieldDropTarget ? 'Drop to play' : 'No minions'}</div>
         ) : (

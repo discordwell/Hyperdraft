@@ -135,6 +135,10 @@ export default function CardInspector() {
         zIndex: 1000,
         background: isPrimed ? 'rgba(2, 6, 23, 0.32)' : 'rgba(2, 6, 23, 0.78)',
         backdropFilter: isPrimed ? 'none' : 'blur(6px)',
+        // When primed, the backdrop is transparent to clicks so the user
+        // can hit the lit zones below. The modal panel itself
+        // re-enables pointer events so its buttons still work.
+        pointerEvents: isPrimed ? 'none' : 'auto',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -165,6 +169,9 @@ export default function CardInspector() {
           animation: 'card-inspector-slide-in 180ms ease-out',
           color: '#e5e7eb',
           fontFamily: 'system-ui, -apple-system, sans-serif',
+          // Re-enable clicks on the modal panel itself, even when the
+          // backdrop has pointerEvents: none for the primed pass-through.
+          pointerEvents: 'auto',
         }}
         onClick={(ev) => ev.stopPropagation()}
       >

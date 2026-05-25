@@ -17,7 +17,7 @@
  */
 
 import { useCallback } from 'react';
-import { useCardZoneStore } from '../stores/cardZoneStore';
+import { useCardZoneStore, type CardIntent } from '../stores/cardZoneStore';
 
 export interface UseHandCardOptions {
   cardId: string;
@@ -28,6 +28,13 @@ export interface UseHandCardOptions {
   accent: string;
   /** Zone IDs this card can legally be played on. Empty = unplayable. */
   validZones: string[];
+  /**
+   * What this card wants the destination to do. Optional. Engines with
+   * card-type-dependent routing (Pokemon energy attach vs basic play,
+   * YGO normal summon vs trap set) read it from the drop handler via
+   * `useCardZone(...).activeIntent`.
+   */
+  intent?: CardIntent;
   /** True if the card cannot be played right now (wrong phase, no resources). */
   disabled?: boolean;
 }
@@ -42,7 +49,7 @@ export interface UseHandCardResult {
 }
 
 export function useHandCard(opts: UseHandCardOptions): UseHandCardResult {
-  const { cardId, cardName, engineId, accent, validZones, disabled = false } = opts;
+  const { cardId, cardName, engineId, accent, validZones, intent, disabled = false } = opts;
   const primedCardId = useCardZoneStore((s) => s.primedCardId);
   const dragCardId = useCardZoneStore((s) => s.dragCardId);
   const primeCard = useCardZoneStore((s) => s.primeCard);
@@ -57,8 +64,8 @@ export function useHandCard(opts: UseHandCardOptions): UseHandCardResult {
   const onClick = useCallback(() => {
     if (!canPlay) return;
     if (isPrimed) unprime();
-    else primeCard(cardId, engineId, validZones, accent);
-  }, [canPlay, isPrimed, unprime, primeCard, cardId, engineId, validZones, accent]);
+    else primeCard(cardId, engineId, validZones, accent, intent);
+  }, [canPlay, isPrimed, unprime, primeCard, cardId, engineId, validZones, accent, intent]);
 
   const onDragStart = useCallback(
     (e: React.DragEvent) => {
@@ -70,9 +77,9 @@ export function useHandCard(opts: UseHandCardOptions): UseHandCardResult {
       // Engine-namespaced MIME so drop handlers can ignore cross-engine drags.
       e.dataTransfer.setData(`application/x-${engineId}-card`, cardId);
       e.dataTransfer.setData('text/plain', cardName);
-      startDrag(cardId, engineId, validZones, accent);
+      startDrag(cardId, engineId, validZones, accent, intent);
     },
-    [canPlay, engineId, cardId, cardName, validZones, accent, startDrag],
+    [canPlay, engineId, cardId, cardName, validZones, accent, intent, startDrag],
   );
 
   const onDragEnd = useCallback(() => {

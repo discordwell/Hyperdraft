@@ -62,6 +62,33 @@ describe('cardZoneStore', () => {
     expect(s.primedCardId).toBeNull();
   });
 
+  it('primeCard accepts an optional intent and stores it', () => {
+    useCardZoneStore
+      .getState()
+      .primeCard('c1', 'pokemon', ['pkm-pokemon-x'], '#fca5a5', 'attach');
+    expect(useCardZoneStore.getState().activeIntent).toBe('attach');
+  });
+
+  it('startDrag accepts an optional intent', () => {
+    useCardZoneStore
+      .getState()
+      .startDrag('c1', 'ygo', ['ygo-mzone-0-me'], '#c4b5fd', 'summon');
+    expect(useCardZoneStore.getState().activeIntent).toBe('summon');
+  });
+
+  it('activeIntent defaults to null when omitted', () => {
+    useCardZoneStore.getState().primeCard('c1', 'cats', ['cats-trick'], '#fbbf24');
+    expect(useCardZoneStore.getState().activeIntent).toBeNull();
+  });
+
+  it('clearAll wipes activeIntent', () => {
+    useCardZoneStore
+      .getState()
+      .primeCard('c1', 'pokemon', ['pkm-pokemon-x'], '#fca5a5', 'evolve');
+    useCardZoneStore.getState().clearAll();
+    expect(useCardZoneStore.getState().activeIntent).toBeNull();
+  });
+
   it('endDrag clears drag state but preserves engine/valid (so post-drop UI can still query)', () => {
     useCardZoneStore.getState().startDrag('c1', 'cats', ['cats-trick'], '#fbbf24');
     useCardZoneStore.getState().endDrag();
