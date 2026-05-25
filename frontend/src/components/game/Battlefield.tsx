@@ -5,7 +5,6 @@
  * Supports drag and drop for playing lands and targeting spells.
  */
 
-import { useCallback } from 'react';
 import clsx from 'clsx';
 import { TargetableCard } from '../cards/TargetableCard';
 import {
@@ -15,8 +14,14 @@ import {
   PlayerIcon,
   GamepadIcon,
 } from '../ui/Icons';
-import { useDragDropStore, type DragItem } from '../../hooks/useDragDrop';
+import { type DragItem } from '../../hooks/useDragDrop';
+import { useCardZone } from '../../hooks/useCardZone';
+import ZoneHighlight from '../cards/ZoneHighlight';
 import type { CardData } from '../../types';
+
+const MTG_ENGINE_ID = 'mtg';
+const MTG_BATTLEFIELD_ME = 'mtg-battlefield-me';
+const MTG_BATTLEFIELD_THEM = 'mtg-battlefield-them';
 
 interface BattlefieldProps {
   permanents: CardData[];
@@ -43,12 +48,6 @@ export function Battlefield({
   onCardDrop,
   onBattlefieldDrop,
 }: BattlefieldProps) {
-  const isDragging = useDragDropStore((s) => s.isDragging);
-  const validDropZones = useDragDropStore((s) => s.validDropZones);
-  const setHoveredZone = useDragDropStore((s) => s.setHoveredZone);
-  const hoveredDropZone = useDragDropStore((s) => s.hoveredDropZone);
-  const endDrag = useDragDropStore((s) => s.endDrag);
-
   // Group permanents by type
   const creatures = permanents.filter((p) => p.types.includes('CREATURE'));
   const lands = permanents.filter((p) => p.types.includes('LAND'));
@@ -56,50 +55,27 @@ export function Battlefield({
     (p) => !p.types.includes('CREATURE') && !p.types.includes('LAND')
   );
 
-  const dropZoneId = isOpponent ? 'battlefield-opponent' : 'battlefield-self';
-  const isValidDropTarget = isDragging && validDropZones.includes(dropZoneId);
-  const isHovered = hoveredDropZone === dropZoneId;
-
-  // Handle drop on the battlefield (for lands)
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    if (!isValidDropTarget) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  }, [isValidDropTarget]);
-
-  const handleDragEnter = useCallback((e: React.DragEvent) => {
-    if (!isValidDropTarget) return;
-    e.preventDefault();
-    setHoveredZone(dropZoneId);
-  }, [isValidDropTarget, dropZoneId, setHoveredZone]);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    // Only handle if we're actually leaving this element
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX;
-    const y = e.clientY;
-    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
-      return;
-    }
-    setHoveredZone(null);
-  }, [setHoveredZone]);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    if (!isValidDropTarget || !onBattlefieldDrop) return;
-    e.preventDefault();
-    setHoveredZone(null);
-
-    try {
-      const data = e.dataTransfer.getData('application/json');
-      if (data) {
-        const item: DragItem = JSON.parse(data);
-        onBattlefieldDrop(item);
-        endDrag();
-      }
-    } catch (err) {
-      console.error('Failed to parse drag data:', err);
-    }
-  }, [isValidDropTarget, onBattlefieldDrop, setHoveredZone, endDrag]);
+  // Migrated to the shared card-zone primitive. Opponent battlefield
+  // receives no drops in the base hand→battlefield flow; per-permanent
+  // targeting (Lightning Bolt etc.) is a follow-up.
+  const dropZoneId = isOpponent ? MTG_BATTLEFIELD_THEM : MTG_BATTLEFIELD_ME;
+  const zone = useCardZone({
+    zoneId: dropZoneId,
+    engineId: MTG_ENGINE_ID,
+    onPlay: (cardId) => {
+      if (isOpponent || !onBattlefieldDrop) return;
+      // The legacy onBattlefieldDrop expects a DragItem with a card and
+      // an action. We synthesize a minimal item from the card id; the
+      // parent's handler dispatches CAST_SPELL / PLAY_LAND from there.
+      const item: DragItem = {
+        type: 'hand-card',
+        card: { id: cardId } as CardData,
+      } as DragItem;
+      onBattlefieldDrop(item);
+    },
+  });
+  const isValidDropTarget = zone.isValid;
+  const isHovered = zone.isHovered;
 
   const renderCardGroup = (cards: CardData[], label: string, IconComponent: React.ComponentType<{ className?: string; size?: 'xs' | 'sm' | 'md' | 'lg' }>) => {
     if (cards.length === 0) return null;
@@ -155,11 +131,17 @@ export function Battlefield({
           'ring-4 ring-emerald-500 bg-emerald-900/20': isHovered,
         }
       )}
-      onDragOver={handleDragOver}
-      onDragEnter={handleDragEnter}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      onClick={zone.onClick}
+      onDragOver={zone.onDragOver}
+      onDragLeave={zone.onDragLeave}
+      onDrop={zone.onDrop}
     >
+      <ZoneHighlight
+        isValid={zone.isValid}
+        isHovered={zone.isHovered}
+        hasActiveCard={zone.hasActiveCard}
+        activeAccent={zone.activeAccent}
+      />
       {/* Header */}
       <div className="flex items-center gap-2 mb-3 pb-2 border-b border-slate-700/50">
         {isOpponent ? (

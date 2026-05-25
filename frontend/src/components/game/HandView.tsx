@@ -8,12 +8,31 @@
 import { useMemo, useCallback } from 'react';
 import clsx from 'clsx';
 import { Card } from '../cards/Card';
-import { useDraggable } from '../../hooks/useDraggable';
 import { CastIcon, PlayLandIcon } from '../ui/Icons';
-import { useDragDropStore } from '../../hooks/useDragDrop';
-import type { DragItem } from '../../hooks/useDragDrop';
+import { useHandCard } from '../../hooks/useHandCard';
+import { useCardZoneStore, type CardIntent } from '../../stores/cardZoneStore';
 import type { CardData, LegalActionData } from '../../types';
 import { useCardInspector, type InspectableCardType } from '../../hooks/useCardInspector';
+
+// MTG engine constants for the shared card-zone primitive. The hand-card
+// validZones include the battlefield + (eventually) per-permanent and
+// per-player zone ids for cast-time targets. This PR migrates the
+// hand-to-battlefield flow; cast-time targeting + multi-target + combat
+// stay on the existing pending_choice / overlay path until PR 3.1.
+const MTG_ENGINE_ID = 'mtg';
+const MTG_ACCENT = '#a78bfa'; // arcane violet
+const MTG_BATTLEFIELD_ME = 'mtg-battlefield-me';
+
+// Pick the intent verb from the MTG card's types. Lands/permanents land
+// on the battlefield ("play"); instants and sorceries are one-shot
+// effects ("activate"). Engines with cast-time target requirements still
+// route through pending_choice after the initial hop.
+function mtgIntent(card: CardData): CardIntent {
+  const types = card.types || [];
+  if (types.includes('LAND')) return 'play';
+  if (types.includes('INSTANT') || types.includes('SORCERY')) return 'activate';
+  return 'play';
+}
 
 // Map MTG type tags onto the inspector's engine accent palette.
 function pickInspectorType(card: CardData): InspectableCardType {
@@ -79,24 +98,44 @@ function HandCard({
   onClick,
   validDropZones,
 }: HandCardProps) {
-  const isDragging = useDragDropStore((s) => s.isDragging);
-  const dragItem = useDragDropStore((s) => s.dragItem);
+  // Track other-card-dragging via the shared card-zone store so the
+  // hand fade-out effect still works after migration. dragItemPayload
+  // is no longer needed; useHandCard owns the drag protocol.
+  const dragCardId = useCardZoneStore((s) => s.dragCardId);
+  const isDragging = dragCardId !== null;
 
-  const dragItemPayload = useMemo<DragItem>(() => ({
-    type: 'hand-card',
-    card,
-    action,
-  }), [card, action]);
-
-  const { dragProps, isBeingDragged } = useDraggable({
-    item: dragItemPayload,
-    validDropZones,
+  const handCard = useHandCard({
+    cardId: card.id,
+    cardName: card.name,
+    engineId: MTG_ENGINE_ID,
+    accent: MTG_ACCENT,
+    // Untargeted spells & lands resolve on the battlefield. Targeted
+    // spells (Lightning Bolt et al.) still drop on the battlefield to
+    // cast; the pending_choice overlay then drives target selection.
+    // validDropZones from props is honored when the parent passes a
+    // refined list; default is the battlefield.
+    validZones: disabled || !isPlayable ? [] : (validDropZones.length > 0 ? validDropZones : [MTG_BATTLEFIELD_ME]),
+    intent: mtgIntent(card),
     disabled: disabled || !isPlayable,
   });
+  const isBeingDragged = handCard.isDragging;
+  const dragProps = {
+    draggable: handCard.draggable,
+    onDragStart: handCard.onDragStart,
+    onDragEnd: handCard.onDragEnd,
+  };
 
   const isLand = action?.type === 'PLAY_LAND';
   const isTargetedSpell = action?.type === 'CAST_SPELL' && action.requires_targets;
-  const isOtherCardDragging = isDragging && dragItem?.card.id !== card.id;
+  const isOtherCardDragging = isDragging && dragCardId !== card.id;
+
+  // Compose: clicking opens the inspector (parent's onClick path)
+  // AND primes the card in the shared store so the battlefield zone
+  // lights with the MTG accent.
+  const handleClick = () => {
+    handCard.onClick();
+    onClick?.();
+  };
 
   return (
     <div
@@ -109,13 +148,18 @@ function HandCard({
           'cursor-grab active:cursor-grabbing': !disabled && isPlayable,
         },
       )}
+      style={
+        handCard.isPrimed
+          ? { transform: 'translateY(-8px)', filter: `drop-shadow(0 0 10px ${MTG_ACCENT})`, transition: 'transform 120ms ease, filter 120ms ease' }
+          : undefined
+      }
     >
       <Card
         card={card}
         size="medium"
         isSelected={isSelected}
         isHighlighted={isPlayable && !disabled && !isBeingDragged}
-        onClick={onClick}
+        onClick={handleClick}
         showDetails
       />
 
@@ -151,9 +195,17 @@ export function HandView({
   onGetValidDropZones,
   disabled = false,
 }: HandViewProps) {
-  const isDragging = useDragDropStore((s) => s.isDragging);
-  const dragItem = useDragDropStore((s) => s.dragItem);
-  const validDropZones = useDragDropStore((s) => s.validDropZones);
+  // Migrated away from useDragDropStore; the shared cardZoneStore now
+  // tracks drag state across all engines. The local dragItem analogue
+  // is the active card (drag or prime) which we look up by ID.
+  const activeCardId = useCardZoneStore((s) => s.dragCardId ?? s.primedCardId);
+  const validDropZoneSet = useCardZoneStore((s) => s.validZoneIds);
+  const isDragging = useCardZoneStore((s) => s.dragCardId !== null);
+  const activeCard = useMemo(
+    () => cards.find((c) => c.id === activeCardId) ?? null,
+    [activeCardId, cards],
+  );
+  const validDropZones = useMemo(() => Array.from(validDropZoneSet), [validDropZoneSet]);
   const inspector = useCardInspector();
 
   // Open the shared inspector modal for a hand card. The Play action
@@ -220,20 +272,26 @@ export function HandView({
     ],
   );
 
-  // Get context about the currently dragged card
+  // Get context about the currently dragged card. Now sourced from the
+  // shared store via `activeCard` (matches the existing visual + label).
   const dragContext = useMemo(() => {
-    if (!isDragging || !dragItem) return null;
+    if (!isDragging || !activeCard) return null;
 
-    const isLand = dragItem.action?.type === 'PLAY_LAND';
-    const isTargetedSpell = dragItem.action?.type === 'CAST_SPELL' && dragItem.action?.requires_targets;
+    const action = legalActions.find(
+      (a) =>
+        (a.type === 'CAST_SPELL' || a.type === 'PLAY_LAND') &&
+        a.card_id === activeCard.id,
+    );
+    const isLand = action?.type === 'PLAY_LAND';
+    const isTargetedSpell = action?.type === 'CAST_SPELL' && action.requires_targets;
 
     return {
-      cardName: dragItem.card.name,
+      cardName: activeCard.name,
       isLand,
       isTargetedSpell,
       targetCount: validDropZones.length,
     };
-  }, [isDragging, dragItem, validDropZones]);
+  }, [isDragging, activeCard, legalActions, validDropZones]);
 
   // Calculate card positions for fan effect
   const cardPositions = useMemo(() => {
