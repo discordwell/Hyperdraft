@@ -121,6 +121,41 @@ export function GameBoard({
     [gameState.combat]
   );
 
+  // PR 3.4 — combat visual prime. During DECLARE_ATTACKERS, surface the
+  // opponent portrait as the default attack-into target by priming
+  // cardZoneStore with `'attack'` intent. The opponent zone glows arcane
+  // violet (via TargetablePlayer's <ZoneHighlight>) so combat reads in
+  // the same vocabulary as casting/playing. The actual attacker
+  // selection is still owned by gameStore.selectedAttackers /
+  // toggleAttacker — this is a visual-cue layer only.
+  const isDeclaringAttackers =
+    gameState.phase === 'COMBAT' &&
+    gameState.step === 'DECLARE_ATTACKERS' &&
+    gameState.active_player === playerId;
+  useEffect(() => {
+    if (!isDeclaringAttackers || !opponentId || selectedAttackers.length === 0) {
+      // Clean up any combat-prime when we leave the step.
+      const intent = useCardZoneStore.getState().activeIntent;
+      if (intent === 'attack') useCardZoneStore.getState().clearAll();
+      return;
+    }
+    // Sentinel prime: any selected attacker id will do as the "active
+    // card" — the engine accent + valid-zone-glow is what we care about.
+    useCardZoneStore
+      .getState()
+      .primeCard(
+        selectedAttackers[0],
+        MTG_ENGINE_ID,
+        [MTG_PLAYER_ZONE(opponentId)],
+        MTG_ACCENT,
+        'attack',
+      );
+    return () => {
+      const intent = useCardZoneStore.getState().activeIntent;
+      if (intent === 'attack') useCardZoneStore.getState().clearAll();
+    };
+  }, [isDeclaringAttackers, opponentId, selectedAttackers]);
+
   // Can act?
   const canAct = gameState.priority_player === playerId;
 
