@@ -74,8 +74,12 @@ export function useCardZone(opts: UseCardZoneOptions): UseCardZoneResult {
     if (activeEngine !== engineId) return;
     if (!validZoneIds.has(zoneId)) return;
     const cardId = primedCardId;
-    clearAll();
+    // Fire onPlay BEFORE clearAll: engines like Pokemon read
+    // `useCardZoneStore.getState().activeIntent` inside onPlay to route
+    // attach/evolve/play. clearAll() nulls activeIntent, so reading
+    // after-clear gives the wrong answer.
     onPlay(cardId);
+    clearAll();
   }, [primedCardId, activeEngine, engineId, validZoneIds, zoneId, clearAll, onPlay]);
 
   const onDragOver = useCallback(
@@ -99,8 +103,10 @@ export function useCardZone(opts: UseCardZoneOptions): UseCardZoneResult {
       if (!cardId) return;
       if (!validZoneIds.has(zoneId)) return;
       e.preventDefault();
-      clearAll();
+      // Same ordering as onClick — onPlay reads activeIntent (and other
+      // store state); clearAll only after dispatch.
       onPlay(cardId);
+      clearAll();
     },
     [engineId, validZoneIds, zoneId, clearAll, onPlay],
   );

@@ -25,11 +25,21 @@ import { PKMChoiceModal } from './PKMChoiceModal';
 import { PKMDiscardModal } from './PKMDiscardModal';
 import { typeToGlowColor } from '../../utils/pkmAnimations';
 import { handCard, benchSlide, cardEnter } from '../../utils/pkmAnimations';
-import { useDraggable } from '../../hooks/useDraggable';
-import { useDropTarget } from '../../hooks/useDropTarget';
-import { useDragDropStore, type DragItem } from '../../hooks/useDragDrop';
+import { useHandCard } from '../../hooks/useHandCard';
+import { useCardZone } from '../../hooks/useCardZone';
+import { useCardZoneStore, type CardIntent } from '../../stores/cardZoneStore';
+import ZoneHighlight from '../cards/ZoneHighlight';
 import { useCardPreviewStore, useCardPreviewBindings } from '../../hooks/useCardPreview';
 import { useCardInspector } from '../../hooks/useCardInspector';
+
+// Engine-namespaced constants for the shared card-zone primitive.
+// Hand-card validZones + drop-zone IDs must match exactly — engine prefix
+// ('pkm-') keeps PKM zones from colliding with MTG/HS/etc. in the global store.
+const PKM_ENGINE_ID = 'pokemon';
+const PKM_ACCENT = '#fca5a5'; // soft red — matches the engine palette
+const PKM_BENCH_ME = 'pkm-bench-me';
+const PKM_PLAY_AREA_ME = 'pkm-play-area';
+const PKM_POKEMON_ZONE = (id: string) => `pkm-pokemon-${id}`;
 import { LegendaryEntranceOverlay } from './shared/LegendaryEntranceOverlay';
 import { BattlefieldEventLayer } from './shared/DamageFloater';
 import { useBattlefieldEvents } from '../../hooks/useBattlefieldEvents';
@@ -69,7 +79,7 @@ function PKMDraggableHandCard({
   const isBasic = isPokemon && !isEvolution;
   const isTrainer = types.includes('ITEM') || types.includes('SUPPORTER') || types.includes('STADIUM') || types.includes('POKEMON_TOOL');
 
-  let intent: 'attach' | 'evolve' | 'play' = 'play';
+  let intent: CardIntent = 'play';
   let zones: string[] = [];
   let enabled = false;
 
@@ -77,38 +87,67 @@ function PKMDraggableHandCard({
     // disabled
   } else if (isEnergy && canAttachEnergy(card)) {
     intent = 'attach';
-    zones = fieldPokemonIds;
+    // Energy attaches to ANY field pokemon — active or bench.
+    zones = fieldPokemonIds.map(PKM_POKEMON_ZONE);
     enabled = true;
   } else if (isEvolution) {
     intent = 'evolve';
-    zones = fieldPokemonIds;
+    // Evolutions can only land on a pokemon that matches the pre-evolution.
+    // Engine validates server-side; we expose all field pokemon as targets
+    // and let the engine reject invalid attempts (matches legacy behaviour).
+    zones = fieldPokemonIds.map(PKM_POKEMON_ZONE);
     enabled = true;
   } else if (isBasic && canPlayCard(card)) {
     intent = 'play';
-    zones = ['pkm-bench-self'];
+    zones = [PKM_BENCH_ME];
     enabled = true;
   } else if (isTrainer && !isPokemon && canPlayCard(card)) {
-    intent = 'play';
-    zones = ['pkm-play-area'];
+    intent = 'activate'; // trainer = one-shot effect, not a permanent
+    zones = [PKM_PLAY_AREA_ME];
     enabled = true;
   }
 
-  const { dragProps, isBeingDragged } = useDraggable({
-    item: { type: 'hand-card', card, gameMode: 'pkm', intent, sourceZone: 'hand' },
-    validDropZones: zones,
+  const handCard = useHandCard({
+    cardId: card.id,
+    cardName: card.name,
+    engineId: PKM_ENGINE_ID,
+    accent: PKM_ACCENT,
+    validZones: zones,
+    intent,
     disabled: !enabled,
   });
+  const isBeingDragged = handCard.isDragging;
+  const dragProps = {
+    draggable: handCard.draggable,
+    onDragStart: handCard.onDragStart,
+    onDragEnd: handCard.onDragEnd,
+  };
 
   // Preview bindings add right-click/long-press pinning on top of the
   // existing onHover handler (which sets the shared preview store).
   const previewProps = useCardPreviewBindings(card, { disabled: isBeingDragged });
 
+  // Click primes the card in the shared store (so valid zones light up)
+  // AND fires the parent onClick (which opens the inspector via
+  // PKMGameBoard's interaction-mode machinery). Two stores, same trigger.
+  const handleClick = () => {
+    handCard.onClick();
+    onClick();
+  };
+
+  // Primed visual: subtle lift + accent drop-shadow so the user sees which
+  // card is "live" while choosing a target. Mirrors the Cats/Clankers/HS
+  // pattern.
+  const primedStyle = handCard.isPrimed
+    ? { transform: 'translateY(-6px)', filter: `drop-shadow(0 0 8px ${PKM_ACCENT})`, transition: 'transform 120ms ease, filter 120ms ease' }
+    : undefined;
+
   return (
-    <span {...previewProps} className="inline-block">
+    <span {...previewProps} className="inline-block" style={primedStyle}>
       <PKMCard
         card={card}
         isSelected={isSelected}
-        onClick={onClick}
+        onClick={handleClick}
         onHover={onHover}
         dragProps={dragProps}
         isBeingDragged={isBeingDragged}
@@ -147,26 +186,51 @@ function PKMDropTargetCard({
   onDropAttach,
   onDropEvolve,
 }: PKMDropTargetCardProps) {
-  const handleDrop = useCallback((item: DragItem) => {
-    if (item.intent === 'attach') {
-      onDropAttach(item.card.id, card.id);
-    } else if (item.intent === 'evolve') {
-      onDropEvolve(item.card.id, card.id);
-    }
-  }, [card.id, onDropAttach, onDropEvolve]);
-
-  const { dropProps, isValidTarget: isDropValid, isHovered } = useDropTarget({
-    zoneId: card.id,
-    onDrop: handleDrop,
-    disabled: isOpponent,
+  // Migrated to the shared card-zone primitive. The active intent ('attach'
+  // for energy / 'evolve' for stage-1+) is set by the hand-card at drag /
+  // click-prime time; here we just route to the right engine action.
+  // Opponent's Pokemon don't register as zones (no drop).
+  const zone = useCardZone({
+    zoneId: PKM_POKEMON_ZONE(card.id),
+    engineId: PKM_ENGINE_ID,
+    onPlay: (cardId) => {
+      if (isOpponent) return;
+      const intent = useCardZoneStore.getState().activeIntent;
+      if (intent === 'attach') onDropAttach(cardId, card.id);
+      else if (intent === 'evolve') onDropEvolve(cardId, card.id);
+    },
   });
+  const dropProps = isOpponent
+    ? undefined
+    : {
+        onDragOver: zone.onDragOver,
+        onDragEnter: zone.onDragOver, // shared store uses dragOver for both
+        onDragLeave: zone.onDragLeave,
+        onDrop: zone.onDrop,
+      };
 
-  // Preview bindings add right-click/long-press pinning. Enemy-field cards
-  // benefit from hover too (already wired through onHover).
-  const previewProps = useCardPreviewBindings(card, { disabled: isDropValid });
+  // Preview bindings add right-click/long-press pinning. Disabled when this
+  // zone is actively a valid drop target so the drag UI takes precedence.
+  const previewProps = useCardPreviewBindings(card, { disabled: zone.isValid });
+
+  // Compose the parent onClick (interaction-mode machinery: select retreat
+  // target, etc.) with the zone click — clicking a lit zone plays the
+  // primed card from hand.
+  const handleClick = () => {
+    if (!isOpponent && zone.isValid) zone.onClick();
+    if (onClick) onClick();
+  };
 
   return (
-    <span {...previewProps} className="inline-block">
+    <span {...previewProps} className="inline-block relative">
+      {!isOpponent && (
+        <ZoneHighlight
+          isValid={zone.isValid}
+          isHovered={zone.isHovered}
+          hasActiveCard={zone.hasActiveCard}
+          activeAccent={zone.activeAccent}
+        />
+      )}
       <PKMCard
         card={card}
         compact={compact}
@@ -175,11 +239,11 @@ function PKMDropTargetCard({
         isValidTarget={isValidTargetProp}
         isOpponent={isOpponent}
         isBeingAttacked={isBeingAttacked}
-        onClick={onClick}
+        onClick={handleClick}
         onHover={onHover}
         dropProps={dropProps}
-        isDropTarget={isDropValid}
-        isDropHovered={isHovered}
+        isDropTarget={zone.isValid}
+        isDropHovered={zone.isHovered}
       />
     </span>
   );
@@ -266,8 +330,10 @@ export function PKMGameBoard({
     return () => clearPreview();
   }, [clearPreview]);
 
-  // Drag-and-drop: cancel click mode when a drag begins
-  const isDragging = useDragDropStore((s) => s.isDragging);
+  // Drag-and-drop: cancel click mode when a drag begins. The shared
+  // cardZoneStore tracks the active drag — same signal as the legacy
+  // dragDropStore, just via the new primitive.
+  const isDragging = useCardZoneStore((s) => s.dragCardId !== null);
   useEffect(() => {
     if (isDragging && mode !== 'none') {
       setMode('none');
@@ -474,31 +540,38 @@ export function PKMGameBoard({
     setPreviewHover(card);
   }, [setPreviewHover]);
 
-  // Drop handler: bench area (basic Pokemon)
-  const handleBenchDrop = useCallback((item: DragItem) => {
-    if (item.intent === 'play' && item.card?.id) {
-      onPlayCard(item.card.id);
-    }
-  }, [onPlayCard]);
-
-  // Drop handler: play area (trainer cards)
-  const handlePlayAreaDrop = useCallback((item: DragItem) => {
-    if (item.intent === 'play' && item.card?.id) {
-      onPlayCard(item.card.id);
-    }
-  }, [onPlayCard]);
-
-  // Bench zone drop target
-  const { dropProps: benchDropProps, isValidTarget: benchIsValidTarget, isHovered: benchIsHovered } = useDropTarget({
-    zoneId: 'pkm-bench-self',
-    onDrop: handleBenchDrop,
+  // Bench drop zone — basic Pokemon land here. Migrated to shared
+  // card-zone primitive; the hand-card's validZones include PKM_BENCH_ME
+  // exactly when isBasic + canPlayCard. The activeIntent here is 'play'.
+  const benchZone = useCardZone({
+    zoneId: PKM_BENCH_ME,
+    engineId: PKM_ENGINE_ID,
+    onPlay: (cardId) => onPlayCard(cardId),
   });
+  const benchIsValidTarget = benchZone.isValid;
+  const benchIsHovered = benchZone.isHovered;
+  const benchDropProps = {
+    onClick: benchZone.onClick,
+    onDragOver: benchZone.onDragOver,
+    onDragLeave: benchZone.onDragLeave,
+    onDrop: benchZone.onDrop,
+  };
 
-  // Play area drop target (for trainers)
-  const { dropProps: playAreaDropProps, isValidTarget: playAreaIsValidTarget, isHovered: playAreaIsHovered } = useDropTarget({
-    zoneId: 'pkm-play-area',
-    onDrop: handlePlayAreaDrop,
+  // Play area drop zone — trainer cards (Items / Supporters / Stadium /
+  // Pokemon Tools) land here. activeIntent for trainers is 'activate'.
+  const playAreaZone = useCardZone({
+    zoneId: PKM_PLAY_AREA_ME,
+    engineId: PKM_ENGINE_ID,
+    onPlay: (cardId) => onPlayCard(cardId),
   });
+  const playAreaIsValidTarget = playAreaZone.isValid;
+  const playAreaIsHovered = playAreaZone.isHovered;
+  const playAreaDropProps = {
+    onClick: playAreaZone.onClick,
+    onDragOver: playAreaZone.onDragOver,
+    onDragLeave: playAreaZone.onDragLeave,
+    onDrop: playAreaZone.onDrop,
+  };
 
   if (!myPlayer || !opponentPlayer) return null;
 
@@ -605,10 +678,16 @@ export function PKMGameBoard({
       {/* Stadium + center divider (also trainer drop target) */}
       <div
         {...playAreaDropProps}
-        className={`flex items-center justify-center gap-4 px-4 py-2 border-y border-green-800 bg-green-900/50 transition-all duration-150 ${
+        className={`relative flex items-center justify-center gap-4 px-4 py-2 border-y border-green-800 bg-green-900/50 transition-all duration-150 ${
           playAreaIsValidTarget && !playAreaIsHovered ? 'ring-2 ring-amber-400/60' : ''
         }${playAreaIsHovered ? ' ring-2 ring-amber-300 bg-amber-900/10' : ''}`}
       >
+        <ZoneHighlight
+          isValid={playAreaZone.isValid}
+          isHovered={playAreaZone.isHovered}
+          hasActiveCard={playAreaZone.hasActiveCard}
+          activeAccent={playAreaZone.activeAccent}
+        />
         {stadiumCard ? (
           <div
             className="flex items-center gap-2 cursor-pointer"
@@ -666,14 +745,23 @@ export function PKMGameBoard({
         </AnimatePresence>
       </div>
 
-      {/* Player bench */}
+      {/* Player bench — shared-primitive drop zone (PKM_BENCH_ME) */}
       <div
         {...benchDropProps}
-        className={`flex items-center justify-center gap-2 px-4 py-1 min-h-[48px] transition-all duration-150 ${
+        className={`relative flex items-center justify-center gap-2 px-4 py-1 min-h-[48px] transition-all duration-150 ${
           benchIsValidTarget && !benchIsHovered ? 'outline outline-2 outline-amber-400/60 outline-offset-2 rounded-lg' : ''
         }${benchIsHovered ? ' outline outline-2 outline-amber-300 outline-offset-2 rounded-lg bg-amber-900/10' : ''}`}
-        onClick={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          benchDropProps.onClick();
+        }}
       >
+        <ZoneHighlight
+          isValid={benchZone.isValid}
+          isHovered={benchZone.isHovered}
+          hasActiveCard={benchZone.hasActiveCard}
+          activeAccent={benchZone.activeAccent}
+        />
         <AnimatePresence mode="popLayout">
           {myBench.length === 0 ? (
             <div className="text-green-800 text-xs">
