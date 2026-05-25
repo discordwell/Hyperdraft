@@ -121,6 +121,38 @@ describe('useCardZone', () => {
     expect(onPlay).not.toHaveBeenCalled();
   });
 
+  it('multi-target second pick: primeCard arms second-target zones', () => {
+    // Mirrors MTG PR 3.3: after the user drops a multi-target spell on
+    // the first target, GameBoard primes the spell with the second-
+    // target options as valid zones. Click on a glowing permanent
+    // converges to the same onCastMultiTargetSpell handler.
+    let pickedCardId: string | undefined;
+    const { result } = renderHook(() =>
+      useCardZone({
+        zoneId: 'mtg-card-CREATURE_B',
+        engineId: 'mtg',
+        onPlay: (cardId) => { pickedCardId = cardId; },
+      }),
+    );
+
+    act(() => {
+      useCardZoneStore
+        .getState()
+        .primeCard('SPELL', 'mtg', ['mtg-card-CREATURE_B', 'mtg-card-CREATURE_C'], '#a78bfa', 'play');
+    });
+
+    expect(result.current.isValid).toBe(true);
+
+    act(() => {
+      result.current.onClick();
+    });
+
+    // onPlay fires with the SPELL id (the hand card), not the target.
+    // GameBoard.handleCardDrop reads the targetCard from its own scope.
+    expect(pickedCardId).toBe('SPELL');
+    expect(useCardZoneStore.getState().primedCardId).toBeNull();
+  });
+
   it('routes retreat intent (PKM field-card flow)', () => {
     // Retreat is field-card-origin: the active Pokemon primes itself
     // with intent='retreat' and the bench zones are listed valid. A
