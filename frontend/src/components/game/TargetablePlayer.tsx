@@ -5,11 +5,16 @@
  * Used for burn spells, life gain targeting, etc.
  */
 
-import { useCallback, useState } from 'react';
+import { useCallback } from 'react';
 import clsx from 'clsx';
 import { PlayerInfo } from './PlayerInfo';
-import { useDragDropStore, type DragItem } from '../../hooks/useDragDrop';
-import type { PlayerData } from '../../types';
+import { type DragItem } from '../../hooks/useDragDrop';
+import { useCardZone } from '../../hooks/useCardZone';
+import ZoneHighlight from '../cards/ZoneHighlight';
+import type { CardData, PlayerData } from '../../types';
+
+const MTG_ENGINE_ID = 'mtg';
+const MTG_PLAYER_ZONE = (id: string) => `mtg-player-${id}`;
 
 interface TargetablePlayerProps {
   player: PlayerData;
@@ -34,63 +39,43 @@ export function TargetablePlayer({
   isTargetable = false,
   onTargetClick,
 }: TargetablePlayerProps) {
-  const isDragging = useDragDropStore((s) => s.isDragging);
-  const validDropZones = useDragDropStore((s) => s.validDropZones);
-  const setHoveredZone = useDragDropStore((s) => s.setHoveredZone);
-  const hoveredDropZone = useDragDropStore((s) => s.hoveredDropZone);
-  const endDrag = useDragDropStore((s) => s.endDrag);
-  const [isOver, setIsOver] = useState(false);
-
-  const dropZoneId = `player-${playerId}`;
-  const isValidDropTarget = isDragging && validDropZones.includes(dropZoneId);
-  const isActiveTarget = hoveredDropZone === dropZoneId;
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    if (!isValidDropTarget) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  }, [isValidDropTarget]);
-
-  const handleDragEnter = useCallback((e: React.DragEvent) => {
-    if (!isValidDropTarget) return;
-    e.preventDefault();
-    setIsOver(true);
-    setHoveredZone(dropZoneId);
-  }, [isValidDropTarget, dropZoneId, setHoveredZone]);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
-    setIsOver(false);
-    setHoveredZone(null);
-  }, [setHoveredZone]);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    if (!isValidDropTarget || !onDrop) return;
-    e.preventDefault();
-    e.stopPropagation();
-    setIsOver(false);
-    setHoveredZone(null);
-
-    try {
-      const data = e.dataTransfer.getData('application/json');
-      if (data) {
-        const item: DragItem = JSON.parse(data);
-        onDrop(item, playerId);
-        endDrag();
-      }
-    } catch (err) {
-      console.error('Failed to parse drag data:', err);
-    }
-  }, [isValidDropTarget, onDrop, playerId, setHoveredZone, endDrag]);
+  // Migrated to shared card-zone primitive. The player-portrait
+  // registers as zoneId `mtg-player-<id>`. GameBoard.getValidDropZones
+  // emits this id for spells that target players (Lightning Bolt to face,
+  // Lava Spike, etc). Drop synthesizes a minimal DragItem so the
+  // upstream handlePlayerDrop handler can look up the action from
+  // gameState.legal_actions.
+  const zone = useCardZone({
+    zoneId: MTG_PLAYER_ZONE(playerId),
+    engineId: MTG_ENGINE_ID,
+    onPlay: (handCardId) => {
+      if (!onDrop) return;
+      const item: DragItem = {
+        type: 'hand-card',
+        card: { id: handCardId } as CardData,
+      } as DragItem;
+      onDrop(item, playerId);
+    },
+  });
+  const isValidDropTarget = zone.isValid;
+  const isActiveTarget = zone.isHovered;
+  const isOver = zone.isHovered;
 
   // Click-to-target (overlay-mode pending choice). Drop interactions
   // still go through the drag-and-drop handlers above; this click
   // handler only fires when the player is wired as a legal target.
+  // Overlay-mode click and card-zone click are distinct: overlay-mode
+  // uses isTargetable + onTargetClick, card-zone uses zone.onClick
+  // (active only when a primed card lists this zone valid).
   const handleClick = useCallback(() => {
+    // Overlay-mode targeting first (existing pending_choice flow).
     if (isTargetable && onTargetClick) {
       onTargetClick(playerId);
+      return;
     }
-  }, [isTargetable, onTargetClick, playerId]);
+    // Card-zone click-prime path next.
+    zone.onClick();
+  }, [isTargetable, onTargetClick, playerId, zone]);
 
   return (
     <div
@@ -106,11 +91,16 @@ export function TargetablePlayer({
         }
       )}
       onClick={handleClick}
-      onDragOver={handleDragOver}
-      onDragEnter={handleDragEnter}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      onDragOver={zone.onDragOver}
+      onDragLeave={zone.onDragLeave}
+      onDrop={zone.onDrop}
     >
+      <ZoneHighlight
+        isValid={zone.isValid}
+        isHovered={zone.isHovered}
+        hasActiveCard={zone.hasActiveCard}
+        activeAccent={zone.activeAccent}
+      />
       <PlayerInfo
         player={player}
         isActivePlayer={isActivePlayer}
