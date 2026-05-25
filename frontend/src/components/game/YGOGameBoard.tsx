@@ -14,8 +14,6 @@ import YGOCardDetailPanel from './YGOCardDetailPanel';
 import YGOTurnBanner from './YGOTurnBanner';
 import YGOBanishedModal from './YGOBanishedModal';
 import YGOExtraDeckModal from './YGOExtraDeckModal';
-import { useDraggable } from '../../hooks/useDraggable';
-import { useDropTarget } from '../../hooks/useDropTarget';
 import { useHandCard } from '../../hooks/useHandCard';
 import { useCardZone } from '../../hooks/useCardZone';
 import { type CardIntent } from '../../stores/cardZoneStore';
@@ -26,13 +24,18 @@ import type { DragItem } from '../../hooks/useDragDrop';
 
 // YGO engine constants for the shared card-zone primitive. Monster zones
 // and spell/trap zones each have 5 slots per side; field spell is a single
-// shared slot. Attack-drag (own face-up ATK monster on opponent's monster)
-// stays on the legacy useDraggable in this PR — that's PR 4.1 scope.
+// shared slot. Attack flows (PR 4.2): own face-up ATK monsters become drag
+// sources via useHandCard (semantically a "draggable card" primitive,
+// regardless of origin zone); opponent monsters + the two direct-attack
+// regions register as useCardZone drop targets.
 const YGO_ENGINE_ID = 'yugioh';
 const YGO_ACCENT = '#c4b5fd'; // duelist violet — distinguishes from MTG arcane
 const YGO_MZONE = (i: number) => `ygo-mzone-${i}`;
 const YGO_STZONE = (i: number) => `ygo-stzone-${i}`;
 const YGO_FIELD_SPELL = 'ygo-field-spell';
+const YGO_ATTACK_TARGET = (id: string) => `ygo-attack-target-${id}`;
+const YGO_DIRECT_ATTACK = 'ygo-direct-attack';
+const YGO_DIRECT_ATTACK_BAR = 'ygo-direct-attack-bar';
 
 function ygoIntent(isMonster: boolean, isSpell: boolean, isTrap: boolean): CardIntent {
   if (isMonster) return 'summon';
@@ -258,44 +261,62 @@ function YGOMonsterZoneSlot({
   const isValidTarget = ownZone.isValid;
   const isHovered = ownZone.isHovered;
 
-  // Drop target for opponent monsters: accept attack drags
-  const oppDropZoneId = card ? card.id : `ygo-opp-mzone-empty-${index}`;
-  const { dropProps: attackDropProps, isValidTarget: isAttackTarget, isHovered: isAttackHovered } = useDropTarget({
-    zoneId: oppDropZoneId,
-    onDrop: (item: DragItem) => {
-      if (card && item.card?.id) {
-        onAttackDrop(item.card.id, card.id);
-      }
+  // Attack drop target — opponent monster slot with a card present becomes
+  // a drop zone for the active player's attack-drag. Migrated to shared
+  // useCardZone. zoneId = `ygo-attack-target-<opponent-card-id>` so it
+  // never collides with the own-side `ygo-mzone-<i>` namespace.
+  const attackZone = useCardZone({
+    zoneId: card ? YGO_ATTACK_TARGET(card.id) : `ygo-attack-target-empty-${index}`,
+    engineId: YGO_ENGINE_ID,
+    onPlay: (attackerId) => {
+      if (isMine || !card) return;
+      onAttackDrop(attackerId, card.id);
     },
-    disabled: isMine || !card,
   });
+  const attackDropProps = isMine || !card
+    ? undefined
+    : {
+        onClick: attackZone.onClick,
+        onDragOver: attackZone.onDragOver,
+        onDragEnter: attackZone.onDragOver,
+        onDragLeave: attackZone.onDragLeave,
+        onDrop: attackZone.onDrop,
+      };
+  const isAttackTarget = attackZone.isValid;
+  const isAttackHovered = attackZone.isHovered;
 
-  // Drag source: own face-up ATK monsters during battle phase
-  const canAttackDrag = isMine && isMyTurn && inBattlePhase && card && !card.face_down &&
-    card.ygo_position !== 'face_up_def' && card.ygo_position !== 'face_down_def';
+  // Drag SOURCE: own face-up ATK monsters during battle phase. Field
+  // card as source (vs. hand card) — useHandCard is the engine-agnostic
+  // draggable-card primitive; the "Hand" in the name is historical.
+  const canAttackDrag = !!(isMine && isMyTurn && inBattlePhase && card && !card.face_down &&
+    card.ygo_position !== 'face_up_def' && card.ygo_position !== 'face_down_def');
 
   const attackValidZones = useMemo(() => {
     if (!canAttackDrag) return [];
     const zones: string[] = [];
-    oppMonsterZones.forEach(c => {
-      if (c) zones.push(c.id);
+    oppMonsterZones.forEach((c) => {
+      if (c) zones.push(YGO_ATTACK_TARGET(c.id));
     });
-    zones.push('ygo-direct-attack');
-    zones.push('ygo-direct-attack-bar');
+    zones.push(YGO_DIRECT_ATTACK);
+    zones.push(YGO_DIRECT_ATTACK_BAR);
     return zones;
   }, [canAttackDrag, oppMonsterZones]);
 
-  const { dragProps: attackDragProps, isBeingDragged: isAttackDragged } = useDraggable({
-    item: {
-      type: 'field-card',
-      card: card || { id: '', name: '', mana_cost: null, types: [], subtypes: [], power: null, toughness: null, text: '', tapped: false, counters: {}, damage: 0, controller: null, owner: null },
-      gameMode: 'ygo',
-      intent: 'attack',
-      sourceZone: 'monster-zone',
-    },
-    validDropZones: attackValidZones,
+  const attackHandCard = useHandCard({
+    cardId: card?.id ?? `__no_attack_${index}`,
+    cardName: card?.name ?? '',
+    engineId: YGO_ENGINE_ID,
+    accent: YGO_ACCENT,
+    validZones: attackValidZones,
+    intent: 'attack',
     disabled: !canAttackDrag,
   });
+  const isAttackDragged = attackHandCard.isDragging;
+  const attackDragProps = {
+    draggable: attackHandCard.draggable,
+    onDragStart: attackHandCard.onDragStart,
+    onDragEnd: attackHandCard.onDragEnd,
+  };
 
   // Merge drop props: for opponent zones, use attack drop; for own zones, use summon drop
   const activeDropProps = !isMine && card ? attackDropProps : (isMine ? dropProps : undefined);
@@ -553,15 +574,22 @@ function YGODirectAttackZone({
   onDirectAttackClick,
   onDirectAttackDrop,
 }: YGODirectAttackZoneProps) {
-  const { dropProps, isValidTarget, isHovered } = useDropTarget({
-    zoneId: 'ygo-direct-attack',
-    onDrop: (item: DragItem) => {
-      if (item.card?.id) {
-        onDirectAttackDrop(item.card.id);
-      }
+  const zone = useCardZone({
+    zoneId: YGO_DIRECT_ATTACK,
+    engineId: YGO_ENGINE_ID,
+    onPlay: (attackerId) => {
+      if (!inBattlePhase) return;
+      onDirectAttackDrop(attackerId);
     },
-    disabled: !inBattlePhase,
   });
+  const dropProps = {
+    onDragOver: zone.onDragOver,
+    onDragEnter: zone.onDragOver,
+    onDragLeave: zone.onDragLeave,
+    onDrop: zone.onDrop,
+  };
+  const isValidTarget = zone.isValid;
+  const isHovered = zone.isHovered;
 
   return (
     <div {...dropProps}>
@@ -610,15 +638,22 @@ function YGOOpponentInfoBar({
   onShowGraveyard,
   onShowBanished,
 }: YGOOpponentInfoBarProps) {
-  const { dropProps, isValidTarget, isHovered } = useDropTarget({
-    zoneId: 'ygo-direct-attack-bar',
-    onDrop: (item: DragItem) => {
-      if (item.card?.id) {
-        onDirectAttackDrop(item.card.id);
-      }
+  const zone = useCardZone({
+    zoneId: YGO_DIRECT_ATTACK_BAR,
+    engineId: YGO_ENGINE_ID,
+    onPlay: (attackerId) => {
+      if (!inBattlePhase) return;
+      onDirectAttackDrop(attackerId);
     },
-    disabled: !inBattlePhase,
   });
+  const dropProps = {
+    onDragOver: zone.onDragOver,
+    onDragEnter: zone.onDragOver,
+    onDragLeave: zone.onDragLeave,
+    onDrop: zone.onDrop,
+  };
+  const isValidTarget = zone.isValid;
+  const isHovered = zone.isHovered;
 
   return (
     <div
