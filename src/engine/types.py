@@ -1655,8 +1655,32 @@ class GameState:
     # depths.py only reads/initialises it.
     depths_combat: dict[str, Any] = field(default_factory=dict)
 
-    # Player choice system - when set, game is paused waiting for input
+    # Player choice system - when set, game is paused waiting for input.
+    # `pending_choice` is the SCALAR top-of-stack: at most one choice is
+    # "active" at any time, and the player resolves it before the next
+    # one surfaces. Arc C adds an optional `pending_choice_stack` for
+    # nested cases — when a card's effect needs to ask Question A, then
+    # mid-resolution needs to ask Question B, B is pushed onto the stack
+    # and the engine resolves B first; when B clears, A becomes the new
+    # top. Existing callers that just write to `pending_choice` are
+    # unaffected (single-level use case). Cards that need nesting call
+    # `push_pending_choice` / `pop_pending_choice`.
     pending_choice: Optional['PendingChoice'] = None
+    pending_choice_stack: list['PendingChoice'] = field(default_factory=list)
+
+    # Arc D3 — subgame slot (Shahrazad-style nested matches).
+    #
+    # When non-None, the frontend renders the nested GameState as a
+    # contained game-view inside the parent's board. The subgame runs
+    # to completion using a full Game instance; its result is read
+    # by the parent's resolution logic. Engine-side subgame execution
+    # is its own feature work (not implemented in this commit) — the
+    # field is here so the contract is stable: PendingChoice can
+    # reference a subgame_id; the GameState carries the nested state.
+    #
+    # Storing as Any to avoid the circular dataclass forward-ref since
+    # GameState contains GameState. Serializer wraps it as GameStateData.
+    subgame: Optional[Any] = None
 
     # W15: emblems (CR 113.1c) live forever in the command zone with their
     # interceptors registered on ``self.interceptors``. The Emblem dataclass
@@ -1697,3 +1721,48 @@ class GameState:
         if self.pending_choice and self.pending_choice.player == player_id:
             return self.pending_choice
         return None
+
+    # ------------------------------------------------------------------
+    # Arc C — nested pending_choice stack
+    # ------------------------------------------------------------------
+    # Most card effects only need a single PendingChoice at a time
+    # (sequential chain). The stack is reserved for the case where one
+    # effect's resolution interrupts another that hasn't finished yet
+    # (e.g. a replacement effect inside a target's resolve handler that
+    # needs its own choice). Card authors who hit this case use these
+    # helpers; the engine's pipeline-level code uses plain
+    # `state.pending_choice = X` and is unaffected.
+
+    def push_pending_choice(self, choice: 'PendingChoice') -> None:
+        """Push a nested choice on top of the current one.
+
+        If there's an active `pending_choice`, it moves to the stack and
+        `choice` becomes the new active. The player resolves `choice`
+        first; on resolution, `pop_pending_choice` restores the prior
+        choice as active.
+        """
+        if self.pending_choice is not None:
+            self.pending_choice_stack.append(self.pending_choice)
+        self.pending_choice = choice
+
+    def pop_pending_choice(self) -> Optional['PendingChoice']:
+        """Pop the current choice; restore the next from the stack.
+
+        Returns the choice that was popped (may be None if nothing was
+        active). After this call, `pending_choice` is either the next
+        item from the stack (if any) or None.
+        """
+        popped = self.pending_choice
+        if self.pending_choice_stack:
+            self.pending_choice = self.pending_choice_stack.pop()
+        else:
+            self.pending_choice = None
+        return popped
+
+    def pending_choice_depth(self) -> int:
+        """Total number of pending choices in flight (active + stacked).
+
+        Frontend renders "Resolving 2 of 3" in the overlay pill when > 1
+        so the player knows there's queued work after this choice.
+        """
+        return (1 if self.pending_choice is not None else 0) + len(self.pending_choice_stack)

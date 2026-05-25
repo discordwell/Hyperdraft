@@ -372,6 +372,11 @@ export interface PendingChoice {
   // The frontend's overlay pill renders directly from this; falls back
   // to min_choices/max_choices/prompt when missing.
   target_metadata?: TargetGroupMetadata;
+  // Arc C — total nested-choice depth (in-flight + stacked). 1 for
+  // ordinary single-choice flow; >1 means the engine has a queued
+  // choice waiting behind this one (replacement effect interrupted
+  // another, etc.). Overlay pill renders "Resolving 2 of 3" hint.
+  stack_depth?: number;
 }
 
 // Game Log Entry
@@ -402,6 +407,11 @@ export interface GameState {
   is_game_over: boolean;
   winner: string | null;
   pending_choice?: PendingChoice | null;
+  // Arc D3 — subgame slot (Shahrazad-style nested matches). When present,
+  // the frontend renders the nested state as a contained game-view inside
+  // the parent's board. Engine-side subgame execution is a follow-up
+  // feature; the field is here so the contract is stable from day one.
+  subgame?: GameState | null;
   game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'cats' | 'clankers';
   variant?: string | null;
   max_hand_size?: number;

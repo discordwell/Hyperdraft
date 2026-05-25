@@ -433,6 +433,12 @@ class PendingChoiceData(BaseModel):
     # the engine emits a 'target' or 'divide_allocation' choice. None
     # for other choice_types; the frontend falls back to min/max + prompt.
     target_metadata: Optional[TargetGroupMetadataData] = None
+    # Arc C — total nested-choice depth. The frontend renders
+    # "Resolving 2 of 3" in the overlay pill when > 1 so the player
+    # knows their current pick will surface another choice. 1 = single
+    # in-flight choice (common case); >1 = nested replacement / trigger
+    # interrupted another effect.
+    stack_depth: int = 1
 
 
 class PendingChoiceWaitingData(BaseModel):

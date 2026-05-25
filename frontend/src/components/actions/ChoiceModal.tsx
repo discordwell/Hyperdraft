@@ -303,6 +303,23 @@ export function ChoiceModal({
       prompt={prompt}
       minChoices={min_choices ?? 1}
       maxChoices={max_choices ?? 1}
+      stackDepth={pendingChoice.stack_depth ?? 1}
+      onSubmit={onSubmit}
+      onCancel={onCancel}
+      isLoading={isLoading}
+    />;
+  }
+
+  // Arc D1 — X-value choice: render a number input bounded by
+  // min_choices/max_choices (which encode X bounds for this choice_type).
+  // Submission is a single-element list containing the chosen integer.
+  if (choice_type === 'x_value') {
+    return <XValueInputPanel
+      prompt={prompt}
+      minX={min_choices ?? 0}
+      maxX={max_choices ?? 99}
+      defaultX={(pendingChoice as PendingChoice & { default_x?: number }).default_x}
+      stackDepth={pendingChoice.stack_depth ?? 1}
       onSubmit={onSubmit}
       onCancel={onCancel}
       isLoading={isLoading}
@@ -692,6 +709,9 @@ interface ChoiceOverlayPillProps {
   prompt: string;
   minChoices: number;
   maxChoices: number;
+  /** Arc C — when >1, render "Resolving N of M" so the player knows
+   *  another choice is queued behind this one. */
+  stackDepth?: number;
   onSubmit: (selectedIds: string[]) => void;
   onCancel?: () => void;
   isLoading?: boolean;
@@ -701,6 +721,7 @@ function ChoiceOverlayPill({
   prompt,
   minChoices,
   maxChoices,
+  stackDepth = 1,
   onSubmit,
   onCancel,
   isLoading = false,
@@ -766,6 +787,11 @@ function ChoiceOverlayPill({
         {groupProgress && (
           <div className="text-[10px] text-amber-200/70 mt-0.5">{groupProgress}</div>
         )}
+        {stackDepth > 1 && (
+          <div className="text-[10px] text-amber-200/60 mt-0.5">
+            +{stackDepth - 1} more pending after this
+          </div>
+        )}
       </div>
       <div className="flex gap-2 pointer-events-auto">
         {onCancel && (
@@ -793,6 +819,105 @@ function ChoiceOverlayPill({
             Confirm ({picked}/{max})
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// XValueInputPanel — Arc D1 number-input UI for choice_type='x_value'.
+// X-cost spells (Banefire X, Genesis Wave X, "name a number") emit one of
+// these BEFORE their target choices. min_choices / max_choices encode
+// the bounds; the submission is `[String(chosenX)]`.
+// ---------------------------------------------------------------------------
+
+interface XValueInputPanelProps {
+  prompt: string;
+  minX: number;
+  maxX: number;
+  defaultX?: number;
+  stackDepth?: number;
+  onSubmit: (selectedIds: string[]) => void;
+  onCancel?: () => void;
+  isLoading?: boolean;
+}
+
+function XValueInputPanel({
+  prompt,
+  minX,
+  maxX,
+  defaultX,
+  stackDepth = 1,
+  onSubmit,
+  onCancel,
+  isLoading = false,
+}: XValueInputPanelProps) {
+  const initial = defaultX ?? minX;
+  const [value, setValue] = useState<number>(initial);
+  const clamped = Math.max(minX, Math.min(maxX, value));
+  const canSubmit = clamped >= minX && clamped <= maxX && !isLoading;
+
+  const handleSubmit = useCallback(() => {
+    onSubmit([String(clamped)]);
+  }, [clamped, onSubmit]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div
+        className="absolute inset-0 bg-black/80 backdrop-blur-md"
+        onClick={onCancel}
+      />
+      <div className="relative bg-slate-800 border-2 border-amber-500/60 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4">
+        <h3 className="text-amber-300 text-xs uppercase tracking-widest font-semibold mb-2">
+          Choose a value
+        </h3>
+        <div className="text-white text-base mb-4">{prompt}</div>
+        {stackDepth > 1 && (
+          <div className="text-[11px] text-amber-200/70 mb-3">
+            +{stackDepth - 1} more pending after this
+          </div>
+        )}
+        <div className="flex items-center gap-3 mb-4">
+          <label htmlFor="x-value-input" className="text-slate-300 text-sm font-semibold">
+            X =
+          </label>
+          <input
+            id="x-value-input"
+            type="number"
+            min={minX}
+            max={maxX}
+            value={value}
+            onChange={(e) => setValue(parseInt(e.target.value, 10) || minX)}
+            className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-white text-lg w-24 focus:outline-none focus:border-amber-400"
+            autoFocus
+          />
+          <span className="text-slate-400 text-xs">
+            range: {minX}–{maxX}
+          </span>
+        </div>
+        <div className="flex justify-end gap-2">
+          {onCancel && (
+            <button
+              className="px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium transition-colors"
+              onClick={onCancel}
+              disabled={isLoading}
+            >
+              Cancel
+            </button>
+          )}
+          <button
+            className={clsx(
+              'px-6 py-2 rounded-lg font-medium transition-all',
+              canSubmit
+                ? 'bg-amber-500 hover:bg-amber-400 text-amber-950 shadow-lg shadow-amber-500/30'
+                : 'bg-slate-700 text-slate-500 cursor-not-allowed',
+            )}
+            onClick={handleSubmit}
+            disabled={!canSubmit}
+          >
+            {isLoading ? 'Submitting…' : `Submit (X = ${clamped})`}
+          </button>
+        </div>
       </div>
     </div>
   );

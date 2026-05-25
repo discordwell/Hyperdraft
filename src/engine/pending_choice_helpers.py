@@ -163,6 +163,61 @@ def drain_pending_choices_for_ai(state: GameState, max_iterations: int = 16) -> 
     return events
 
 
+def create_x_value_choice(
+    state: GameState,
+    *,
+    player_id: str,
+    prompt: str,
+    source_id: str,
+    min_x: int = 0,
+    max_x: int = 99,
+    default_x: Optional[int] = None,
+    handler: Optional[Callable] = None,
+    heuristic_pick: Any = None,
+    **extra_callback_data: Any,
+) -> list[Event]:
+    """Arc D1 — emit a PendingChoice asking the player for an X value.
+
+    Convention: `choice_type='x_value'`. `min_choices` and `max_choices`
+    encode the X bounds (so the existing serialization/UI pipeline
+    carries them through without schema changes). The submission shape
+    is a one-element list containing the chosen integer:
+    `submit_choice(['7'])` for X=7.
+
+    The frontend's ChoiceModal renders a number input bounded by
+    [min_x, max_x] with `default_x` as the initial value. After
+    submission, `handler(choice, selected_x, state)` runs — typical
+    pattern: store X on the spell object via callback_data and continue
+    to the target-pick phase.
+
+    Engine-agnostic: any game with X-cost or "name a number" style
+    choices uses this helper.
+    """
+    callback_data: dict[str, Any] = dict(extra_callback_data)
+    if handler is not None:
+        callback_data["handler"] = handler
+    if heuristic_pick is not None:
+        callback_data["heuristic_pick"] = heuristic_pick
+    if default_x is not None:
+        callback_data["default_x"] = default_x
+
+    choice = PendingChoice(
+        choice_type="x_value",
+        player=player_id,
+        prompt=prompt,
+        options=[],  # No discrete options — frontend renders a number input
+        source_id=source_id,
+        min_choices=int(min_x),
+        max_choices=int(max_x),
+        callback_data=callback_data,
+        # No target_metadata — x_value is its own choice_type. Frontend
+        # branches on choice_type to render the number input.
+    )
+    state.pending_choice = choice
+    events, _selected = resolve_pending_choice_inline(state)
+    return events
+
+
 def create_choice_and_resolve(
     state: GameState,
     *,

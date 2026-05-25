@@ -619,6 +619,14 @@ class GameSession:
                         group_index=tm_obj.group_index,
                         total_groups=tm_obj.total_groups,
                     )
+                # Arc C — total nested choice depth (in-flight + stacked).
+                # Defaults to 1 for ordinary single-choice flow.
+                stack_depth = 1
+                try:
+                    stack_depth = game_state.pending_choice_depth()
+                except AttributeError:
+                    # Older GameState without the helper — treat as 1.
+                    pass
                 pending_choice_data = PendingChoiceData(
                     id=pending_choice.id,
                     choice_type=pending_choice.choice_type,
@@ -630,6 +638,7 @@ class GameSession:
                     max_choices=pending_choice.max_choices,
                     interaction_mode=interaction_mode,
                     target_metadata=target_metadata_data,
+                    stack_depth=stack_depth,
                 )
             else:
                 # Another player is making a choice
