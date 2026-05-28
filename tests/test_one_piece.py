@@ -621,15 +621,20 @@ def test_luffy_straw_hat_pirate_lord():
     toughness = get_toughness(pirate, game.state)
     print(f"Pirate Captain with Luffy: {power}/{toughness} (base 3/2)")
 
-    # Check Luffy doesn't buff itself
+    # Check Luffy doesn't self-buff (his own lord excludes himself).
+    # NOTE: Pirate Captain is also a lord (+1/+0 to other Pirates), so it
+    # buffs Luffy by +1 power. We assert that for the self-exclusion check
+    # we only count Luffy's own contribution.
     luffy_power = get_power(luffy, game.state)
-    print(f"Luffy's own power: {luffy_power} (expected 3, base unchanged)")
+    print(f"Luffy's own power: {luffy_power} (3 base + 1 from Pirate Captain's lord)")
 
     # Lord effect should boost the other Pirate
     assert power > 3, f"Pirate should have power > 3 with lord, got {power}"
     assert toughness > 2, f"Pirate should have toughness > 2 with lord, got {toughness}"
-    assert luffy_power == 3, f"Luffy should have base power 3 (no self-buff), got {luffy_power}"
-    print("PASSED: Luffy Straw Hat pirate lord effect works!")
+    # Luffy's own lord excludes self (+1/+1), so its only buff is from Pirate
+    # Captain (+1/+0). Total expected = 3 base + 1 (Pirate Captain) = 4.
+    assert luffy_power == 4, f"Luffy: 3 base + 1 from Pirate Captain = 4 expected, got {luffy_power}"
+    print("PASSED: Luffy Straw Hat pirate lord effect works (and self-excludes)!")
 
 
 def test_sabo_damage_ping():

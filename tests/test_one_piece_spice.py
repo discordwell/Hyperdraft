@@ -8,8 +8,13 @@ recursion, Wanted Poster crime escalator, Devil Fruit tutor, Fish-Man
 tribal seat, Treasure-sac extra-turn payoff.
 """
 
+import os
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/HYPERDRAFT')
+# Worktree-portable sys.path. Compute repo root from this file's location so
+# the test runs from any checkout (main or a worktree).
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 from src.engine import (
     Game, Event, EventType, ZoneType, CardType, Color,
