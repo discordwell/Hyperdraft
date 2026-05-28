@@ -600,13 +600,20 @@ def _untap_all_piles(state: GameState) -> None:
 
 
 def _run_setup_on_pile_entry(state: GameState, obj: GameObject) -> None:
-    """Run setup_interceptors for a card that just entered a pile.
+    """Run setup_interceptors for a card that just entered the trick or a pile.
 
-    Pile triggers (on_enter_pile, pile-tap activations) need their interceptors
-    registered when the card lands. Mirrors how setup_interceptors fires for
-    Commanders, but scoped to pile entry instead of game start.
+    Pile / trick triggers (on_win, on_lose, on_enter_pile, pile-tap activations)
+    need their interceptors registered when the card moves out of HAND. Mirrors
+    how setup_interceptors fires for Commanders, but scoped to trick/pile entry
+    instead of game start.
+
+    Idempotent: if obj.interceptor_ids is already populated, this is a re-entry
+    (e.g. trick -> pile transition) and we skip to avoid duplicate registration
+    (the trick-entry call already registered on_enter_pile etc.).
     """
     if obj is None or obj.card_def is None:
+        return
+    if obj.interceptor_ids:
         return
     fn = obj.card_def.setup_interceptors
     if fn is None:
@@ -682,6 +689,13 @@ def play_card_to_trick(
     obj = state.objects.get(card_obj_id)
     if obj is not None:
         obj.entered_zone_at = state.next_timestamp()
+        # Cards in hand have no interceptors registered (setup_interceptors only
+        # fires on COMMAND or pile entry). Trick is a new zone for the card,
+        # so register its on_win / on_lose REACT triggers now — otherwise
+        # resolve_trick will skip them and on_win/on_lose effects silently no-op
+        # (Whiskers, Velvet, Tufts, Pomf, Alley Phantom, Mayhem IV, Carnage,
+        # Whispertoes, Inkblot all rely on this path).
+        _run_setup_on_pile_entry(state, obj)
 
     if role == "pounce":
         trick["pounce_card"] = card_obj_id
