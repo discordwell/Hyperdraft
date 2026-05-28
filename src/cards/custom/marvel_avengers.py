@@ -586,1925 +586,661 @@ def _mvl_s15_count_in_hand(state: GameState, controller: str) -> int:
     return len(hd.objects)
 
 
-# --- SHAPE 1: ETB scry + ally-scaling drain (SHIELD/Honor/Asgardian) -------
+# =============================================================================
+# REAL SETUPS (slice-15 retrofit) — each matches the card's printed text.
+# Replaces the deleted info-pulse stub block. Helpers from
+# interceptor_helpers; targeted ETB effects via make_targeted_etb_trigger.
+# =============================================================================
+from src.cards.interceptor_helpers import (
+    make_targeted_etb_trigger, make_dynamic_pt_boost, make_aura_setup,
+)
 
 
-def _mvl_einherjar_soldier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Asgardian (Odin's chosen rise)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        asg = _mvl_s15_count_subtype(st, obj.controller, 'Asgardian')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, asg), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
+def _scry_event(controller: str, source_id, amount: int) -> Event:
+    return Event(type=EventType.SCRY,
+                 payload={'player': controller, 'amount': amount},
+                 source=source_id, controller=controller)
 
 
-def _mvl_lady_sif_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Warrior (shield-maiden's vow)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        warriors = _mvl_s15_count_subtype(st, obj.controller, 'Warrior')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, warriors), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
+def _mvl_etb_scry1_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When ~ enters, scry 1."""
+    return [make_etb_trigger(obj, lambda e, st: [_scry_event(obj.controller, obj.id, 1)])]
 
 
-def _mvl_shield_helicarrier_crew_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Soldier (SHIELD command rolls out)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        soldiers = _mvl_s15_count_subtype(st, obj.controller, 'Soldier')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, soldiers), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
+def _mvl_etb_scry2_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying. When ~ enters, scry 2."""
+    return [make_etb_trigger(obj, lambda e, st: [_scry_event(obj.controller, obj.id, 2)])]
 
 
-def _mvl_nova_corps_officer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Soldier ally (Nova Corps patrol)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        sol = _mvl_s15_count_subtype(st, obj.controller, 'Soldier')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, sol), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
+def _mvl_etb_draw1_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When ~ enters, draw a card."""
+    def eff(e, st):
+        return [Event(type=EventType.DRAW,
+                      payload={'player': obj.controller, 'amount': 1},
+                      source=obj.id, controller=obj.controller)]
+    return [make_etb_trigger(obj, eff)]
 
 
-def _mvl_ravager_scout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Pirate/Alien ally (Ravager scouting)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        pir = _mvl_s15_count_subtype(st, obj.controller, 'Pirate')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, pir), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
+def _mvl_etb_loot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When ~ enters, draw a card, then discard a card."""
+    def eff(e, st):
+        return [Event(type=EventType.DRAW,
+                      payload={'player': obj.controller, 'amount': 1},
+                      source=obj.id, controller=obj.controller),
+                Event(type=EventType.DISCARD,
+                      payload={'player': obj.controller, 'amount': 1},
+                      source=obj.id, controller=obj.controller)]
+    return [make_etb_trigger(obj, eff)]
 
 
-# --- SHAPE 2: Attack drain (combat trigger, scales with subtype) ------------
+def _mvl_upkeep_scry1_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At the beginning of your upkeep, scry 1."""
+    return [make_upkeep_trigger(obj, lambda e, st: [_scry_event(obj.controller, obj.id, 1)])]
 
 
-def _mvl_chitauri_charger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: each opp -1 per Alien/Warrior ally + scry 1 (Chitauri swarm)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        aliens = _mvl_s15_count_subtype(st, obj.controller, 'Alien')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, aliens), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_attack_trigger(obj, effect)]
+def _damage_event(target_id, amount: int, source_id) -> Event:
+    return Event(type=EventType.DAMAGE,
+                 payload={'target': target_id, 'amount': amount,
+                          'source': source_id, 'is_combat': False},
+                 source=source_id)
 
 
-def _mvl_grandmaster_champion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: each opp -1 per Warrior ally + scry 1 (Sakaar arena roar)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        warriors = _mvl_s15_count_subtype(st, obj.controller, 'Warrior')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, warriors), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_attack_trigger(obj, effect)]
+def make_etb_power_damage_setup(target_filter='creature'):
+    """When ~ enters, it deals damage equal to its power to target creature."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def eff(e, st):
+            return [Event(type=EventType.TARGET_REQUIRED, payload={
+                'source': obj.id, 'controller': obj.controller, 'effect': 'damage',
+                'effect_params': {'amount': get_power(obj, st)},
+                'target_filter': target_filter, 'min_targets': 1, 'max_targets': 1,
+            }, source=obj.id)]
+        return [make_etb_trigger(obj, eff)]
+    return _setup
 
 
-def _mvl_destroyer_armor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: each opp -1 per Construct/Artifact ally (Asgardian sentinel charge)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        cons = _mvl_s15_count_subtype(st, obj.controller, 'Construct')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, cons), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_attack_trigger(obj, effect)]
+def make_etb_fight_setup():
+    """When ~ enters, it fights target creature you don't control."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def eff(e, st):
+            return [Event(type=EventType.FIGHT,
+                          payload={'attacker': obj.id}, source=obj.id)]
+        return [make_etb_trigger(obj, eff)]
+    return _setup
 
 
-def _mvl_nova_prime_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: each opp -1 per Warrior ally + scry 1 (Nova force charges)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        warriors = _mvl_s15_count_subtype(st, obj.controller, 'Warrior')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, warriors), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_attack_trigger(obj, effect)]
+def make_death_damage_setup(amount: int):
+    """When ~ dies, it deals N damage to any target."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def eff(e, st):
+            return [Event(type=EventType.TARGET_REQUIRED, payload={
+                'source': obj.id, 'controller': obj.controller, 'effect': 'damage',
+                'effect_params': {'amount': amount},
+                'target_filter': 'any', 'min_targets': 1, 'max_targets': 1,
+            }, source=obj.id)]
+        return [make_death_trigger(obj, eff)]
+    return _setup
 
 
-def _mvl_ant_swarm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: each opp -1 per Insect ally + scry 1 (overwhelming Insect tide)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        ins = _mvl_s15_count_subtype(st, obj.controller, 'Insect')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, ins), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_attack_trigger(obj, effect)]
+def _combat_dmg_to_player(event: Event, st: GameState, src: GameObject) -> bool:
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('source') != src.id:
+        return False
+    if not event.payload.get('is_combat', False):
+        return False
+    return event.payload.get('target') in st.players
 
 
-# --- SHAPE 3: ETB surveil + mill (HYDRA, spies, telepaths) ------------------
+def make_combat_dmg_discard_setup():
+    """Whenever ~ deals combat damage to a player, that player discards a card."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def eff(e, st):
+            tgt = e.payload.get('target')
+            return [Event(type=EventType.DISCARD,
+                          payload={'player': tgt, 'amount': 1}, source=obj.id)]
+        return [make_damage_trigger(obj, eff, combat_only=True,
+                                    filter_fn=lambda e, s, o: _combat_dmg_to_player(e, s, obj))]
+    return _setup
 
 
-def _mvl_knowhere_merchant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 2 (Knowhere black market intel)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
+def make_combat_dmg_counters_setup(n: int):
+    """Whenever ~ deals combat damage to a player, put N +1/+1 counters on it."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def eff(e, st):
+            return [Event(type=EventType.COUNTER_ADDED,
+                          payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': n},
+                          source=obj.id)]
+        return [make_damage_trigger(obj, eff, combat_only=True,
+                                    filter_fn=lambda e, s, o: _combat_dmg_to_player(e, s, obj))]
+    return _setup
 
 
-def _mvl_xandarian_pilot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 1 per Pilot/Alien ally (recon flyby)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        pilots = _mvl_s15_count_subtype(st, obj.controller, 'Pilot')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, pilots), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
+def make_upkeep_drain_setup(amount: int, gain_self: bool = False):
+    """At the beginning of your upkeep, each opponent loses N life [and you gain N]."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def eff(e, st):
+            evs = []
+            for opp in all_opponents(obj, st):
+                evs.append(Event(type=EventType.LIFE_CHANGE,
+                                 payload={'player': opp, 'amount': -amount, 'source': obj.id},
+                                 source=obj.id))
+            if gain_self:
+                evs.append(Event(type=EventType.LIFE_CHANGE,
+                                 payload={'player': obj.controller, 'amount': amount, 'source': obj.id},
+                                 source=obj.id))
+            return evs
+        return [make_upkeep_trigger(obj, eff)]
+    return _setup
 
 
-def _mvl_ravager_engineer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + each opp mills 1 (Ravager salvage rig)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_dark_elf_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 2 (Svartalfheim ambush)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
+def make_etb_token_setup(token_spec: dict):
+    """When ~ enters, create a token."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def eff(e, st):
+            return [Event(type=EventType.CREATE_TOKEN,
+                          payload={'controller': obj.controller, 'token': dict(token_spec)},
+                          source=obj.id)]
+        return [make_etb_trigger(obj, eff)]
+    return _setup
 
 
 def _mvl_storm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 1 per Mutant ally (storm-front clouds)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        muts = _mvl_s15_count_subtype(st, obj.controller, 'Mutant')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, muts), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_iceman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 1 per Mutant ally (cryo-cascade)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        muts = _mvl_s15_count_subtype(st, obj.controller, 'Mutant')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, muts), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
+    """Flying. When Storm enters, tap all creatures your opponents control."""
+    def eff(e, st):
+        evs = []
+        for o in list(st.objects.values()):
+            if (o.controller != obj.controller and o.zone == ZoneType.BATTLEFIELD
+                    and o.characteristics and CardType.CREATURE in (o.characteristics.types or set())):
+                evs.append(Event(type=EventType.TAP,
+                                 payload={'object_id': o.id}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, eff)]
 
 
 def _mvl_nightcrawler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + each opp mills 1 (Bamf teleport stealth)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-# --- SHAPE 4: ETB scry + heal (SHIELD medics, Asgard wards) -----------------
-
-
-def _mvl_avengers_medic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Avenger ally (battlefield triage)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        avg = _mvl_s15_count_subtype(st, obj.controller, 'Avenger')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, avg), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_mantis_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Guardian ally (empathic touch)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        gd = _mvl_s15_count_subtype(st, obj.controller, 'Guardian')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, gd), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-# --- SHAPE 5: ETB surveil + discard (Villains, Loki, mind games) -----------
-
-
-def _mvl_loki_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + each opp discards 1 (mischief misdirects)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            hd_count = _mvl_s15_count_in_hand(st, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
-                                         'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_winter_soldier_asset_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp discards 1 (programmed strike)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            hd_count = _mvl_s15_count_in_hand(st, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
-                                         'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_kingpin_enforcer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp discards 1 (mob extortion)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            hd_count = _mvl_s15_count_in_hand(st, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
-                                         'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_taskmaster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp discards 1 (mimic-prep advantage)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            hd_count = _mvl_s15_count_in_hand(st, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
-                                         'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_ghost_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + each opp discards 1 (phase-thief grabs intel)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            hd_count = _mvl_s15_count_in_hand(st, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
-                                         'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_zemo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp discards 1 (Sokovian ledger)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            hd_count = _mvl_s15_count_in_hand(st, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
-                                         'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_ebony_maw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + each opp discards 1 (Black Order interrogator)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            hd_count = _mvl_s15_count_in_hand(st, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
-                                         'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_mordo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp discards 1 (mystic compulsion)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            hd_count = _mvl_s15_count_in_hand(st, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
-                                         'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_dormammu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + each opp discards 1 (the dark dimension whispers)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            hd_count = _mvl_s15_count_in_hand(st, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
-                                         'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-# --- SHAPE 6: ETB scry + damage (Thor, Chitauri, Iron Man tech) -------------
-
-
-def _mvl_fire_demon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Demon ally (fire breath)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        demons = _mvl_s15_count_subtype(st, obj.controller, 'Demon')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, demons),
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_human_torch_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 2 damage (flame on)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2,
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_ronan_accuser_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Warrior ally (cosmi-hammer)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        warriors = _mvl_s15_count_subtype(st, obj.controller, 'Warrior')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, warriors),
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_proxima_midnight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 2 damage (Black Order vanguard)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2,
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_corvus_glaive_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Villain ally (glaive flurry)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        vills = _mvl_s15_count_subtype(st, obj.controller, 'Villain')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, vills),
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_cull_obsidian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 2 damage (chain-hammer arc)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2,
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_magneto_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + each opp 1 damage per Mutant ally (magnetic crush)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        muts = _mvl_s15_count_subtype(st, obj.controller, 'Mutant')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, muts),
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-# --- SHAPE 7: Death trigger + drain (Villains, Phoenix) --------------------
-
-
-def _mvl_red_skull_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Death: scry 1 + each opp -1 per Villain ally (the cabal regroups)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        vills = _mvl_s15_count_subtype(st, obj.controller, 'Villain')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, vills), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_death_trigger(obj, effect)]
-
-
-def _mvl_abomination_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Death: scry 1 + each opp -1 per Mutant/Villain ally (gamma backlash)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        muts = _mvl_s15_count_subtype(st, obj.controller, 'Mutant')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, muts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_death_trigger(obj, effect)]
-
-
-def _mvl_ultron_prime_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Death: scry 1 + each opp -1 per Construct ally (rebirth protocol)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        cons = _mvl_s15_count_subtype(st, obj.controller, 'Construct')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, cons), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_death_trigger(obj, effect)]
-
-
-def _mvl_jean_grey_phoenix_death_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Death: scry 2 + each opp -2 (Phoenix Force inferno backlash)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_death_trigger(obj, effect)]
-
-
-# --- SHAPE 8: ETB hand-reveal (Telepaths, Mantis empath) -------------------
-
-
-def _mvl_professor_x_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp reveals hand (Cerebro broadcast)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.REVEAL_HAND,
-                                payload={'player': opp, 'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_rogue_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp reveals hand (power-absorption peek)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.REVEAL_HAND,
-                                payload={'player': opp, 'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_beast_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp reveals hand (genetic analysis)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.REVEAL_HAND,
-                                payload={'player': opp, 'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_drax_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp reveals hand (literal-warrior reads true intent)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.REVEAL_HAND,
-                                payload={'player': opp, 'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-# --- SHAPE 9: ETB graveyard + draw + drain (Mystic Arts, time, cosmic) -----
-
-
-def _mvl_shield_tech_specialist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + draw if Artifact >= 2 + each opp -1 (tech-prep)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        arts = _mvl_s15_count_type(st, obj.controller, CardType.ARTIFACT)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.DRAW,
-                        payload={'player': obj.controller, 'amount': 1 if arts >= 2 else 0,
-                                 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_pym_particle_researcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + draw if Scientist >= 1 + each opp mills 1 (size-shift research)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        sci = _mvl_s15_count_subtype(st, obj.controller, 'Scientist')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.DRAW,
-                        payload={'player': obj.controller, 'amount': 1 if sci >= 1 else 0,
-                                 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_scarlet_witch_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + draw if graveyard >= 3 + each opp -1 (chaos magic spirals)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        gy = _mvl_s15_count_in_graveyard(st, obj.controller)
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.DRAW,
-                        payload={'player': obj.controller, 'amount': 1 if gy >= 3 else 0,
-                                 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_surtur_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + draw if graveyard >= 4 + each opp 2 damage (Ragnarok ignites)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        gy = _mvl_s15_count_in_graveyard(st, obj.controller)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.DRAW,
-                        payload={'player': obj.controller, 'amount': 1 if gy >= 4 else 0,
-                                 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2,
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-# --- SHAPE 10: ETB gain + ally scaling (Wakandan, strength, Asgard) --------
-
-
-def _mvl_vibranium_rhino_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Wakandan ally (vibranium-hide reinforcement)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        wak = _mvl_s15_count_subtype(st, obj.controller, 'Wakandan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, wak + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_wakandan_war_rhino_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Wakandan ally (war-rhino charge)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        wak = _mvl_s15_count_subtype(st, obj.controller, 'Wakandan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, wak + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_thing_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Mutate/Human ally (rocky resilience)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        muts = _mvl_s15_count_subtype(st, obj.controller, 'Mutate')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, muts + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_groot_setup_s15(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Guardian ally (I-am-Groot grows)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        guards = _mvl_s15_count_subtype(st, obj.controller, 'Guardian')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, guards + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_savage_land_raptor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Dinosaur ally (savage-land pack)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        dinos = _mvl_s15_count_subtype(st, obj.controller, 'Dinosaur')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, dinos + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_savage_land_rex_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Dinosaur ally (apex predator's gain)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        dinos = _mvl_s15_count_subtype(st, obj.controller, 'Dinosaur')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, dinos + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_forest_troll_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Troll/Beast ally (forest regrowth)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        trolls = _mvl_s15_count_subtype(st, obj.controller, 'Troll')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, trolls + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_korg_setup_s15(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Kronan/Warrior ally (revolution rallies)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        kron = _mvl_s15_count_subtype(st, obj.controller, 'Kronan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, kron + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_wasp_setup_s15(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Avenger ally (Pym-particle dive)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        avg = _mvl_s15_count_subtype(st, obj.controller, 'Avenger')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, avg + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_shuri_setup_s15(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Wakandan ally (lab-genius repair)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        wak = _mvl_s15_count_subtype(st, obj.controller, 'Wakandan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, wak + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_colossus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Mutant ally (steel-form bulwark)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        muts = _mvl_s15_count_subtype(st, obj.controller, 'Mutant')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, muts + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_wolverine_setup_s15(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Mutant ally (regen factor activates)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        muts = _mvl_s15_count_subtype(st, obj.controller, 'Mutant')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, muts + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_valkyrie_setup_s15(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Asgardian ally (Valhalla's chosen)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        asg = _mvl_s15_count_subtype(st, obj.controller, 'Asgardian')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, asg + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-# --- SHAPE 11: Upkeep scry + drain (lands, headquarters, enchantments) -----
-
-
-def _mvl_avengers_tower_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + each opp -1 (Stark situation room)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-def _mvl_stark_tower_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + each opp -1 per Artifact ally (Stark R&D rolls)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        arts = _mvl_s15_count_type(st, obj.controller, CardType.ARTIFACT)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, arts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-def _mvl_wakanda_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + each opp -1 per Wakandan ally (the throne sits)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        wak = _mvl_s15_count_subtype(st, obj.controller, 'Wakandan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, wak), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-def _mvl_asgard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + each opp -1 per Asgardian ally (Odin watches)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        asg = _mvl_s15_count_subtype(st, obj.controller, 'Asgardian')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, asg), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-def _mvl_sanctum_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: surveil 1 + each opp mills 1 (mystic library scrying)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-def _mvl_knowhere_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: surveil 1 + each opp mills 1 (Celestial-skull bazaar)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-def _mvl_xaviers_school_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + each opp -1 per Mutant ally (Cerebro hums)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        muts = _mvl_s15_count_subtype(st, obj.controller, 'Mutant')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, muts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-def _mvl_hydra_base_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: surveil 1 + each opp mills 1 per Villain ally (HYDRA grows)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        vills = _mvl_s15_count_subtype(st, obj.controller, 'Villain')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, vills), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-def _mvl_shield_facility_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + each opp -1 per Soldier ally (SHIELD intel cycles)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        sol = _mvl_s15_count_subtype(st, obj.controller, 'Soldier')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, sol), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-def _mvl_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: surveil 1 + each opp -1 per Villain ally (Thanos' homeworld)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        vills = _mvl_s15_count_subtype(st, obj.controller, 'Villain')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, vills), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-def _mvl_vormir_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: surveil 1 + each opp -1 (the Soul Stone's price)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-def _mvl_sakaar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + each opp 1 damage (Sakaar arena's roar)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 1,
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-def _mvl_contraxia_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + gain life per Alien ally (mercenary pleasure planet)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        ali = _mvl_s15_count_subtype(st, obj.controller, 'Alien')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, ali), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-def _mvl_hala_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + each opp -1 per Kree/Alien ally (Kree homeworld assesses)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        kree = _mvl_s15_count_subtype(st, obj.controller, 'Kree')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, kree), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-def _mvl_nidavellir_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + each opp -1 per Artifact ally (Eitri's forges)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        arts = _mvl_s15_count_type(st, obj.controller, CardType.ARTIFACT)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, arts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-def _mvl_genosha_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + gain life per Mutant ally (mutant sanctuary)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        muts = _mvl_s15_count_subtype(st, obj.controller, 'Mutant')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, muts), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-# --- ARTIFACTS / Equipment / Vehicles: upkeep scry + drain -----------------
-
-
-def _mvl_stormbreaker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 2 damage (the storm-axe lands)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2,
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_iron_man_armor_l_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Artifact ally (Stark suit-up)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        arts = _mvl_s15_count_type(st, obj.controller, CardType.ARTIFACT)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, arts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_iron_man_armor_lxxxv_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Artifact ally (Stark Mark 85 boot up)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        arts = _mvl_s15_count_type(st, obj.controller, CardType.ARTIFACT)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, arts),
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_hulkbuster_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 2 damage (Veronica falls from orbit)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2,
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_web_shooters_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 (thwip)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_yaka_arrow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage (whistled bullet finds its mark)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 1,
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_vibranium_spear_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Wakandan ally (Dora Milaje formation)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        wak = _mvl_s15_count_subtype(st, obj.controller, 'Wakandan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, wak), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_panther_habit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Wakandan ally (vibranium-weave protection)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        wak = _mvl_s15_count_subtype(st, obj.controller, 'Wakandan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, wak), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_nano_gauntlet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + each opp 1 damage (Stark's improvised gauntlet hums)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 1,
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_cloak_of_levitation_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + each opp -1 (the cloak chooses its bearer)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_tesseract_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + each opp mills 2 (cosmic-cube portal flare)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_eye_of_agamotto_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: surveil 1 + each opp reveals hand (timestream prying)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.REVEAL_HAND,
-                                payload={'player': opp, 'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-def _mvl_quinjet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Avenger ally (rapid deployment)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        avg = _mvl_s15_count_subtype(st, obj.controller, 'Avenger')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, avg), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_milano_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 1 per Guardian ally (Star-Lord's ship)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        gd = _mvl_s15_count_subtype(st, obj.controller, 'Guardian')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, gd), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_helicarrier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Soldier ally (mobile command rises)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        sol = _mvl_s15_count_subtype(st, obj.controller, 'Soldier')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, sol), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _mvl_benatar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Guardian ally (Guardians' getaway)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        gd = _mvl_s15_count_subtype(st, obj.controller, 'Guardian')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, gd), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-# --- ENCHANTMENTS: ETB scry + drain ----------------------------------------
-
-
-def _mvl_shield_headquarters_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + each opp -1 per Soldier ally (SHIELD intel center)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        sol = _mvl_s15_count_subtype(st, obj.controller, 'Soldier')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, sol), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-def _mvl_asgardian_might_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + each opp -1 per Asgardian ally (warrior-glory)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        asg = _mvl_s15_count_subtype(st, obj.controller, 'Asgardian')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, asg), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-def _mvl_mutant_uprising_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + each opp -1 per Mutant ally (the call resounds)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        muts = _mvl_s15_count_subtype(st, obj.controller, 'Mutant')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, muts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-def _mvl_cosmic_convergence_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 2 + each opp -1 (the planes align)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-def _mvl_vibranium_mines_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + gain life per Wakandan ally (mining yields wealth)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        wak = _mvl_s15_count_subtype(st, obj.controller, 'Wakandan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, wak), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_upkeep_trigger(obj, effect)]
-
-
-# --- SHAPE 12: Instant/Sorcery resolve handlers (inlined, unique AST) ------
-
-
-def _mvl_resolve_repulsor_blast(targets: list, state: GameState) -> list[Event]:
-    """Repulsor Blast — scry 1 + each opp 2 damage (Stark hand-blast)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
+    """Flash, unblockable. ETB: you may return another creature you control to hand."""
+    def eff(e, st):
+        for o in list(st.objects.values()):
+            if (o.id != obj.id and o.controller == obj.controller
+                    and o.zone == ZoneType.BATTLEFIELD and o.characteristics
+                    and CardType.CREATURE in (o.characteristics.types or set())):
+                return [Event(type=EventType.BOUNCE,
+                              payload={'object_id': o.id}, source=obj.id)]
         return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2, 'source': None, 'is_combat': False},
-                                source=None))
-    return events
+    return [make_etb_trigger(obj, eff)]
 
 
-def _mvl_resolve_shield_throw(targets: list, state: GameState) -> list[Event]:
-    """Shield Throw — scry 1 + gain 2 + each opp 1 damage (vibranium ricochet)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
+def make_subtype_lord_setup(subtype: str, p: int, t: int, keywords=None):
+    """Static lord: <subtype> creatures you control get +p/+t [and have keywords]."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        ints = list(make_static_pt_boost(obj, p, t, creatures_with_subtype(obj, subtype)))
+        if keywords:
+            ints.append(make_keyword_grant(obj, list(keywords),
+                                           creatures_with_subtype(obj, subtype)))
+        return ints
+    return _setup
+
+
+def make_self_attacking_boost_setup(p: int, t: int):
+    """~ gets +p/+t as long as it's attacking."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def mod_fn(src, target, st):
+            if getattr(getattr(src, 'state', None), 'attacking', False):
+                return (p, t)
+            return (0, 0)
+        return make_dynamic_pt_boost(obj, mod_fn, lambda tgt, st: tgt.id == obj.id)
+    return _setup
+
+
+def make_self_cond_villain_boost_setup(p: int, t: int, *, opponent: bool):
+    """~ gets +p/+t as long as [an opponent / you control another] controls a Villain."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def mod_fn(src, target, st):
+            for o in st.objects.values():
+                if o.zone != ZoneType.BATTLEFIELD or not o.characteristics:
+                    continue
+                if 'Villain' not in (o.characteristics.subtypes or set()):
+                    continue
+                if opponent and o.controller != obj.controller:
+                    return (p, t)
+                if (not opponent) and o.controller == obj.controller and o.id != obj.id:
+                    return (p, t)
+            return (0, 0)
+        return make_dynamic_pt_boost(obj, mod_fn, lambda tgt, st: tgt.id == obj.id)
+    return _setup
+
+
+def make_self_dynamic_subtype_boost_setup(subtype: str):
+    """~ gets +1/+1 for each other <subtype> you control."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def mod_fn(src, target, st):
+            n = _mvl_s15_count_subtype(st, obj.controller, subtype)
+            if subtype in (obj.characteristics.subtypes or set()):
+                n = max(0, n - 1)  # "other"
+            return (n, n)
+        return make_dynamic_pt_boost(obj, mod_fn, lambda tgt, st: tgt.id == obj.id)
+    return _setup
+
+
+def make_attack_token_setup(token_spec: dict):
+    """Whenever ~ attacks, create a token."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def eff(e, st):
+            return [Event(type=EventType.CREATE_TOKEN,
+                          payload={'controller': obj.controller, 'token': dict(token_spec)},
+                          source=obj.id)]
+        return [make_attack_trigger(obj, eff)]
+    return _setup
+
+
+def make_attack_subtype_boost_setup(subtype: str, p: int, t: int):
+    """Whenever ~ attacks, <subtype> creatures you control get +p/+t until EOT."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def eff(e, st):
+            evs = []
+            for o in st.objects.values():
+                if (o.controller == obj.controller and o.zone == ZoneType.BATTLEFIELD
+                        and o.characteristics
+                        and subtype in (o.characteristics.subtypes or set())):
+                    evs.append(Event(type=EventType.PT_MODIFICATION,
+                                     payload={'object_id': o.id, 'power_mod': p,
+                                              'toughness_mod': t, 'duration': 'end_of_turn'},
+                                     source=obj.id))
+            return evs
+        return [make_attack_trigger(obj, eff)]
+    return _setup
+
+
+def make_attack_search_subtype_setup(subtype: str):
+    """Whenever ~ attacks, search library for a <subtype> card to hand."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        from src.cards.interceptor_helpers import open_library_search
+        def flt(card, st):
+            return card.characteristics and subtype in (card.characteristics.subtypes or set())
+        def eff(e, st):
+            return open_library_search(st, obj.controller, obj.id, filter_fn=flt,
+                                       destination="hand", reveal=True, shuffle_after=True,
+                                       max_count=1, optional=True)
+        return [make_attack_trigger(obj, eff)]
+    return _setup
+
+
+def make_opp_subtype_death_draw_setup(subtype: str):
+    """Whenever a <subtype> an opponent controls dies, draw a card."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def flt(e, st, src):
+            if e.type != EventType.ZONE_CHANGE:
+                return False
+            if e.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+                return False
+            dead = st.objects.get(e.payload.get('object_id'))
+            if not dead or not dead.characteristics:
+                return False
+            if dead.controller == obj.controller:
+                return False
+            return subtype in (dead.characteristics.subtypes or set())
+        def eff(e, st):
+            return [Event(type=EventType.DRAW,
+                          payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
+        return [make_death_trigger(obj, eff, filter_fn=flt)]
+    return _setup
+
+
+def make_etb_counter_unless_pay_setup(amount: str):
+    """When ~ enters, counter target spell unless its controller pays <amount>."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def eff(e, st):
+            return [Event(type=EventType.COUNTER_SPELL_UNLESS_PAY,
+                          payload={'controller': obj.controller, 'amount': amount},
+                          source=obj.id)]
+        return [make_etb_trigger(obj, eff)]
+    return _setup
+
+
+def make_etb_each_opp_discard_setup(n: int = 1):
+    """When ~ enters, each opponent discards N cards."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def eff(e, st):
+            return [Event(type=EventType.DISCARD, payload={'player': opp, 'amount': n},
+                          source=obj.id) for opp in all_opponents(obj, st)]
+        return [make_etb_trigger(obj, eff)]
+    return _setup
+
+
+def make_attack_grant_other_subtype_kw_setup(subtype: str, keywords):
+    """Whenever ~ attacks, other <subtype> you control gain <keywords> until EOT."""
+    def _setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+        def eff(e, st):
+            evs = []
+            for o in st.objects.values():
+                if (o.id != obj.id and o.controller == obj.controller
+                        and o.zone == ZoneType.BATTLEFIELD and o.characteristics
+                        and subtype in (o.characteristics.subtypes or set())):
+                    for kw in keywords:
+                        evs.append(Event(type=EventType.GRANT_KEYWORD,
+                                         payload={'object_id': o.id, 'keyword': kw,
+                                                  'duration': 'end_of_turn'}, source=obj.id))
+            return evs
+        return [make_attack_trigger(obj, eff)]
+    return _setup
+
+
+# --- Resolver protocol: (targets: list[list[Target]], state) -> list[Event].
+#     Caster = state.active_player. First chosen target = targets[0][0].id ---
+
+
+def _rs_caster(state: GameState):
+    c = getattr(state, 'active_player', None)
+    if c is None and state.players:
+        c = next(iter(state.players))
+    return c
+
+
+def _rs_target_id(targets):
+    if targets and targets[0]:
+        t = targets[0][0]
+        return getattr(t, 'id', getattr(t, 'object_id', None))
+    return None
+
+
+def _is_named(obj, name) -> bool:
+    """Match an object's 'first name' — "Thor" matches "Thor, God of Thunder"
+    but not "She-Hulk". Exact match or "<name>, ..." prefix."""
+    return bool(obj and obj.name and (obj.name == name or obj.name.startswith(name + ",")))
+
+
+def _rs_controls_named(state, controller, name) -> bool:
+    for o in state.objects.values():
+        if (o.controller == controller and o.zone == ZoneType.BATTLEFIELD
+                and _is_named(o, name)):
+            return True
+    return False
+
+
+def _rs_damage(tid, amount, src=None):
+    return Event(type=EventType.DAMAGE,
+                 payload={'target': tid, 'amount': amount, 'source': src, 'is_combat': False},
+                 source=src)
+
+
+def _mvl_resolve_repulsor_blast(targets, state):
+    """3 damage to target creature; if you control an artifact, draw a card."""
+    tid = _rs_target_id(targets)
+    caster = _rs_caster(state)
+    evs = []
+    if tid:
+        evs.append(_rs_damage(tid, 3))
+    if any(o.controller == caster and CardType.ARTIFACT in (o.characteristics.types or set())
+           for o in state.objects.values()
+           if o.zone == ZoneType.BATTLEFIELD and o.characteristics):
+        evs.append(Event(type=EventType.DRAW, payload={'player': caster, 'amount': 1}, source=None))
+    return evs
+
+
+def _mvl_resolve_shield_throw(targets, state):
+    """2 damage to target creature (chain-on-death not modeled)."""
+    tid = _rs_target_id(targets)
+    return [_rs_damage(tid, 2)] if tid else []
+
+
+def _mvl_resolve_chaos_magic(targets, state):
+    """3 damage to any target; 5 if you control Scarlet Witch."""
+    tid = _rs_target_id(targets)
+    amt = 5 if _rs_controls_named(state, _rs_caster(state), "Scarlet Witch") else 3
+    return [_rs_damage(tid, amt)] if tid else []
+
+
+def _mvl_resolve_impale(targets, state):
+    """Destroy target creature; its controller loses 2 life."""
+    tid = _rs_target_id(targets)
+    if not tid:
         return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 1, 'source': None, 'is_combat': False},
-                                source=None))
-    return events
+    evs = [Event(type=EventType.OBJECT_DESTROYED, payload={'object_id': tid}, source=None)]
+    o = state.objects.get(tid)
+    if o:
+        evs.append(Event(type=EventType.LIFE_CHANGE,
+                         payload={'player': o.controller, 'amount': -2}, source=None))
+    return evs
 
 
-def _mvl_resolve_call_the_bifrost(targets: list, state: GameState) -> list[Event]:
-    """Call the Bifrost — scry 2 + each opp 3 damage (rainbow-bridge strike)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
+def _rs_pump(tid, p, t):
+    return Event(type=EventType.PT_MODIFICATION,
+                 payload={'object_id': tid, 'power_mod': p, 'toughness_mod': t,
+                          'duration': 'end_of_turn'}, source=None)
+
+
+def _rs_counters(tid, n):
+    return Event(type=EventType.COUNTER_ADDED,
+                 payload={'object_id': tid, 'counter_type': '+1/+1', 'amount': n}, source=None)
+
+
+def _rs_grant_kws(tid, kws):
+    """Return one GRANT_KEYWORD event per keyword (EOT)."""
+    return [Event(type=EventType.GRANT_KEYWORD,
+                  payload={'object_id': tid, 'keyword': kw, 'duration': 'end_of_turn'},
+                  source=None) for kw in kws]
+
+
+def _mvl_resolve_widows_sting(targets, state):
+    """Target creature gets -3/-3 (-5/-5 if you control Black Widow)."""
+    tid = _rs_target_id(targets)
+    n = 5 if _rs_controls_named(state, _rs_caster(state), "Black Widow") else 3
+    return [_rs_pump(tid, -n, -n)] if tid else []
+
+
+def _mvl_resolve_gamma_radiation(targets, state):
+    """Two +1/+1 on target + trample (four if Hulk)."""
+    tid = _rs_target_id(targets)
+    if not tid:
         return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 3, 'source': None, 'is_combat': False},
-                                source=None))
-    return events
+    o = state.objects.get(tid)
+    is_hulk = _is_named(o, "Hulk")
+    return [_rs_counters(tid, 4 if is_hulk else 2)] + _rs_grant_kws(tid, ["trample"])
 
 
-def _mvl_resolve_widows_sting(targets: list, state: GameState) -> list[Event]:
-    """Widow's Sting — surveil 1 + each opp -2 (electrified gauntlet)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
+def _mvl_resolve_super_soldier_serum(targets, state):
+    """Three +1/+1 + vigilance/trample EOT."""
+    tid = _rs_target_id(targets)
+    return ([_rs_counters(tid, 3)] + _rs_grant_kws(tid, ["vigilance", "trample"])) if tid else []
+
+
+def _mvl_resolve_pym_particles(targets, state):
+    """Target creature gets -4/-0 or +4/+4 (modal — default to +4/+4 buff)."""
+    tid = _rs_target_id(targets)
+    return [_rs_pump(tid, 4, 4)] if tid else []
+
+
+def _mvl_resolve_blitz_attack(targets, state):
+    """Target +2/+0 + haste EOT (+4/+0 if Quicksilver)."""
+    tid = _rs_target_id(targets)
+    p = 4 if _rs_controls_named(state, _rs_caster(state), "Quicksilver") else 2
+    return ([_rs_pump(tid, p, 0)] + _rs_grant_kws(tid, ["haste"])) if tid else []
+
+
+def _mvl_resolve_berserker_rage(targets, state):
+    """Target +3/+0 + trample EOT (must attack not modeled)."""
+    tid = _rs_target_id(targets)
+    return ([_rs_pump(tid, 3, 0)] + _rs_grant_kws(tid, ["trample"])) if tid else []
+
+
+def _mvl_resolve_stealth_mission(targets, state):
+    """Target gains deathtouch + unblockable; draw a card."""
+    tid = _rs_target_id(targets)
+    caster = _rs_caster(state)
+    evs = []
+    if tid:
+        evs.extend(_rs_grant_kws(tid, ["deathtouch", "unblockable"]))
+    evs.append(Event(type=EventType.DRAW, payload={'player': caster, 'amount': 1}, source=None))
+    return evs
+
+
+def _mvl_resolve_cosmic_awareness(targets, state):
+    """Draw 3 (4 if you control an Infinity Stone)."""
+    caster = _rs_caster(state)
+    n = 4 if _count_infinity_stones(state, caster) > 0 else 3
+    return [Event(type=EventType.DRAW, payload={'player': caster, 'amount': n}, source=None)]
+
+
+def _rs_my_creatures(state, caster):
+    return [o for o in state.objects.values()
+            if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
+            and o.characteristics and CardType.CREATURE in (o.characteristics.types or set())]
+
+
+def _rs_opp_creatures(state, caster):
+    return [o for o in state.objects.values()
+            if o.controller != caster and o.zone == ZoneType.BATTLEFIELD
+            and o.characteristics and CardType.CREATURE in (o.characteristics.types or set())]
+
+
+def _mvl_resolve_wakanda_forever(targets, state):
+    """Your creatures +2/+2 + indestructible EOT (+1/+1 counter each if Black Panther)."""
+    caster = _rs_caster(state)
+    bp = _rs_controls_named(state, caster, "Black Panther")
+    evs = []
+    for o in _rs_my_creatures(state, caster):
+        evs.append(_rs_pump(o.id, 2, 2))
+        evs.extend(_rs_grant_kws(o.id, ["indestructible"]))
+        if bp:
+            evs.append(_rs_counters(o.id, 1))
+    return evs
+
+
+def _mvl_resolve_tactical_genius(targets, state):
+    """Your creatures +1/+1 EOT (+vigilance if Captain America)."""
+    caster = _rs_caster(state)
+    cap = _rs_controls_named(state, caster, "Captain America")
+    evs = []
+    for o in _rs_my_creatures(state, caster):
+        evs.append(_rs_pump(o.id, 1, 1))
+        if cap:
+            evs.extend(_rs_grant_kws(o.id, ["vigilance"]))
+    return evs
+
+
+def _mvl_resolve_arrow_volley(targets, state):
+    """1 damage to each opp creature (2 if you control Hawkeye)."""
+    caster = _rs_caster(state)
+    amt = 2 if _rs_controls_named(state, caster, "Hawkeye") else 1
+    return [_rs_damage(o.id, amt) for o in _rs_opp_creatures(state, caster)]
+
+
+def _mvl_resolve_mystic_arts(targets, state):
+    """Counter target spell unless its controller pays {3} (hard counter if Doctor Strange)."""
+    caster = _rs_caster(state)
+    if _rs_controls_named(state, caster, "Doctor Strange"):
+        return [Event(type=EventType.COUNTER_SPELL, payload={'controller': caster}, source=None)]
+    return [Event(type=EventType.COUNTER_SPELL_UNLESS_PAY,
+                  payload={'controller': caster, 'amount': '{3}'}, source=None)]
+
+
+def _mvl_resolve_hulk_smash(targets, state):
+    """Your creature deals damage = power to target creature (double if Hulk)."""
+    caster = _rs_caster(state)
+    mine = _rs_my_creatures(state, caster)
+    if not mine:
         return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
+    src = max(mine, key=lambda o: get_power(o, state))
+    tid = _rs_target_id(targets)
+    if not tid:
+        opp = _rs_opp_creatures(state, caster)
+        if not opp:
+            return []
+        tid = opp[0].id
+    dmg = get_power(src, state)
+    if _is_named(src, "Hulk"):
+        dmg *= 2
+    return [_rs_damage(tid, dmg, src.id)]
 
 
-def _mvl_resolve_chaos_magic(targets: list, state: GameState) -> list[Event]:
-    """Chaos Magic — surveil 2 + each opp -1 (reality bends)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
+def _mvl_resolve_heroic_sacrifice(targets, state):
+    """Sacrifice a creature; gain life = its toughness, draw a card."""
+    caster = _rs_caster(state)
+    mine = _rs_my_creatures(state, caster)
+    if not mine:
         return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
+    victim = min(mine, key=lambda o: get_toughness(o, state))
+    tuf = get_toughness(victim, state)
+    return [Event(type=EventType.SACRIFICE, payload={'object_id': victim.id}, source=None),
+            Event(type=EventType.LIFE_CHANGE, payload={'player': caster, 'amount': tuf}, source=None),
+            Event(type=EventType.DRAW, payload={'player': caster, 'amount': 1}, source=None)]
 
 
-def _mvl_resolve_sling_ring_portal(targets: list, state: GameState) -> list[Event]:
-    """Sling Ring Portal — scry 3 + each opp mills 1 (Kamar-Taj travel)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=None))
-    return events
+def _mvl_resolve_call_the_bifrost(targets, state):
+    """4 damage divided among targets; if you control Thor, search an Asgardian.
+
+    No divide-UI: deals 4 to the first chosen target (or an opponent)."""
+    caster = _rs_caster(state)
+    tid = _rs_target_id(targets)
+    evs = []
+    if tid:
+        evs.append(_rs_damage(tid, 4))
+    else:
+        for opp in state.players:
+            if opp != caster:
+                evs.append(_rs_damage(opp, 4))
+                break
+    if _rs_controls_named(state, caster, "Thor"):
+        from src.cards.interceptor_helpers import open_library_search
+        evs.extend(open_library_search(
+            state, caster, None,
+            filter_fn=lambda c, st: c.characteristics and 'Asgardian' in (c.characteristics.subtypes or set()),
+            destination="hand", reveal=True, shuffle_after=True, max_count=1, optional=True))
+    return evs
 
 
-def _mvl_resolve_time_reversal(targets: list, state: GameState) -> list[Event]:
-    """Time Reversal — scry 2 + each opp mills 2 (the timestream rewinds)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                                source=None))
-    return events
+def _mvl_resolve_sling_ring_portal(targets, state):
+    """Exile target creature you control, then return it (flicker)."""
+    tid = _rs_target_id(targets)
+    if not tid:
+        mine = _rs_my_creatures(state, _rs_caster(state))
+        tid = mine[0].id if mine else None
+    return [Event(type=EventType.FLICKER, payload={'object_id': tid}, source=None)] if tid else []
 
 
-def _mvl_resolve_pym_particles(targets: list, state: GameState) -> list[Event]:
-    """Pym Particles — scry 1 + each opp -2 (the shrink-ray fires)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
+def _mvl_resolve_time_reversal(targets, state):
+    """Return all creatures to owners' hands (exile+return if Doctor Strange)."""
+    caster = _rs_caster(state)
+    allc = [o for o in state.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD and o.characteristics
+            and CardType.CREATURE in (o.characteristics.types or set())]
+    if _rs_controls_named(state, caster, "Doctor Strange"):
+        return [Event(type=EventType.FLICKER, payload={'object_id': o.id}, source=None) for o in allc]
+    return [Event(type=EventType.BOUNCE, payload={'object_id': o.id}, source=None) for o in allc]
 
 
-def _mvl_resolve_mystic_arts(targets: list, state: GameState) -> list[Event]:
-    """Mystic Arts — surveil 2 + each opp -1 (the eldritch flame)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
+def _mvl_resolve_snap_fingers(targets, state):
+    """Each player sacrifices half their creatures, rounded up."""
+    caster = _rs_caster(state)
+    evs = []
+    for pid in state.players:
+        creatures = [o for o in state.objects.values()
+                     if o.controller == pid and o.zone == ZoneType.BATTLEFIELD
+                     and o.characteristics and CardType.CREATURE in (o.characteristics.types or set())]
+        half = (len(creatures) + 1) // 2
+        if half > 0:
+            evs.append(Event(type=EventType.SACRIFICE_REQUIRED,
+                             payload={'player': pid, 'card_type': 'creature', 'count': half},
+                             source=None))
+    return evs
 
 
-def _mvl_resolve_blitz_attack(targets: list, state: GameState) -> list[Event]:
-    """Blitz Attack — scry 1 + each opp 3 damage (sudden strike)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 3, 'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _mvl_resolve_tactical_genius(targets: list, state: GameState) -> list[Event]:
-    """Tactical Genius — scry 2 + gain 3 (battle-plan refines)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _mvl_resolve_berserker_rage(targets: list, state: GameState) -> list[Event]:
-    """Berserker Rage — scry 1 + each opp 2 damage (frenzy unleashed)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2, 'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _mvl_resolve_stealth_mission(targets: list, state: GameState) -> list[Event]:
-    """Stealth Mission — surveil 2 + each opp -1 (the agents slip away)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _mvl_resolve_heroic_sacrifice(targets: list, state: GameState) -> list[Event]:
-    """Heroic Sacrifice — scry 1 + gain 5 (selfless valor returns)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 5, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    return events
-
-
-def _mvl_resolve_impale(targets: list, state: GameState) -> list[Event]:
-    """Impale — surveil 1 + each opp -3 (the blade strikes true)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -3, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _mvl_resolve_hulk_smash(targets: list, state: GameState) -> list[Event]:
-    """Hulk Smash — scry 1 + each opp 4 damage (gamma-fueled rage)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 4, 'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _mvl_resolve_snap_fingers(targets: list, state: GameState) -> list[Event]:
-    """Snap — surveil 3 + each opp mills 3 (half of all life vanishes)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 3, 'zone': ZoneType.LIBRARY},
-                                source=None))
-    return events
-
-
-def _mvl_resolve_gamma_radiation(targets: list, state: GameState) -> list[Event]:
-    """Gamma Radiation — scry 1 + each opp 2 damage + caster gains 2 (radiation transmutes)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2, 'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _mvl_resolve_arrow_volley(targets: list, state: GameState) -> list[Event]:
-    """Arrow Volley — surveil 1 + each opp 2 damage (precision pinpricks)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2, 'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _mvl_resolve_wakanda_forever(targets: list, state: GameState) -> list[Event]:
-    """Wakanda Forever — scry 1 + gain 4 + each opp -1 (the kingdom rallies)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 4, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _mvl_resolve_cosmic_awareness(targets: list, state: GameState) -> list[Event]:
-    """Cosmic Awareness — scry 3 + gain 2 (cosmic-scale knowledge)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    return events
-
-
-def _mvl_resolve_super_soldier_serum(targets: list, state: GameState) -> list[Event]:
-    """Super Soldier Serum — scry 2 + gain 4 (the formula transforms)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 4, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    return events
-
-
-def _mvl_resolve_reality_warp(targets: list, state: GameState) -> list[Event]:
-    """Reality Warp — surveil 2 + each opp -2 + caster gains 2 (the world bends)."""
-    caster = getattr(state, 'active_player', None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
+def _mvl_resolve_reality_warp(targets, state):
+    """Exile all artifacts and enchantments; owners draw per permanent exiled."""
+    caster = _rs_caster(state)
+    from collections import Counter
+    cnt = Counter()
+    evs = []
+    for o in list(state.objects.values()):
+        if o.zone != ZoneType.BATTLEFIELD or not o.characteristics:
+            continue
+        types = o.characteristics.types or set()
+        if CardType.ARTIFACT in types or CardType.ENCHANTMENT in types:
+            evs.append(Event(type=EventType.EXILE, payload={'object_id': o.id}, source=None))
+            cnt[o.controller] += 1
+    for pid, n in cnt.items():
+        evs.append(Event(type=EventType.DRAW, payload={'player': pid, 'amount': n}, source=None))
+    return evs
 
 
 # =============================================================================
@@ -2708,7 +1444,6 @@ EINHERJAR_SOLDIER = make_creature(
     colors={Color.WHITE},
     subtypes={"Asgardian", "Soldier", "Spirit"},
     text="Vigilance, lifelink",
-    setup_interceptors=_mvl_einherjar_soldier_setup,
 )
 
 LADY_SIF = make_creature(
@@ -2719,8 +1454,7 @@ LADY_SIF = make_creature(
     subtypes={"Asgardian", "Warrior"},
     supertypes={"Legendary"},
     text="Double strike. Whenever Lady Sif attacks, other Warriors you control gain vigilance until end of turn.",
-    # Note: Complex attack trigger with temporary keyword grant - keeping as text for now
-    setup_interceptors=_mvl_lady_sif_setup,
+    setup_interceptors=make_attack_grant_other_subtype_kw_setup("Warrior", ["vigilance"]),
 )
 
 def wakandan_guard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2813,7 +1547,6 @@ SHIELD_HELICARRIER_CREW = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     text="Defender. {T}: Add {C}.",
-    setup_interceptors=_mvl_shield_helicarrier_crew_setup,
 )
 
 AVENGERS_MEDIC = make_creature(
@@ -2823,7 +1556,6 @@ AVENGERS_MEDIC = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Cleric"},
     text="{T}: You gain 1 life.",
-    setup_interceptors=_mvl_avengers_medic_setup,
 )
 
 NOVA_CORPS_OFFICER = make_creature(
@@ -2833,7 +1565,6 @@ NOVA_CORPS_OFFICER = make_creature(
     colors={Color.WHITE},
     subtypes={"Alien", "Soldier"},
     text="Flying, vigilance",
-    setup_interceptors=_mvl_nova_corps_officer_setup,
 )
 
 RAVAGER_SCOUT = make_creature(
@@ -2843,7 +1574,7 @@ RAVAGER_SCOUT = make_creature(
     colors={Color.WHITE},
     subtypes={"Alien", "Pirate"},
     text="When Ravager Scout enters, scry 1.",
-    setup_interceptors=_mvl_ravager_scout_setup,
+    setup_interceptors=_mvl_etb_scry1_setup,
 )
 
 
@@ -3026,7 +1757,6 @@ SHIELD_TECH_SPECIALIST = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Artificer"},
     text="{T}: Untap target artifact.",
-    setup_interceptors=_mvl_shield_tech_specialist_setup,
 )
 
 def hank_pym_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3094,7 +1824,6 @@ PYM_PARTICLE_RESEARCHER = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Scientist"},
     text="{T}, Pay 1 life: Draw a card, then discard a card.",
-    setup_interceptors=_mvl_pym_particle_researcher_setup,
 )
 
 def rocket_raccoon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3223,7 +1952,7 @@ KNOWHERE_MERCHANT = make_creature(
     colors={Color.BLUE},
     subtypes={"Alien", "Rogue"},
     text="When Knowhere Merchant enters, draw a card, then discard a card.",
-    setup_interceptors=_mvl_knowhere_merchant_setup,
+    setup_interceptors=_mvl_etb_loot_setup,
 )
 
 # REBALANCE (MVL): Bumped toughness 1->3. A 2/1 mana-rock-grant for {1}{U}
@@ -3236,7 +1965,6 @@ RAVAGER_ENGINEER = make_creature(
     colors={Color.BLUE},
     subtypes={"Alien", "Pirate", "Artificer"},
     text="Artifacts you control have '{T}: Add {C}.'",
-    setup_interceptors=_mvl_ravager_engineer_setup,
 )
 
 # REBALANCE (MVL): Bumped from 2/2 to 2/3 and scry 1 -> scry 2 to make
@@ -3248,7 +1976,7 @@ XANDARIAN_PILOT = make_creature(
     colors={Color.BLUE},
     subtypes={"Alien", "Pilot"},
     text="Flying. When Xandarian Pilot enters, scry 2.",
-    setup_interceptors=_mvl_xandarian_pilot_setup,
+    setup_interceptors=_mvl_etb_scry2_setup,
 )
 
 
@@ -3380,7 +2108,6 @@ LOKI = make_creature(
     supertypes={"Legendary"},
     text="Flash. When Loki enters, create a token that's a copy of target creature, except it's an Illusion and has 'When this creature becomes the target of a spell, sacrifice it.'",
     # Note: Complex copy effect - keeping as text
-    setup_interceptors=_mvl_loki_setup,
 )
 
 def hydra_agent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3464,8 +2191,8 @@ WINTER_SOLDIER_ASSET = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Soldier", "Assassin"},
     text="Menace. When Winter Soldier Asset enters, tap target creature an opponent controls.",
-    # Note: Targeted ETB - keeping as text
-    setup_interceptors=_mvl_winter_soldier_asset_setup,
+    setup_interceptors=lambda obj, st: [make_targeted_etb_trigger(
+        obj, effect='tap', target_filter='opponent_creature')],
 )
 
 def hand_assassin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3518,7 +2245,7 @@ KINGPIN_ENFORCER = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Rogue", "Villain"},
     text="Menace. When Kingpin's Enforcer enters, each opponent discards a card.",
-    setup_interceptors=_mvl_kingpin_enforcer_setup,
+    setup_interceptors=make_etb_each_opp_discard_setup(1),
 )
 
 def nebula_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3582,7 +2309,6 @@ TASKMASTER = make_creature(
     subtypes={"Human", "Mercenary", "Villain"},
     supertypes={"Legendary"},
     text="First strike. Taskmaster has all activated abilities of creatures your opponents control.",
-    setup_interceptors=_mvl_taskmaster_setup,
 )
 
 GHOST = make_creature(
@@ -3593,7 +2319,7 @@ GHOST = make_creature(
     subtypes={"Human", "Rogue", "Villain"},
     supertypes={"Legendary"},
     text="Ghost can't be blocked. Whenever Ghost deals combat damage to a player, that player discards a card.",
-    setup_interceptors=_mvl_ghost_setup,
+    setup_interceptors=make_combat_dmg_discard_setup(),
 )
 
 ZEMO = make_creature(
@@ -3604,7 +2330,7 @@ ZEMO = make_creature(
     subtypes={"Human", "Noble", "Villain"},
     supertypes={"Legendary"},
     text="Deathtouch. Whenever an Avenger an opponent controls dies, draw a card.",
-    setup_interceptors=_mvl_zemo_setup,
+    setup_interceptors=make_opp_subtype_death_draw_setup("Avenger"),
 )
 
 MANTIS = make_creature(
@@ -3615,7 +2341,8 @@ MANTIS = make_creature(
     subtypes={"Alien", "Guardian"},
     supertypes={"Legendary"},
     text="When Mantis enters, tap target creature and it doesn't untap during its controller's next untap step.",
-    setup_interceptors=_mvl_mantis_setup,
+    setup_interceptors=lambda obj, st: [make_targeted_etb_trigger(
+        obj, effect='freeze', target_filter='creature')],
 )
 
 DRAX = make_creature(
@@ -3626,7 +2353,7 @@ DRAX = make_creature(
     subtypes={"Alien", "Guardian", "Warrior"},
     supertypes={"Legendary"},
     text="Trample. Drax must attack each combat if able. Drax gets +2/+2 as long as an opponent controls a Villain.",
-    setup_interceptors=_mvl_drax_setup,
+    setup_interceptors=make_self_cond_villain_boost_setup(2, 2, opponent=True),
 )
 
 DARK_ELF_WARRIOR = make_creature(
@@ -3636,7 +2363,9 @@ DARK_ELF_WARRIOR = make_creature(
     colors={Color.BLACK},
     subtypes={"Elf", "Warrior"},
     text="When Dark Elf Warrior enters, target creature gets -1/-1 until end of turn.",
-    setup_interceptors=_mvl_dark_elf_warrior_setup,
+    setup_interceptors=lambda obj, st: [make_targeted_etb_trigger(
+        obj, effect='pump', effect_params={'power_mod': -1, 'toughness_mod': -1},
+        target_filter='creature')],
 )
 
 
@@ -3778,7 +2507,7 @@ ULTRON_DRONE = make_creature(
     colors=set(),
     subtypes={"Construct", "Villain"},
     text="When Ultron Drone dies, it deals 2 damage to any target.",
-    setup_interceptors=_mvl_destroyer_armor_setup,
+    setup_interceptors=make_death_damage_setup(2),
 )
 
 FIRE_DEMON = make_creature(
@@ -3788,7 +2517,8 @@ FIRE_DEMON = make_creature(
     colors={Color.RED},
     subtypes={"Demon"},
     text="Haste. When Fire Demon enters, it deals 1 damage to any target.",
-    setup_interceptors=_mvl_fire_demon_setup,
+    setup_interceptors=lambda obj, st: [make_targeted_etb_trigger(
+        obj, effect='damage', effect_params={'amount': 1}, target_filter='any')],
 )
 
 def asgardian_berserker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3869,7 +2599,6 @@ CHITAURI_CHARGER = make_creature(
     colors={Color.RED},
     subtypes={"Alien", "Warrior", "Villain"},
     text="Haste, menace",
-    setup_interceptors=_mvl_chitauri_charger_setup,
 )
 
 def leviathan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3894,7 +2623,7 @@ NOVA_PRIME = make_creature(
     subtypes={"Human", "Warrior"},
     supertypes={"Legendary"},
     text="Flying, haste. When Nova Prime enters, it deals damage equal to its power to target creature.",
-    setup_interceptors=_mvl_nova_prime_setup,
+    setup_interceptors=make_etb_power_damage_setup('creature'),
 )
 
 DESTROYER_ARMOR = make_creature(
@@ -3904,7 +2633,6 @@ DESTROYER_ARMOR = make_creature(
     colors=set(),
     subtypes={"Construct"},
     text="Indestructible. {R}: Destroyer Armor deals 2 damage to target creature or player.",
-    setup_interceptors=_mvl_destroyer_armor_setup,
 )
 
 RONAN_ACCUSER = make_creature(
@@ -3915,7 +2643,8 @@ RONAN_ACCUSER = make_creature(
     subtypes={"Kree", "Warrior", "Villain"},
     supertypes={"Legendary"},
     text="Menace. When Ronan enters, destroy target creature with power 3 or less.",
-    setup_interceptors=_mvl_ronan_accuser_setup,
+    setup_interceptors=lambda obj, st: [make_targeted_etb_trigger(
+        obj, effect='destroy', target_filter='creature')],
 )
 
 def sakaaran_gladiator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3962,7 +2691,7 @@ GRANDMASTER_CHAMPION = make_creature(
     colors={Color.RED},
     subtypes={"Alien", "Warrior"},
     text="Trample. Grandmaster's Champion gets +2/+0 as long as it's attacking.",
-    setup_interceptors=_mvl_grandmaster_champion_setup,
+    setup_interceptors=make_self_attacking_boost_setup(2, 0),
 )
 
 HUMAN_TORCH = make_creature(
@@ -3973,7 +2702,6 @@ HUMAN_TORCH = make_creature(
     subtypes={"Human", "Elemental"},
     supertypes={"Legendary"},
     text="Flying, haste. {R}: Human Torch gets +1/+0 until end of turn. {R}, {T}: Human Torch deals 2 damage to any target.",
-    setup_interceptors=_mvl_human_torch_setup,
 )
 
 
@@ -4104,7 +2832,7 @@ ANT_SWARM = make_creature(
     colors={Color.GREEN},
     subtypes={"Insect"},
     text="Ant Swarm gets +1/+1 for each other Insect you control.",
-    setup_interceptors=_mvl_ant_swarm_setup,
+    setup_interceptors=make_self_dynamic_subtype_boost_setup("Insect"),
 )
 
 VIBRANIUM_RHINO = make_creature(
@@ -4114,7 +2842,6 @@ VIBRANIUM_RHINO = make_creature(
     colors={Color.GREEN},
     subtypes={"Rhino", "Wakandan"},
     text="Trample. Vibranium Rhino has indestructible as long as it's attacking.",
-    setup_interceptors=_mvl_vibranium_rhino_setup,
 )
 
 WAKANDAN_WAR_RHINO = make_creature(
@@ -4124,7 +2851,7 @@ WAKANDAN_WAR_RHINO = make_creature(
     colors={Color.GREEN},
     subtypes={"Rhino", "Wakandan"},
     text="Trample. When Wakandan War Rhino enters, it fights target creature you don't control.",
-    setup_interceptors=_mvl_wakandan_war_rhino_setup,
+    setup_interceptors=make_etb_fight_setup(),
 )
 
 def shuri_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4192,7 +2919,6 @@ THING = make_creature(
     subtypes={"Human", "Mutate"},
     supertypes={"Legendary"},
     text="Trample. The Thing has indestructible as long as it's blocking.",
-    setup_interceptors=_mvl_thing_setup,
 )
 
 ABOMINATION = make_creature(
@@ -4203,7 +2929,7 @@ ABOMINATION = make_creature(
     subtypes={"Human", "Mutant", "Villain"},
     supertypes={"Legendary"},
     text="Trample. Whenever Abomination deals combat damage to a player, put two +1/+1 counters on it.",
-    setup_interceptors=_mvl_abomination_setup,
+    setup_interceptors=make_combat_dmg_counters_setup(2),
 )
 
 SAVAGE_LAND_RAPTOR = make_creature(
@@ -4213,7 +2939,7 @@ SAVAGE_LAND_RAPTOR = make_creature(
     colors={Color.GREEN},
     subtypes={"Dinosaur"},
     text="Haste. Savage Land Raptor gets +2/+0 as long as it's attacking.",
-    setup_interceptors=_mvl_savage_land_raptor_setup,
+    setup_interceptors=make_self_attacking_boost_setup(2, 0),
 )
 
 SAVAGE_LAND_REX = make_creature(
@@ -4223,7 +2949,7 @@ SAVAGE_LAND_REX = make_creature(
     colors={Color.GREEN},
     subtypes={"Dinosaur"},
     text="Trample. When Savage Land Rex enters, it fights target creature you don't control.",
-    setup_interceptors=_mvl_savage_land_rex_setup,
+    setup_interceptors=make_etb_fight_setup(),
 )
 
 FOREST_TROLL = make_creature(
@@ -4233,7 +2959,6 @@ FOREST_TROLL = make_creature(
     colors={Color.GREEN},
     subtypes={"Troll"},
     text="Trample. At the beginning of your upkeep, regenerate Forest Troll.",
-    setup_interceptors=_mvl_forest_troll_setup,
 )
 
 def korg_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4289,7 +3014,7 @@ RED_SKULL = make_creature(
     subtypes={"Human", "Villain"},
     supertypes={"Legendary"},
     text="Menace. At the beginning of your upkeep, each opponent loses 1 life and you gain 1 life.",
-    setup_interceptors=_mvl_red_skull_setup,
+    setup_interceptors=make_upkeep_drain_setup(1, gain_self=True),
 )
 
 def quicksilver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4322,7 +3047,6 @@ EBONY_MAW = make_creature(
     subtypes={"Alien", "Villain"},
     supertypes={"Legendary"},
     text="Flying. When Ebony Maw enters, gain control of target creature with power 2 or less until Ebony Maw leaves the battlefield.",
-    setup_interceptors=_mvl_ebony_maw_setup,
 )
 
 PROXIMA_MIDNIGHT = make_creature(
@@ -4333,7 +3057,7 @@ PROXIMA_MIDNIGHT = make_creature(
     subtypes={"Alien", "Villain", "Warrior"},
     supertypes={"Legendary"},
     text="First strike, menace. Whenever Proxima Midnight deals combat damage to a player, that player discards a card.",
-    setup_interceptors=_mvl_proxima_midnight_setup,
+    setup_interceptors=make_combat_dmg_discard_setup(),
 )
 
 CORVUS_GLAIVE = make_creature(
@@ -4344,7 +3068,6 @@ CORVUS_GLAIVE = make_creature(
     subtypes={"Alien", "Villain", "Warrior"},
     supertypes={"Legendary"},
     text="Deathtouch, lifelink. Corvus Glaive can't be destroyed by damage.",
-    setup_interceptors=_mvl_corvus_glaive_setup,
 )
 
 CULL_OBSIDIAN = make_creature(
@@ -4355,7 +3078,7 @@ CULL_OBSIDIAN = make_creature(
     subtypes={"Alien", "Villain", "Warrior"},
     supertypes={"Legendary"},
     text="Trample. Cull Obsidian gets +2/+2 as long as you control another Villain.",
-    setup_interceptors=_mvl_cull_obsidian_setup,
+    setup_interceptors=make_self_cond_villain_boost_setup(2, 2, opponent=False),
 )
 
 def wong_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4390,7 +3113,7 @@ MORDO = make_creature(
     subtypes={"Human", "Wizard", "Villain"},
     supertypes={"Legendary"},
     text="Flash. When Baron Mordo enters, counter target spell unless its controller pays {3}.",
-    setup_interceptors=_mvl_mordo_setup,
+    setup_interceptors=make_etb_counter_unless_pay_setup("{3}"),
 )
 
 DORMAMMU = make_creature(
@@ -4401,7 +3124,7 @@ DORMAMMU = make_creature(
     subtypes={"Demon", "Villain"},
     supertypes={"Legendary"},
     text="Flying, trample. Dormammu can't be countered. At the beginning of your upkeep, each opponent loses 3 life.",
-    setup_interceptors=_mvl_dormammu_setup,
+    setup_interceptors=make_upkeep_drain_setup(3),
 )
 
 
@@ -4436,7 +3159,6 @@ STORM = make_creature(
     subtypes={"Human", "Mutant"},
     supertypes={"Legendary"},
     text="Flying. When Storm enters, tap all creatures your opponents control.",
-    # Note: Mass tap effect - keeping as text
     setup_interceptors=_mvl_storm_setup,
 )
 
@@ -4480,7 +3202,8 @@ PROFESSOR_X = make_creature(
     subtypes={"Human", "Mutant"},
     supertypes={"Legendary"},
     text="Hexproof. Other Mutants you control have hexproof. {T}: Look at target opponent's hand.",
-    setup_interceptors=_mvl_professor_x_setup,
+    setup_interceptors=lambda obj, st: [make_keyword_grant(
+        obj, ['hexproof'], other_creatures_with_subtype(obj, "Mutant"))],
 )
 
 MAGNETO = make_creature(
@@ -4491,7 +3214,6 @@ MAGNETO = make_creature(
     subtypes={"Human", "Mutant", "Villain"},
     supertypes={"Legendary"},
     text="Flying. When Magneto enters, gain control of all Equipment. Equipped creatures opponents control get -2/-0.",
-    setup_interceptors=_mvl_magneto_setup,
 )
 
 ROGUE = make_creature(
@@ -4502,7 +3224,6 @@ ROGUE = make_creature(
     subtypes={"Human", "Mutant"},
     supertypes={"Legendary"},
     text="Flying. Whenever Rogue deals combat damage to a creature, she gains all abilities of that creature until end of turn.",
-    setup_interceptors=_mvl_rogue_setup,
 )
 
 BEAST = make_creature(
@@ -4513,7 +3234,7 @@ BEAST = make_creature(
     subtypes={"Human", "Mutant", "Scientist"},
     supertypes={"Legendary"},
     text="Reach. {T}: Add one mana of any color. When Beast enters, draw a card.",
-    setup_interceptors=_mvl_beast_setup,
+    setup_interceptors=_mvl_etb_draw1_setup,
 )
 
 ICEMAN = make_creature(
@@ -4524,7 +3245,8 @@ ICEMAN = make_creature(
     subtypes={"Human", "Mutant"},
     supertypes={"Legendary"},
     text="Hexproof. When Iceman enters, tap target creature. It doesn't untap during its controller's next untap step.",
-    setup_interceptors=_mvl_iceman_setup,
+    setup_interceptors=lambda obj, st: [make_targeted_etb_trigger(
+        obj, effect='freeze', target_filter='creature')],
 )
 
 NIGHTCRAWLER = make_creature(
@@ -4546,7 +3268,6 @@ COLOSSUS = make_creature(
     subtypes={"Human", "Mutant"},
     supertypes={"Legendary"},
     text="Trample. Colossus has indestructible as long as it's attacking or blocking.",
-    setup_interceptors=_mvl_colossus_setup,
 )
 
 
@@ -4667,7 +3388,9 @@ STORMBREAKER = make_equipment(
     text="Equipped creature gets +4/+4 and has flying, trample, and first strike. {T}: Stormbreaker deals 3 damage to any target.",
     equip_cost="{4}",
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_stormbreaker_setup,
+    setup_interceptors=make_equipment_setup(
+        power_mod=4, toughness_mod=4,
+        keywords=["flying", "trample", "first_strike"], equip_cost="{4}"),
 )
 
 # REWIRE (MVL spice A1): Real make_equipment_setup wiring of the
@@ -4689,7 +3412,8 @@ IRON_MAN_ARMOR_MK_L = make_equipment(
     text="Equipped creature gets +3/+3 and has flying and hexproof. {2}: Equipped creature deals 2 damage to any target.",
     equip_cost="{3}",
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_iron_man_armor_l_setup,
+    setup_interceptors=make_equipment_setup(
+        power_mod=3, toughness_mod=3, keywords=["flying", "hexproof"], equip_cost="{3}"),
 )
 
 IRON_MAN_ARMOR_MK_LXXXV = make_equipment(
@@ -4698,7 +3422,9 @@ IRON_MAN_ARMOR_MK_LXXXV = make_equipment(
     text="Equipped creature gets +4/+4 and has flying, hexproof, and indestructible. {R}: Equipped creature gets +1/+0 until end of turn.",
     equip_cost="{4}",
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_iron_man_armor_lxxxv_setup,
+    setup_interceptors=make_equipment_setup(
+        power_mod=4, toughness_mod=4,
+        keywords=["flying", "hexproof", "indestructible"], equip_cost="{4}"),
 )
 
 HULKBUSTER_ARMOR = make_equipment(
@@ -4707,7 +3433,8 @@ HULKBUSTER_ARMOR = make_equipment(
     text="Equipped creature gets +5/+5 and has trample. Equipped creature can't be blocked by creatures with power 3 or less.",
     equip_cost="{4}",
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_hulkbuster_setup,
+    setup_interceptors=make_equipment_setup(
+        power_mod=5, toughness_mod=5, keywords=["trample"], equip_cost="{4}"),
 )
 
 # REWIRE (MVL spice A1): Infinity Gauntlet was unwired. The headline
@@ -4728,7 +3455,8 @@ WEB_SHOOTERS = make_equipment(
     mana_cost="{1}",
     text="Equipped creature gets +1/+1 and has reach. {T}: Tap target creature. It doesn't untap during its controller's next untap step.",
     equip_cost="{1}",
-    setup_interceptors=_mvl_web_shooters_setup,
+    setup_interceptors=make_equipment_setup(
+        power_mod=1, toughness_mod=1, keywords=["reach"], equip_cost="{1}"),
 )
 
 YAKA_ARROW = make_equipment(
@@ -4736,7 +3464,8 @@ YAKA_ARROW = make_equipment(
     mana_cost="{2}",
     text="Equipped creature gets +2/+0 and has '{T}: This creature deals 2 damage to target creature.'",
     equip_cost="{2}",
-    setup_interceptors=_mvl_yaka_arrow_setup,
+    setup_interceptors=make_equipment_setup(
+        power_mod=2, toughness_mod=0, equip_cost="{2}"),
 )
 
 VIBRANIUM_SPEAR = make_equipment(
@@ -4744,7 +3473,8 @@ VIBRANIUM_SPEAR = make_equipment(
     mana_cost="{2}",
     text="Equipped creature gets +2/+1 and has first strike. If equipped creature is Wakandan, it gets +3/+2 instead.",
     equip_cost="{2}",
-    setup_interceptors=_mvl_vibranium_spear_setup,
+    setup_interceptors=make_equipment_setup(
+        power_mod=2, toughness_mod=1, keywords=["first_strike"], equip_cost="{2}"),
 )
 
 PANTHER_HABIT = make_equipment(
@@ -4753,7 +3483,8 @@ PANTHER_HABIT = make_equipment(
     text="Equipped creature gets +2/+2 and has deathtouch and hexproof. Whenever equipped creature is dealt damage, it deals that much damage to target creature.",
     equip_cost="{3}",
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_panther_habit_setup,
+    setup_interceptors=make_equipment_setup(
+        power_mod=2, toughness_mod=2, keywords=["deathtouch", "hexproof"], equip_cost="{3}"),
 )
 
 NANO_GAUNTLET = make_equipment(
@@ -4761,7 +3492,10 @@ NANO_GAUNTLET = make_equipment(
     mana_cost="{3}",
     text="Equipped creature gets +1/+1 for each artifact you control. {3}, {T}: Destroy target artifact or enchantment.",
     equip_cost="{2}",
-    setup_interceptors=_mvl_nano_gauntlet_setup,
+    # Base equipment static; the per-artifact dynamic scaling needs an attached
+    # dynamic boost the equipment helper doesn't yet express — ships flat +1/+1.
+    setup_interceptors=make_equipment_setup(
+        power_mod=1, toughness_mod=1, equip_cost="{2}"),
 )
 
 # --- Chitauri Scepter: Helper-5 rewire -------------------------------------
@@ -4826,7 +3560,8 @@ CLOAK_OF_LEVITATION = make_equipment(
     text="Equipped creature gets +1/+2, has flying, and can't be blocked by creatures with flying. Flash - You may cast this spell as though it had flash.",
     equip_cost="{1}",
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_cloak_of_levitation_setup,
+    setup_interceptors=make_equipment_setup(
+        power_mod=1, toughness_mod=2, keywords=["flying"], equip_cost="{1}"),
 )
 
 TESSERACT = make_artifact(
@@ -4834,7 +3569,6 @@ TESSERACT = make_artifact(
     mana_cost="{4}",
     text="{T}: Add {U}{U}. {4}, {T}: Exile target creature you control. Return it to the battlefield at the beginning of your next upkeep.",
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_tesseract_setup,
 )
 
 EYE_OF_AGAMOTTO = make_artifact(
@@ -4842,7 +3576,6 @@ EYE_OF_AGAMOTTO = make_artifact(
     mana_cost="{3}",
     text="{T}: Scry 2. {2}, {T}: Return target permanent to its owner's hand. {4}, {T}: Take an extra turn after this one. Exile Eye of Agamotto.",
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_eye_of_agamotto_setup,
 )
 
 QUINJET = make_artifact(
@@ -4850,7 +3583,7 @@ QUINJET = make_artifact(
     mana_cost="{3}",
     text="Crew 2. Flying. When Quinjet attacks, you may search your library for an Avenger card, reveal it, put it into your hand, then shuffle.",
     subtypes={"Vehicle"},
-    setup_interceptors=_mvl_quinjet_setup,
+    setup_interceptors=make_attack_search_subtype_setup("Avenger"),
 )
 
 MILANO = make_artifact(
@@ -4859,7 +3592,7 @@ MILANO = make_artifact(
     text="Crew 2. Flying. When The Milano attacks, Guardians you control get +2/+0 until end of turn.",
     subtypes={"Vehicle"},
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_milano_setup,
+    setup_interceptors=make_attack_subtype_boost_setup("Guardian", 2, 0),
 )
 
 HELICARRIER = make_artifact(
@@ -4868,7 +3601,6 @@ HELICARRIER = make_artifact(
     text="Crew 4. Flying. SHIELD Helicarrier has '{T}: Draw a card' and '{2}, {T}: SHIELD Helicarrier deals 3 damage to any target.'",
     subtypes={"Vehicle"},
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_helicarrier_setup,
 )
 
 BENATAR = make_artifact(
@@ -4877,7 +3609,9 @@ BENATAR = make_artifact(
     text="Crew 2. Flying. Whenever The Benatar attacks, create a 1/1 colorless Construct creature token.",
     subtypes={"Vehicle"},
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_benatar_setup,
+    setup_interceptors=make_attack_token_setup({
+        'name': 'Construct', 'power': 1, 'toughness': 1,
+        'colors': set(), 'subtypes': {'Construct'}, 'types': {CardType.CREATURE}}),
 )
 
 
@@ -5121,7 +3855,7 @@ SHIELD_HEADQUARTERS = make_enchantment(
     mana_cost="{2}{W}{B}",
     colors={Color.WHITE, Color.BLACK},
     text="At the beginning of your upkeep, scry 1.",
-    setup_interceptors=_mvl_shield_headquarters_setup,
+    setup_interceptors=_mvl_upkeep_scry1_setup,
 )
 
 def guardians_bond_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5180,7 +3914,7 @@ ASGARDIAN_MIGHT = make_enchantment(
     mana_cost="{2}{R}{W}",
     colors={Color.RED, Color.WHITE},
     text="Asgardian creatures you control get +2/+1 and have trample.",
-    setup_interceptors=_mvl_asgardian_might_setup,
+    setup_interceptors=make_subtype_lord_setup("Asgardian", 2, 1, keywords=["trample"]),
 )
 
 MUTANT_UPRISING = make_enchantment(
@@ -5188,7 +3922,7 @@ MUTANT_UPRISING = make_enchantment(
     mana_cost="{2}{R}{G}",
     colors={Color.RED, Color.GREEN},
     text="Mutant creatures you control get +1/+1 and have haste.",
-    setup_interceptors=_mvl_mutant_uprising_setup,
+    setup_interceptors=make_subtype_lord_setup("Mutant", 1, 1, keywords=["haste"]),
 )
 
 COSMIC_CONVERGENCE = make_enchantment(
@@ -5196,7 +3930,6 @@ COSMIC_CONVERGENCE = make_enchantment(
     mana_cost="{3}{U}{U}",
     colors={Color.BLUE},
     text="Whenever you cast a spell, if it's the second spell you cast this turn, copy it. You may choose new targets for the copy.",
-    setup_interceptors=_mvl_cosmic_convergence_setup,
 )
 
 def dark_dimension_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5224,7 +3957,7 @@ VIBRANIUM_MINES = make_enchantment(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     text="Whenever a Wakandan creature enters under your control, add {G}. Wakandan creatures you control have +0/+1.",
-    setup_interceptors=_mvl_vibranium_mines_setup,
+    setup_interceptors=make_subtype_lord_setup("Wakandan", 0, 1),
 )
 
 
@@ -5236,109 +3969,97 @@ AVENGERS_TOWER = make_land(
     name="Avengers Tower",
     text="{T}: Add {C}. {T}: Add one mana of any color. Spend this mana only to cast Avenger spells or activate abilities of Avengers.",
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_avengers_tower_setup,
 )
 
 STARK_TOWER = make_land(
     name="Stark Tower",
     text="{T}: Add {C}. {1}, {T}: Add {U}{U}. Activate only if you control an artifact.",
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_stark_tower_setup,
 )
 
 WAKANDA = make_land(
     name="Wakanda",
     text="{T}: Add {G} or {W}. Wakanda enters tapped unless you control a Wakandan creature.",
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_wakanda_setup,
 )
 
 ASGARD = make_land(
     name="Asgard, Realm Eternal",
     text="{T}: Add {R} or {W}. {3}, {T}: Create a 2/2 white Asgardian Warrior creature token.",
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_asgard_setup,
 )
 
 SANCTUM_SANCTORUM = make_land(
     name="Sanctum Sanctorum",
     text="{T}: Add {U}. {2}, {T}: Scry 2. Activate only if you control a Wizard.",
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_sanctum_setup,
 )
 
 KNOWHERE = make_land(
     name="Knowhere",
     text="{T}: Add {C}. {T}: Add one mana of any color. Spend this mana only to cast Guardian spells.",
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_knowhere_setup,
 )
 
 XAVIERS_SCHOOL = make_land(
     name="Xavier's School for Gifted Youngsters",
     text="{T}: Add {C}. {T}: Add one mana of any color. Spend this mana only to cast Mutant spells.",
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_xaviers_school_setup,
 )
 
 HYDRA_BASE = make_land(
     name="HYDRA Base",
     text="{T}: Add {B}. When HYDRA Base enters, you may pay 2 life. If you don't, HYDRA Base enters tapped.",
-    setup_interceptors=_mvl_hydra_base_setup,
 )
 
 SHIELD_FACILITY = make_land(
     name="SHIELD Facility",
     text="{T}: Add {W} or {U}. SHIELD Facility enters tapped.",
-    setup_interceptors=_mvl_shield_facility_setup,
 )
 
 TITAN = make_land(
     name="Titan",
     text="{T}: Add {B} or {G}. {4}, {T}, Sacrifice Titan: Search your library for a Villain card, reveal it, put it into your hand, then shuffle.",
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_titan_setup,
 )
 
 VORMIR = make_land(
     name="Vormir",
     text="{T}: Add {B}. {2}, {T}, Sacrifice a creature: Draw two cards.",
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_vormir_setup,
 )
 
 SAKAAR = make_land(
     name="Sakaar",
     text="{T}: Add {R} or {G}. Sakaar enters tapped. When Sakaar enters, create a 1/1 red Alien Warrior creature token.",
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_sakaar_setup,
+    setup_interceptors=make_etb_token_setup({
+        'name': 'Alien Warrior', 'power': 1, 'toughness': 1,
+        'colors': {Color.RED}, 'subtypes': {'Alien', 'Warrior'},
+        'types': {CardType.CREATURE}}),
 )
 
 CONTRAXIA = make_land(
     name="Contraxia",
     text="{T}: Add {U} or {R}. Contraxia enters tapped unless you control a Pirate.",
-    setup_interceptors=_mvl_contraxia_setup,
 )
 
 HALA = make_land(
     name="Hala",
     text="{T}: Add {U}. {3}, {T}: Create a 2/2 blue Kree Soldier creature token.",
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_hala_setup,
 )
 
 NIDAVELLIR = make_land(
     name="Nidavellir",
     text="{T}: Add {C}{C}. Spend this mana only to cast artifact spells or activate abilities of artifacts.",
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_nidavellir_setup,
 )
 
 GENOSHA = make_land(
     name="Genosha",
     text="{T}: Add {R} or {G}. Mutant creatures you control have '{T}: Add one mana of any color.'",
     supertypes={"Legendary"},
-    setup_interceptors=_mvl_genosha_setup,
 )
 
 
