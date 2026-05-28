@@ -2170,12 +2170,12 @@ def firion_wild_rose_warrior_setup(obj: GameObject, state: GameState) -> list[In
     def equipment_etb_effect(event: Event, state: GameState) -> list[Event]:
         entering_id = event.payload.get('object_id')
         entering = state.objects.get(entering_id)
-        if entering:
+        if entering and entering.card_def:
             return [Event(
                 type=EventType.CREATE_TOKEN,
                 payload={
                     'controller': obj.controller,
-                    'name': entering.characteristics.name,
+                    'name': entering.card_def.name,
                     'types': list(entering.characteristics.types),
                     'subtypes': list(entering.characteristics.subtypes),
                     'copy_of': entering_id

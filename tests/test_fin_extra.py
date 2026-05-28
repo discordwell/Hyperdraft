@@ -33,6 +33,7 @@ from src.cards.final_fantasy import (
     IGNIS_SCIENTIA,
     SIN_SPIRAS_PUNISHMENT,
     SANDWORM,
+    FIRION_WILD_ROSE_WARRIOR,
 )
 
 
@@ -442,6 +443,68 @@ def test_ignis_scientia_etb_no_land_no_choice():
 
 
 # =============================================================================
+# Firion, Wild Rose Warrior — characteristics.name AttributeError regression
+# =============================================================================
+
+def test_firion_etb_does_not_attributeerror_on_equipment():
+    """Regression: Firion's equipment-ETB trigger previously read
+    ``entering.characteristics.name`` (no such attribute on Characteristics),
+    which silently swallowed an AttributeError in the trigger drain and ate
+    the token. Patch swaps to ``entering.card_def.name``; the trigger should
+    now emit a CREATE_TOKEN event whose name matches the source equipment.
+    """
+    print("\n=== Test: Firion equipment-ETB trigger no longer AttributeErrors ===")
+    g, (p, _) = _new_game(2)
+
+    firion = _put_on_battlefield(g, p.id, FIRION_WILD_ROSE_WARRIOR)
+
+    # Build a vanilla Equipment with a card_def so card_def.name is readable.
+    from src.engine.types import CardDefinition
+    eq_def = CardDefinition(
+        name="Test Sword",
+        mana_cost="{2}",
+        characteristics=Characteristics(
+            types={CardType.ARTIFACT},
+            subtypes={"Equipment"},
+        ),
+    )
+    eq = g.create_object(
+        name=eq_def.name,
+        owner_id=p.id,
+        zone=ZoneType.BATTLEFIELD,
+        characteristics=eq_def.characteristics,
+        card_def=eq_def,
+    )
+
+    # Snapshot current event log size, then emit equipment ETB.
+    log_size_before = len(g.state.event_log)
+    g.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={
+            'object_id': eq.id,
+            'from_zone': f'hand_{p.id}',
+            'to_zone': 'battlefield',
+            'from_zone_type': ZoneType.HAND,
+            'to_zone_type': ZoneType.BATTLEFIELD,
+        },
+    ))
+
+    # Find the CREATE_TOKEN events that fired after the ZONE_CHANGE.
+    new_events = g.state.event_log[log_size_before:]
+    token_events = [e for e in new_events if e.type == EventType.CREATE_TOKEN]
+    assert token_events, (
+        "Firion's ETB trigger should produce a CREATE_TOKEN; pre-fix this was "
+        "lost when entering.characteristics.name raised AttributeError"
+    )
+    # The trigger payload should carry the source equipment's name.
+    payload = token_events[0].payload
+    assert payload.get('name') == "Test Sword", (
+        f"Expected token named 'Test Sword' (from card_def.name); got {payload!r}"
+    )
+    print("PASS: Firion ETB trigger emits CREATE_TOKEN with card_def.name")
+
+
+# =============================================================================
 # Sandworm
 # =============================================================================
 
@@ -486,6 +549,8 @@ def main():
         # Ignis Scientia
         test_ignis_scientia_etb_opens_top_6_choice_with_land,
         test_ignis_scientia_etb_no_land_no_choice,
+        # Firion regression
+        test_firion_etb_does_not_attributeerror_on_equipment,
         # Sandworm baseline
         test_sandworm_wired,
     ]
