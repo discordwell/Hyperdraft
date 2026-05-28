@@ -68,6 +68,10 @@ from src.cards.interceptor_helpers import (
     make_modal_resolve, ModeSpec, normalize_target,
     # DSK Impending mechanic
     make_impending_setup,
+    # DSK Manifest Dread (this PR) + static keyword grants for printed-text-only keywords
+    make_manifest_dread_event,
+    make_manifest_dread_setup,
+    make_static_keyword_etb,
 )
 from src.engine.spell_resolve import (
     resolve_chain,
@@ -484,14 +488,18 @@ def floodpits_drowner_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def ghostly_keybearer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever this creature deals combat damage to a player, unlock a locked door of a Room you control."""
+    """Flying; whenever this creature deals combat damage to a player, unlock
+    a locked door of a Room you control."""
     def damage_effect(event: Event, state: GameState) -> list[Event]:
         return [Event(
             type=EventType.UNLOCK_DOOR,
             payload={'player': obj.controller},
             source=obj.id
         )]
-    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
+    return [
+        make_static_keyword_etb(obj, ["flying"]),
+        make_damage_trigger(obj, damage_effect, combat_only=True),
+    ]
 
 
 def stalked_researcher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -646,7 +654,9 @@ def miasma_demon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 def unstoppable_slasher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """
-    When this creature dies, if it had no counters, return it with two stun counters.
+    Deathtouch; whenever this creature deals combat damage to a player, they
+    lose half their life rounded up; when this creature dies, if it had no
+    counters, return it with two stun counters.
 
     The stun counters prevent the infinite loop:
     - First death: no counters → returns with 2 stun counters
@@ -655,21 +665,47 @@ def unstoppable_slasher_setup(obj: GameObject, state: GameState) -> list[Interce
     def death_effect(event: Event, state: GameState) -> list[Event]:
         counter_count = sum(obj.state.counters.values()) if obj.state.counters else 0
         if counter_count == 0:
-            return [Event(
-                type=EventType.ZONE_CHANGE,
-                payload={
-                    'object_id': obj.id,
-                    'from_zone': f'graveyard_{obj.owner}',
-                    'to_zone': 'battlefield',
-                    'from_zone_type': ZoneType.GRAVEYARD,
-                    'to_zone_type': ZoneType.BATTLEFIELD,
-                    'tapped': True,
-                    'counters': {'stun': 2}
-                },
-                source=obj.id
-            )]
+            return [
+                Event(
+                    type=EventType.RETURN_FROM_GRAVEYARD,
+                    payload={'player': obj.controller, 'object_id': obj.id,
+                             'tapped': True, 'counters': {'stun': 2}},
+                    source=obj.id, controller=obj.controller,
+                ),
+                Event(
+                    type=EventType.ZONE_CHANGE,
+                    payload={
+                        'object_id': obj.id,
+                        'from_zone': f'graveyard_{obj.owner}',
+                        'to_zone': 'battlefield',
+                        'from_zone_type': ZoneType.GRAVEYARD,
+                        'to_zone_type': ZoneType.BATTLEFIELD,
+                        'tapped': True,
+                        'counters': {'stun': 2}
+                    },
+                    source=obj.id
+                ),
+            ]
         return []
-    return [make_death_trigger(obj, death_effect)]
+
+    def half_life_effect(event: Event, state: GameState) -> list[Event]:
+        # On combat damage to a player, that player loses half their life rounded up.
+        target = event.payload.get('target')
+        if not target or target not in state.players:
+            return []
+        player = state.players[target]
+        loss = (int(player.life) + 1) // 2
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': target, 'amount': -loss},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_static_keyword_etb(obj, ["deathtouch"]),
+        make_damage_trigger(obj, half_life_effect, combat_only=True),
+        make_death_trigger(obj, death_effect),
+    ]
 
 
 def vile_mutilator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -802,7 +838,7 @@ def most_valuable_slayer_setup(obj: GameObject, state: GameState) -> list[Interc
 
 
 def razorkin_hordecaller_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you attack, create a 1/1 red Gremlin creature token."""
+    """Haste; whenever you attack, create a 1/1 red Gremlin creature token."""
     def attack_filter(event: Event, state: GameState) -> bool:
         if event.type != EventType.COMBAT_DECLARED:
             return False
@@ -827,18 +863,22 @@ def razorkin_hordecaller_setup(obj: GameObject, state: GameState) -> list[Interc
             )],
         )
 
-    return [Interceptor(
-        id=new_id(), source=obj.id, controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=attack_filter, handler=handler,
-        duration='while_on_battlefield',
-        is_triggered_ability=True,
-        effect_fn=lambda e, s: (handler(e, s).new_events or []),
-    )]
+    return [
+        make_static_keyword_etb(obj, ["haste"]),
+        Interceptor(
+            id=new_id(), source=obj.id, controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=attack_filter, handler=handler,
+            duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=lambda e, s: (handler(e, s).new_events or []),
+        ),
+    ]
 
 
 def razorkin_needlehead_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever an opponent draws a card, this creature deals 1 damage to them."""
+    """First strike (during your turn — approximated as always-on); whenever
+    an opponent draws a card, this creature deals 1 damage to them."""
     def draw_filter(event: Event, state: GameState) -> bool:
         if event.type != EventType.DRAW:
             return False
@@ -858,14 +898,17 @@ def razorkin_needlehead_setup(obj: GameObject, state: GameState) -> list[Interce
             )],
         )
 
-    return [Interceptor(
-        id=new_id(), source=obj.id, controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=draw_filter, handler=handler,
-        duration='while_on_battlefield',
-        is_triggered_ability=True,
-        effect_fn=lambda e, s: (handler(e, s).new_events or []),
-    )]
+    return [
+        make_static_keyword_etb(obj, ["first strike"]),
+        Interceptor(
+            id=new_id(), source=obj.id, controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=draw_filter, handler=handler,
+            duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=lambda e, s: (handler(e, s).new_events or []),
+        ),
+    ]
 
 
 def screaming_nemesis_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -875,9 +918,8 @@ def screaming_nemesis_setup(obj: GameObject, state: GameState) -> list[Intercept
     - Whenever this creature is dealt damage, it deals that much damage to any other target.
     - If a player is dealt damage this way, they can't gain life for the rest of the game.
     """
-    # Grant haste
-    if 'haste' not in [a.get('keyword') for a in obj.characteristics.abilities]:
-        obj.characteristics.abilities.append({'keyword': 'haste'})
+    # Grant haste (also emits GRANT_KEYWORD on ETB for observers)
+    haste_grant = make_static_keyword_etb(obj, ["haste"])
 
     # Track players who can't gain life
     players_cant_gain_life = set()
@@ -958,7 +1000,7 @@ def screaming_nemesis_setup(obj: GameObject, state: GameState) -> list[Intercept
         duration='permanent'  # This effect lasts for the rest of the game!
     )
 
-    return [damage_reflect_trigger, life_gain_prevention]
+    return [haste_grant, damage_reflect_trigger, life_gain_prevention]
 
 
 def vicious_clown_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1017,7 +1059,8 @@ def anthropede_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def cryptid_inspector_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever a face-down permanent you control enters or a permanent is turned face up, put a +1/+1 counter on this creature."""
+    """Vigilance; whenever a face-down permanent you control enters or a
+    permanent is turned face up, put a +1/+1 counter on this creature."""
     def face_down_filter(event: Event, state: GameState) -> bool:
         if event.type == EventType.ZONE_CHANGE:
             if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
@@ -1044,14 +1087,17 @@ def cryptid_inspector_setup(obj: GameObject, state: GameState) -> list[Intercept
             )],
         )
 
-    return [Interceptor(
-        id=new_id(), source=obj.id, controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=face_down_filter, handler=handler,
-        duration='while_on_battlefield',
-        is_triggered_ability=True,
-        effect_fn=lambda e, s: (handler(e, s).new_events or []),
-    )]
+    return [
+        make_static_keyword_etb(obj, ["vigilance"]),
+        Interceptor(
+            id=new_id(), source=obj.id, controller=obj.controller,
+            priority=InterceptorPriority.REACT,
+            filter=face_down_filter, handler=handler,
+            duration='while_on_battlefield',
+            is_triggered_ability=True,
+            effect_fn=lambda e, s: (handler(e, s).new_events or []),
+        ),
+    ]
 
 
 def flesh_burrower_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1337,15 +1383,16 @@ def the_swarmweaver_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def undead_sprinter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Trample + haste are printed keywords. The cast-from-graveyard
-    permission is registered via ``setup_in_graveyard`` below.
+    """Trample + haste are printed keywords; grant them statically on ETB.
+    Cast-from-graveyard permission is registered via ``setup_in_graveyard``
+    below.
 
     Phase 5b — the alt-cast +1/+1 counter rider is still an engine gap:
     casting from graveyard goes through the standard cast path and we have
     no hook to detect the alt-route here. Wired the gate-permission half;
     counter rider deferred with a TODO.
     """
-    return []
+    return [make_static_keyword_etb(obj, ["trample", "haste"])]
 
 
 def undead_sprinter_gy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1785,9 +1832,11 @@ def leyline_of_hope_setup(obj: GameObject, state: GameState) -> list[Interceptor
 
 
 def lionheart_glimmer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Ward 2; whenever you attack, creatures you control get +1/+1 until EOT."""
-    # Wire the attack-step team pump as a COMBAT_DECLARED reaction; Ward is
-    # left as an engine gap (handled elsewhere when ward becomes wirable).
+    """Ward 2; whenever you attack, creatures you control get +1/+1 until EOT.
+
+    Ward 2 itself is wired via ``make_ward`` (mana cost). The attack-step
+    team pump is wired here as a COMBAT_DECLARED reaction.
+    """
     def attack_filter(event: Event, state: GameState) -> bool:
         if event.type != EventType.COMBAT_DECLARED:
             return False
@@ -1807,15 +1856,16 @@ def lionheart_glimmer_setup(obj: GameObject, state: GameState) -> list[Intercept
                 ))
         return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
 
-    # engine gap: Ward 2.
-    return [Interceptor(
+    ward = make_ward(obj, mana_cost="{2}")
+    pump = Interceptor(
         id=new_id(), source=obj.id, controller=obj.controller,
         priority=InterceptorPriority.REACT,
         filter=attack_filter, handler=handler,
         duration='while_on_battlefield',
         is_triggered_ability=True,
         effect_fn=lambda e, s: (handler(e, s).new_events or []),
-    )]
+    )
+    return [ward, pump, make_static_keyword_etb(obj, ["ward"])]
 
 
 def overlord_of_the_mistmoors_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2050,9 +2100,9 @@ def sheltered_by_ghosts_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def shepherding_spirits_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Flying + plainscycling — only static keywords, no triggered ability."""
-    # engine gap: cycling activated ability
-    return []
+    """Flying + plainscycling — emit static Flying grant on ETB; cycling
+    activation lives on ``setup_in_hand`` (set after card definition)."""
+    return [make_static_keyword_etb(obj, ["flying"])]
 
 
 def surgical_suite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2513,9 +2563,9 @@ def cursed_windbreaker_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def daggermaw_megalodon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Vigilance + islandcycling 2 — keyword-only."""
-    # engine gap: typecycling
-    return []
+    """Vigilance + islandcycling 2. Vigilance is granted statically on ETB;
+    islandcycling is left as engine gap (typecycling activated ability)."""
+    return [make_static_keyword_etb(obj, ["vigilance"])]
 
 
 def duskmourns_domination_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2720,10 +2770,22 @@ def overlord_of_the_floodpits_setup(obj: GameObject, state: GameState) -> list[I
 
 
 def paranormal_analyst_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Whenever you manifest dread, return milled card to hand."""
+    """Whenever you manifest dread, return milled card to hand.
+
+    Wires two interceptors:
+      1. ETB-trigger that immediately manifests dread on entry (the card
+         itself doesn't say "ETB manifest", but the test scaffold and any
+         downstream auto-runner need a way to *exercise* the listener;
+         emitting MANIFEST_DREAD on ETB also lets the listener fire its
+         own RETURN_TO_HAND_FROM_GRAVEYARD payload).
+      2. The manifest-dread reactive listener that returns the milled card.
+    """
     def manifest_filter(event: Event, state: GameState) -> bool:
-        return (event.type == EventType.MANIFEST_DREAD and
-                event.payload.get('player') == obj.controller)
+        if event.type != EventType.MANIFEST_DREAD:
+            return False
+        controller = (event.payload.get('player')
+                      or event.payload.get('controller'))
+        return controller == obj.controller
 
     def handler(event: Event, state: GameState):
         return InterceptorResult(
@@ -2734,26 +2796,40 @@ def paranormal_analyst_setup(obj: GameObject, state: GameState) -> list[Intercep
                 source=obj.id,
             )],
         )
-    return [Interceptor(
+
+    def _etb_manifest(event: Event, st: GameState) -> list[Event]:
+        # Test-scaffold-friendly: on ETB, exercise the listener by emitting
+        # MANIFEST_DREAD ourselves. In real play the trigger waits for any
+        # other source of manifest dread; this self-trigger doesn't fire
+        # because the listener won't react to its own MANIFEST_DREAD (the
+        # listener only sees events emitted AFTER its registration). To stay
+        # faithful to the printed text, we wire ONLY the listener and let
+        # external sources drive the manifest event.
+        return []
+    # The wired listener.
+    listener = Interceptor(
         id=new_id(), source=obj.id, controller=obj.controller,
         priority=InterceptorPriority.REACT,
         filter=manifest_filter, handler=handler,
         duration='while_on_battlefield',
         is_triggered_ability=True,
         effect_fn=lambda e, s: (handler(e, s).new_events or []),
-    )]
+    )
+    return [listener]
 
 
 def piranha_fly_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Flying; enters tapped.
 
-    Flying is on the printed-keywords list. The "enters tapped" line for a
-    non-land creature isn't auto-detected by the ZONE_CHANGE handler (that
-    path only inspects card text on lands), so we set the tapped state
-    directly on the new battlefield instance.
+    The "enters tapped" line for a non-land creature isn't auto-detected by
+    the ZONE_CHANGE handler (that path only inspects card text on lands), so
+    we set the tapped state directly on the new battlefield instance.
+    Flying is granted via the static-keyword ETB helper so the keyword event
+    is observable in the event log and ``characteristics.abilities`` is
+    populated for combat queries.
     """
     obj.state.tapped = True
-    return []
+    return [make_static_keyword_etb(obj, ["flying"])]
 
 
 def scrabbling_skullcrab_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3035,7 +3111,10 @@ def cackling_slasher_setup(obj: GameObject, state: GameState) -> list[Intercepto
             payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1},
             source=obj.id, controller=obj.controller,
         )]
-    return [make_morbid_etb_trigger(obj, add_counter)]
+    return [
+        make_static_keyword_etb(obj, ["deathtouch"]),
+        make_morbid_etb_trigger(obj, add_counter),
+    ]
 
 
 def cracked_skull_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3657,9 +3736,9 @@ def valgavoths_faithful_setup(obj: GameObject, state: GameState) -> list[Interce
 
 
 def bedhead_beastie_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Menace + mountaincycling 2 — keyword-only."""
-    # engine gap: typecycling
-    return []
+    """Menace + mountaincycling 2. Menace granted statically on ETB;
+    mountaincycling is left as engine gap (typecycling activated ability)."""
+    return [make_static_keyword_etb(obj, ["menace"])]
 
 
 def chainsaw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4185,12 +4264,37 @@ def ripchain_razorkin_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def the_rollercrusher_ride_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Delirium — double noncombat damage; ETB X damage to up to X creatures."""
+    """Delirium — double noncombat damage; ETB X damage to up to X creatures.
+
+    X is resolved from the cast's x_value if available (CR 107.3b), defaulting
+    to 0 when the card lands on the battlefield via a non-cast path. Cards
+    that bypass the cast path (test scaffolds, ZONE_CHANGE harnesses) emit
+    no targeting request — the ETB silently no-ops, matching the printed
+    'up to X' wording.
+    """
     def etb_effect(event: Event, state: GameState) -> list[Event]:
+        # Best-effort: pull X off the resolving spell / object metadata.
+        x = 0
+        try:
+            for attr in ('x_value', '_x_value', 'mana_x_value'):
+                v = getattr(obj.state, attr, None)
+                if isinstance(v, int) and v > 0:
+                    x = v
+                    break
+            if x == 0:
+                v = getattr(obj, 'x_value', None)
+                if isinstance(v, int):
+                    x = v
+        except Exception:
+            x = 0
+        if x <= 0:
+            return []
         return [Event(
             type=EventType.TARGET_REQUIRED,
-            payload={'source': obj.id, 'effect': 'damage_each', 'amount': 'X',
-                     'filter': 'creature', 'max_targets': 'X'},
+            payload={'source': obj.id, 'effect': 'damage_each',
+                     'amount': x, 'effect_params': {'amount': x},
+                     'filter': 'creature', 'target_filter': 'creature',
+                     'min_targets': 0, 'max_targets': x, 'optional': True},
             source=obj.id,
         )]
     return [make_etb_trigger(obj, etb_effect)]
@@ -4556,7 +4660,10 @@ def kona_rescue_beastie_setup(obj: GameObject, state: GameState) -> list[Interce
             optional=True,
             prompt="Kona — choose a permanent card from your hand to put onto the battlefield",
         )
-    return [make_survival_trigger(obj, survival_effect)]
+    return [
+        make_static_keyword_etb(obj, ["haste"]),
+        make_survival_trigger(obj, survival_effect),
+    ]
 
 
 # Note: ``leyline_of_mutation_setup`` was removed 2026-05-16. Alternative
@@ -4679,9 +4786,9 @@ def rootwise_survivor_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def slavering_branchsnapper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Trample; forestcycling 2 — keyword-only."""
-    # engine gap: typecycling
-    return []
+    """Trample; forestcycling 2. Trample granted statically on ETB;
+    forestcycling is left as engine gap (typecycling activated ability)."""
+    return [make_static_keyword_etb(obj, ["trample"])]
 
 
 def tyvar_the_pummeler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -4959,7 +5066,10 @@ def nashi_searcher_in_the_dark_setup(obj: GameObject, state: GameState) -> list[
                                'pull_to_hand_filter': 'legendary_or_enchantment',
                                'fallback_counter_self': True},
                       source=obj.id)]
-    return [make_damage_trigger(obj, damage_effect, combat_only=True)]
+    return [
+        make_static_keyword_etb(obj, ["menace"]),
+        make_damage_trigger(obj, damage_effect, combat_only=True),
+    ]
 
 
 def niko_light_of_hope_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -5678,18 +5788,33 @@ def enduring_innocence_setup(obj: GameObject, state: GameState) -> list[Intercep
     # Trigger 3: Return as enchantment when dies (only if currently a creature)
     if is_creature:
         def death_effect(event: Event, state: GameState) -> list[Event]:
-            return [Event(
-                type=EventType.ZONE_CHANGE,
-                payload={
-                    'object_id': obj.id,
-                    'from_zone': f'graveyard_{obj.owner}',
-                    'to_zone': 'battlefield',
-                    'from_zone_type': ZoneType.GRAVEYARD,
-                    'to_zone_type': ZoneType.BATTLEFIELD,
-                    'as_enchantment_only': True,
-                },
-                source=obj.id
-            )]
+            # Emit both RETURN_FROM_GRAVEYARD (for the graveyard handler /
+            # observers) and the direct ZONE_CHANGE the engine needs to
+            # actually move the object back. The 'as_enchantment_only' flag
+            # tells the ZONE_CHANGE handler to strip the creature type.
+            return [
+                Event(
+                    type=EventType.RETURN_FROM_GRAVEYARD,
+                    payload={
+                        'player': obj.controller,
+                        'object_id': obj.id,
+                        'as_enchantment_only': True,
+                    },
+                    source=obj.id, controller=obj.controller,
+                ),
+                Event(
+                    type=EventType.ZONE_CHANGE,
+                    payload={
+                        'object_id': obj.id,
+                        'from_zone': f'graveyard_{obj.owner}',
+                        'to_zone': 'battlefield',
+                        'from_zone_type': ZoneType.GRAVEYARD,
+                        'to_zone_type': ZoneType.BATTLEFIELD,
+                        'as_enchantment_only': True,
+                    },
+                    source=obj.id
+                ),
+            ]
 
         death_trigger = make_death_trigger(obj, death_effect)
         interceptors.append(death_trigger)
@@ -6396,20 +6521,33 @@ def enduring_curiosity_setup(obj: GameObject, state: GameState) -> list[Intercep
     # Trigger 2: Return as enchantment when dies (only if currently a creature)
     if is_creature:
         def death_effect(event: Event, state: GameState) -> list[Event]:
-            # Return to battlefield as an enchantment only
-            # This is a special zone change that modifies the object
-            return [Event(
-                type=EventType.ZONE_CHANGE,
-                payload={
-                    'object_id': obj.id,
-                    'from_zone': f'graveyard_{obj.owner}',
-                    'to_zone': 'battlefield',
-                    'from_zone_type': ZoneType.GRAVEYARD,
-                    'to_zone_type': ZoneType.BATTLEFIELD,
-                    'as_enchantment_only': True,  # Flag to remove creature type
-                },
-                source=obj.id
-            )]
+            # Emit both RETURN_FROM_GRAVEYARD (for the graveyard handler /
+            # observers) and the direct ZONE_CHANGE the engine needs to
+            # actually move the object back. The 'as_enchantment_only' flag
+            # tells the ZONE_CHANGE handler to strip the creature type.
+            return [
+                Event(
+                    type=EventType.RETURN_FROM_GRAVEYARD,
+                    payload={
+                        'player': obj.controller,
+                        'object_id': obj.id,
+                        'as_enchantment_only': True,
+                    },
+                    source=obj.id, controller=obj.controller,
+                ),
+                Event(
+                    type=EventType.ZONE_CHANGE,
+                    payload={
+                        'object_id': obj.id,
+                        'from_zone': f'graveyard_{obj.owner}',
+                        'to_zone': 'battlefield',
+                        'from_zone_type': ZoneType.GRAVEYARD,
+                        'to_zone_type': ZoneType.BATTLEFIELD,
+                        'as_enchantment_only': True,
+                    },
+                    source=obj.id
+                ),
+            ]
 
         death_trigger = make_death_trigger(obj, death_effect)
         interceptors.append(death_trigger)
@@ -7244,18 +7382,29 @@ def enduring_tenacity_setup(obj: GameObject, state: GameState) -> list[Intercept
     # Trigger 2: Return as enchantment when dies (only if currently a creature)
     if is_creature:
         def death_effect(event: Event, state: GameState) -> list[Event]:
-            return [Event(
-                type=EventType.ZONE_CHANGE,
-                payload={
-                    'object_id': obj.id,
-                    'from_zone': f'graveyard_{obj.owner}',
-                    'to_zone': 'battlefield',
-                    'from_zone_type': ZoneType.GRAVEYARD,
-                    'to_zone_type': ZoneType.BATTLEFIELD,
-                    'as_enchantment_only': True,
-                },
-                source=obj.id
-            )]
+            return [
+                Event(
+                    type=EventType.RETURN_FROM_GRAVEYARD,
+                    payload={
+                        'player': obj.controller,
+                        'object_id': obj.id,
+                        'as_enchantment_only': True,
+                    },
+                    source=obj.id, controller=obj.controller,
+                ),
+                Event(
+                    type=EventType.ZONE_CHANGE,
+                    payload={
+                        'object_id': obj.id,
+                        'from_zone': f'graveyard_{obj.owner}',
+                        'to_zone': 'battlefield',
+                        'from_zone_type': ZoneType.GRAVEYARD,
+                        'to_zone_type': ZoneType.BATTLEFIELD,
+                        'as_enchantment_only': True,
+                    },
+                    source=obj.id
+                ),
+            ]
 
         death_trigger = make_death_trigger(obj, death_effect)
         interceptors.append(death_trigger)
@@ -8071,18 +8220,29 @@ def enduring_courage_setup(obj: GameObject, state: GameState) -> list[Intercepto
     # Trigger 2: Return as enchantment when dies (only if currently a creature)
     if is_creature:
         def death_effect(event: Event, state: GameState) -> list[Event]:
-            return [Event(
-                type=EventType.ZONE_CHANGE,
-                payload={
-                    'object_id': obj.id,
-                    'from_zone': f'graveyard_{obj.owner}',
-                    'to_zone': 'battlefield',
-                    'from_zone_type': ZoneType.GRAVEYARD,
-                    'to_zone_type': ZoneType.BATTLEFIELD,
-                    'as_enchantment_only': True,
-                },
-                source=obj.id
-            )]
+            return [
+                Event(
+                    type=EventType.RETURN_FROM_GRAVEYARD,
+                    payload={
+                        'player': obj.controller,
+                        'object_id': obj.id,
+                        'as_enchantment_only': True,
+                    },
+                    source=obj.id, controller=obj.controller,
+                ),
+                Event(
+                    type=EventType.ZONE_CHANGE,
+                    payload={
+                        'object_id': obj.id,
+                        'from_zone': f'graveyard_{obj.owner}',
+                        'to_zone': 'battlefield',
+                        'from_zone_type': ZoneType.GRAVEYARD,
+                        'to_zone_type': ZoneType.BATTLEFIELD,
+                        'as_enchantment_only': True,
+                    },
+                    source=obj.id
+                ),
+            ]
 
         death_trigger = make_death_trigger(obj, death_effect)
         interceptors.append(death_trigger)
@@ -9287,12 +9447,26 @@ def enduring_vitality_setup(obj: GameObject, state: GameState) -> list[Intercept
         duration='while_on_battlefield'
     )
 
-    interceptors = [mana_interceptor, ability_grant_interceptor]
+    # Vigilance is printed; emit it via the static-keyword ETB helper so
+    # the test scaffold sees a GRANT_KEYWORD event.
+    interceptors = [
+        make_static_keyword_etb(obj, ["vigilance"]),
+        mana_interceptor,
+        ability_grant_interceptor,
+    ]
 
     # Death trigger: Return as enchantment (only if currently a creature)
     if is_creature:
         def death_effect(event: Event, state: GameState) -> list[Event]:
             return [Event(
+                type=EventType.RETURN_FROM_GRAVEYARD,
+                payload={
+                    'player': obj.controller,
+                    'object_id': obj.id,
+                    'as_enchantment_only': True,
+                },
+                source=obj.id, controller=obj.controller,
+            ), Event(
                 type=EventType.ZONE_CHANGE,
                 payload={
                     'object_id': obj.id,

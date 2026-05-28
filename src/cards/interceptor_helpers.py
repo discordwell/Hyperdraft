@@ -6521,6 +6521,124 @@ def make_manifest_etb_event(
 
 
 # =============================================================================
+# DSK: Manifest Dread ergonomic helper
+# =============================================================================
+#
+# Manifest Dread (DSK): "Look at top two of library, manifest one face-down 2/2,
+# put the other in graveyard." The engine handler in ``face_down.py`` does the
+# real work — pulls top1, mills top2, emits OBJECT_CREATED with face_down=True.
+# This helper builds the matching ``MANIFEST_DREAD`` event so card setups can
+# trigger it from their ETB / death / damage / activation hooks without having
+# to remember the payload contract.
+# =============================================================================
+
+
+def make_manifest_dread_event(
+    controller: str,
+    source_id: Optional[str] = None,
+) -> Event:
+    """Build a MANIFEST_DREAD event for ``controller``. The pipeline handler
+    pulls top 2 cards from their library, manifests the first as a face-down
+    2/2, and mills the second.
+
+    Pair with ``make_etb_trigger`` (or any other trigger helper) to wire a
+    "When this enters, manifest dread" ability.
+    """
+    return Event(
+        type=EventType.MANIFEST_DREAD,
+        payload={'player': controller, 'controller': controller},
+        source=source_id or controller,
+        controller=controller,
+    )
+
+
+def make_manifest_dread_setup(
+    extra_setup: Optional[Callable[['GameObject', 'GameState'], list['Interceptor']]] = None,
+):
+    """Factory returning a ``setup_interceptors`` that wires
+    "When this enters, manifest dread" as the card's ETB trigger.
+
+    ``extra_setup`` (optional) — additional interceptor factory whose output is
+    appended to the ETB trigger. Useful when a card combines manifest dread
+    with an unrelated static ability (e.g. a keyword grant).
+    """
+    def _setup(obj: 'GameObject', state: 'GameState') -> list['Interceptor']:
+        def _etb_effect(event: Event, st: 'GameState') -> list[Event]:
+            return [make_manifest_dread_event(obj.controller, source_id=obj.id)]
+        interceptors = [make_etb_trigger(obj, _etb_effect)]
+        if extra_setup is not None:
+            try:
+                interceptors.extend(extra_setup(obj, state) or [])
+            except Exception:
+                pass
+        return interceptors
+    return _setup
+
+
+# =============================================================================
+# Static keyword emission on ETB
+# =============================================================================
+#
+# Some cards express keywords purely in their rules text (e.g. Piranha Fly:
+# "Flying. This creature enters tapped.") without populating
+# ``characteristics.abilities``. The combat / query layers already honour
+# anything in ``characteristics.abilities``, so the fix is to mutate that list
+# on ETB. We do this by emitting a GRANT_KEYWORD event with
+# ``duration='while_on_battlefield'`` per keyword — the existing
+# ``_handle_grant_keyword`` appends to the abilities list and the cleanup-on-
+# leave hook removes them when the card leaves play.
+# =============================================================================
+
+
+def make_static_keyword_etb(
+    obj: 'GameObject',
+    keywords: list[str],
+) -> 'Interceptor':
+    """Return an ETB-triggered interceptor that grants each keyword in
+    ``keywords`` to ``obj`` while it remains on the battlefield.
+
+    This is the simplest fix for cards whose rules text lists static keywords
+    (Flying, Deathtouch, Vigilance, …) but whose card factory didn't populate
+    ``characteristics.abilities`` at definition time. The emitted
+    ``GRANT_KEYWORD`` events are picked up by the pipeline's pt.py handler,
+    which appends to ``obj.characteristics.abilities``.
+
+    Use ``duration='while_on_battlefield'`` so the keyword sticks for the
+    permanent's lifetime; the cleanup-on-leave hook removes it when the
+    card leaves play.
+    """
+    keywords = [str(k).strip().lower() for k in keywords if str(k).strip()]
+
+    # Pre-populate characteristics.abilities so synchronous query paths
+    # (combat damage assignment, replacement effects checking 'flying') see
+    # the keyword immediately. The GRANT_KEYWORD event below is for
+    # observers / tests that watch the event log.
+    have = {a.get('keyword', '').lower() for a in obj.characteristics.abilities
+            if isinstance(a, dict)}
+    for kw in keywords:
+        if kw not in have:
+            obj.characteristics.abilities.append({
+                'keyword': kw,
+                '_static_etb_grant': True,
+            })
+
+    def _effect(event: Event, st: 'GameState') -> list[Event]:
+        out: list[Event] = []
+        for kw in keywords:
+            out.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={
+                    'object_id': obj.id,
+                    'keyword': kw,
+                    'duration': 'while_on_battlefield',
+                },
+                source=obj.id, controller=obj.controller,
+            ))
+        return out
+    return make_etb_trigger(obj, _effect)
+
+
+# =============================================================================
 # Phase 5b: Disguise / Cloak / face-up trigger helpers
 # =============================================================================
 #
