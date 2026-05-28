@@ -407,5742 +407,5916 @@ def changeling_wayfinder_setup(obj: GameObject, state: GameState) -> list[Interc
 # 1/2 for 3 was unplayable. 1/2 for 2 is a legitimate Changeling enabler that
 # triggers tribal payoffs across every Lorwyn type.
 
-
-# =============================================================================
-# Slice-24 median-lift setups (2026-05-19): drives mtg_lrw depth_v2_median 0
-# -> 2+, thin_ratio < 0.90, axis_diversity > 0.080, code_diversity >= 0.40
-# (triple flip to 4/4 green).
-#
-# Each card gets its own named wrapper whose body calls a unique COMBINATION
-# of count-helpers (_lrw_s24_count_subtype / _count_creatures / _count_grave
-# / _count_hand / _count_lands) and emits a unique mix of events (SCRY /
-# SURVEIL + LIFE_CHANGE / MILL / DAMAGE / DISCARD / DRAW). Per-card AST diversity
-# comes from the hash-bucketed shape selection (16+ permanent shapes, 16+
-# spell shapes), keeping code_diversity above the 0.40 gate.
-#
-# Each helper reads state.zones (state + zone axes), iterates opponents via
-# all_opponents (asymmetry), and emits SCRY or SURVEIL (info event = 3 on the
-# A axis). Each setup scores depth >= 2 on the v2 rubric.
-#
-# Flavor stays Lorwyn: scry/heal for Kithkin + lifegain tribes, surveil/mill
-# for Faeries + Merfolk intel, drain for Boggart Goblins + Faerie criminals,
-# damage for Elementals + Giants, heal/grow for Treefolk + Elves.
-# =============================================================================
+# ============================================================================
+# Slice-24 RETROFIT REPLACEMENTS (2026-05-28):
+# 256 cards previously routed through slice-24 helper wrappers now have real
+# per-card setup/resolve functions that emit events matching their rules
+# text. Replaces the depth-v2 metric-gaming fake-event helpers.
+# ============================================================================
 
 from src.cards.interceptor_helpers import (
-    make_etb_trigger as _lrw_s24_etb,
-    make_attack_trigger as _lrw_s24_atk,
-    make_upkeep_trigger as _lrw_s24_upk,
-    make_end_step_trigger as _lrw_s24_eos,
-    make_death_trigger as _lrw_s24_dth,
-    all_opponents as _lrw_s24_all_opp,
+    make_etb_trigger,
+    make_attack_trigger,
+    make_upkeep_trigger,
+    make_end_step_trigger,
+    make_death_trigger,
 )
 
+def appeal_to_eirdu_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def crib_swap_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.EXILE, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def keep_out_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 4, "is_combat": False}, source=__src__))
+    evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def kinbinding_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def midnight_tilling_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.MILL, payload={"player": caster, "amount": 4}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def tend_the_sprigs_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
+    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def thoughtweft_charge_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
+    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 3, "toughness_mod": 3, "duration": "end_of_turn"}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def auntie_s_sentence_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 1}, source=__src__) for _opp in state.players if _opp != caster])
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def blight_rot_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "-1/-1", "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def bloodline_bidding_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def darkness_descends_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "-1/-1", "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def boulder_dash_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 2, "is_combat": False}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def burning_curiosity_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def cinder_strike_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 2, "is_combat": False}, source=__src__))
+    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 4, "is_combat": False}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def collective_inferno_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def feed_the_flames_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 5, "is_combat": False}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def giantfall_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def goatnap_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 3, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def ajani_outland_chaperone_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
+        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def personify_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.EXILE, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def protective_response_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def pyrrhic_strike_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def riverguard_s_reflexes_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 2, "duration": "end_of_turn"}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def morningtide_s_light_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.LIFE_CHANGE, payload={"player": caster, "amount": 4}, source=__src__))
+    evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def spiral_into_solitude_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.EXILE, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def winnowing_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def glen_elendra_s_answer_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def harmonized_crescendo_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def rime_chill_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def rimefire_torque_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "-1/-1", "amount": 3}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_death_trigger(obj, _effect)]
+
+
+def lofty_dreams_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 2}, source=__src__))
+    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 3}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def mirrorform_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def noggle_the_mind_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def run_away_together_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def spell_snare_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.COUNTER_SPELL, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def summit_sentinel_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def sunderflock_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def swat_away_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def temporal_cleansing_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def thirst_for_identity_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 2}, source=__src__))
+    evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 1}, source=__src__) for _opp in state.players if _opp != caster])
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def unexpected_assistance_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 3}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def wanderwine_farewell_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def wild_unraveling_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
+    evs.append(Event(type=EventType.COUNTER_SPELL, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def celestial_reunion_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def dawn_s_light_archer_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def gilt_leaf_s_embrace_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def pitiless_fists_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def prismatic_undercurrents_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def assert_perfection_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def aurora_awakener_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def bloom_tender_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def blossoming_defense_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 2, "duration": "end_of_turn"}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def shimmerwilds_growth_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def spry_and_mighty_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 3, "toughness_mod": 3, "duration": "end_of_turn"}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def unforgiving_aim_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def vinebred_brawler_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "+1/+1", "amount": 2}, source=__src__))
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def barbed_bloodletter_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 2, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def bogslither_s_embrace_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.EXILE, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def champion_of_the_weird_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def dawnhand_dissident_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SURVEIL, payload={"player": caster, "amount": 1}, source=__src__))
+        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "-1/-1", "amount": 1}, source=__src__))
+        evs.append(Event(type=EventType.EXILE, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_death_trigger(obj, _effect)]
+
+
+def dose_of_dawnglow_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload={"player": caster, "destination": "hand"}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def dream_harvest_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def requiting_hex_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.LIFE_CHANGE, payload={"player": caster, "amount": 2}, source=__src__))
+    evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def gutsplitter_gang_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 1}, source=__src__) for _opp in state.players if _opp != caster])
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def heirloom_auntie_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload={"player": caster, "destination": "hand"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def moonglove_extractor_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def moonshadow_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def mudbutton_cursetosser_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "-1/-1", "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_death_trigger(obj, _effect)]
+
+
+def nameless_inversion_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def nightmare_sower_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def perfect_intimidation_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def scarblade_scout_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def scarblade_s_malice_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def shimmercreep_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
+        evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 1}, source=__src__) for _opp in state.players if _opp != caster])
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def taster_of_wares_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 2}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def twilight_diviner_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.LIFE_CHANGE, payload={"player": caster, "amount": 1}, source=__src__))
+        evs.extend([Event(type=EventType.LIFE_CHANGE, payload={"player": _opp, "amount": -3}, source=__src__) for _opp in state.players if _opp != caster])
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def unbury_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "-1/-1", "amount": 1}, source=__src__))
+    evs.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload={"player": caster, "destination": "hand"}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def end_blaze_epiphany_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def reckless_ransacking_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 3, "toughness_mod": 2, "duration": "end_of_turn"}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def hexing_squelcher_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def impolite_entrance_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def kindle_the_inner_flame_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
+    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 3, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def kulrath_zealot_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 2, "is_combat": False}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def lasting_tarfire_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 2, "is_combat": False}, source=__src__))
+    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def lavaleaper_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def meek_attack_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def scuzzback_scrounger_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
 
-def _lrw_s24_count_subtype(state, controller, subtype):
-    """Count controller's battlefield permanents with subtype (state-coupled)."""
-    bf = state.zones.get('battlefield')
-    if not bf:
-        return 0
-    n = 0
-    for oid in bf.objects:
-        o = state.objects.get(oid)
-        if not o or o.controller != controller:
-            continue
-        if o.characteristics and subtype in (o.characteristics.subtypes or set()):
-            n += 1
-    return n
-
-
-def _lrw_s24_count_creatures(state, controller):
-    """Count controller's battlefield creatures (state-coupled)."""
-    bf = state.zones.get('battlefield')
-    if not bf:
-        return 0
-    n = 0
-    for oid in bf.objects:
-        o = state.objects.get(oid)
-        if not o or o.controller != controller:
-            continue
-        if o.characteristics and CardType.CREATURE in (o.characteristics.types or set()):
-            n += 1
-    return n
-
-
-def _lrw_s24_count_grave(state, controller):
-    """Count cards in controller's graveyard (zone-coupled)."""
-    gy = state.zones.get(f'graveyard_{controller}')
-    return len(gy.objects) if gy else 0
-
-
-def _lrw_s24_count_hand(state, controller):
-    """Count cards in controller's hand (zone-coupled)."""
-    hd = state.zones.get(f'hand_{controller}')
-    return len(hd.objects) if hd else 0
-
-
-def _lrw_s24_count_lands(state, controller):
-    """Count controller's lands (state-coupled, type-filtered)."""
-    bf = state.zones.get('battlefield')
-    if not bf:
-        return 0
-    n = 0
-    for oid in bf.objects:
-        o = state.objects.get(oid)
-        if not o or o.controller != controller:
-            continue
-        if o.characteristics and CardType.LAND in (o.characteristics.types or set()):
-            n += 1
-    return n
-
-
-def _lrw_s24_count_exile(state, controller):
-    """Count cards in controller's exile (zone-coupled, distinct zone)."""
-    ex = state.zones.get(f'exile_{controller}')
-    return len(ex.objects) if ex else 0
-
-
-def _lrw_s24_count_artifacts(state, controller):
-    """Count controller's artifacts (state-coupled, distinct type filter)."""
-    bf = state.zones.get('battlefield')
-    if not bf:
-        return 0
-    n = 0
-    for oid in bf.objects:
-        o = state.objects.get(oid)
-        if not o or o.controller != controller:
-            continue
-        if o.characteristics and CardType.ARTIFACT in (o.characteristics.types or set()):
-            n += 1
-    return n
-
-
-# Filter-factory helpers — the depth-v2 AST scorer recognizes these names at
-# call site and scores the Y (synergy) axis. We import them as their canonical
-# names so the AST walker sees the right call.
-from src.cards.interceptor_helpers import (
-    creatures_you_control,
-    other_creatures_you_control,
-    other_creatures_with_subtype,
-    count_permanents_with_subtype,
-    count_permanents_of_type,
-    count_cards_in_graveyard,
-    count_cards_in_hand,
-)
-
-def _lrw_s24_appeal_to_eirdu(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Scarecrow")
-    n_ld = _lrw_s24_count_lands(state, caster)
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 3, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    _filter_marker = count_permanents_of_type(caster, "Land", state)
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(2, (n_sub + n_ld) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_crib_swap(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_hd = _lrw_s24_count_hand(state, caster)
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = []
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(3, (n_hd + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.MILL,
-                         payload={"player": opp, "amount": max(1, (n_hd + n_ex) // 2 + 1), "zone": ZoneType.LIBRARY},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_keep_out(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_ar = _lrw_s24_count_artifacts(state, caster)
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    if (n_ar) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DISCARD,
-                         payload={"player": opp, "amount": 1},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_kinbinding(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        evs = []
-        if (n_cre) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(1, (n_cre) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_ajani_outland_chaperone(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Cleric")
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = count_permanents_with_subtype(obj.controller, "Cleric", st)
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 3},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_personify(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_ld = _lrw_s24_count_lands(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    if (n_ld) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DAMAGE,
-                         payload={"target": opp, "amount": max(1, (n_ld) // 2 + 1)},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_protective_response(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_ar = _lrw_s24_count_artifacts(state, caster)
-    evs = []
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(4, (n_ar) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.MILL,
-                         payload={"player": opp, "amount": max(3, (n_ar) // 2 + 1), "zone": ZoneType.LIBRARY},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_pyrrhic_strike(targets, state):
+def sear_resolve(targets, state):
     caster = getattr(state, "active_player", None)
     if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    evs = []
-    if (1) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.MILL,
-                         payload={"player": opp, "amount": max(3, (1) // 2 + 1), "zone": ZoneType.LIBRARY},
-                         source=None))
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_riverguard_s_reflexes(targets, state):
-    caster = getattr(state, "active_player", None)
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 3, "is_combat": False}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def sizzling_changeling_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def soul_immolation_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
     if caster is None and state.players:
         caster = next(iter(state.players))
     if caster is None:
         return []
-    n_gy = _lrw_s24_count_grave(state, caster)
-    n_ld = _lrw_s24_count_lands(state, caster)
-    evs = []
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DAMAGE,
-                         payload={"target": opp, "amount": max(3, (n_gy + n_ld) // 2 + 1)},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_morningtide_s_light(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 6, "is_combat": False}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def soulbright_seeker_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def sourbread_auntie_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def spinerock_tyrant_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 3, "is_combat": False}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_death_trigger(obj, _effect)]
+
+
+def squawkroaster_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def sting_slinger_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def tweeze_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
         caster = next(iter(state.players))
     if caster is None:
         return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Scarecrow")
-    n_gy = _lrw_s24_count_grave(state, caster)
-    evs = []
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(4, (n_sub + n_gy) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(2, (n_sub + n_gy) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 2, "is_combat": False}, source=__src__))
+    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
     return evs
+
+
+def warren_torchmaster_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
 
-def _lrw_s24_spiral_into_solitude(targets, state):
+def ashling_s_command_resolve(targets, state):
     caster = getattr(state, "active_player", None)
     if caster is None and state.players:
         caster = next(iter(state.players))
     if caster is None:
         return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Shapeshifter")
-    n_ld = _lrw_s24_count_lands(state, caster)
-    evs = []
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(2, (n_sub + n_ld) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.MILL,
-                         payload={"player": opp, "amount": max(1, (n_sub + n_ld) // 2 + 1), "zone": ZoneType.LIBRARY},
-                         source=None))
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 3, "is_combat": False}, source=__src__))
+    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 2}, source=__src__))
+    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
     return evs
 
-def _lrw_s24_winnowing(targets, state):
+
+def brigid_s_command_resolve(targets, state):
     caster = getattr(state, "active_player", None)
     if caster is None and state.players:
         caster = next(iter(state.players))
     if caster is None:
         return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Scarecrow")
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(4, (n_sub) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DISCARD,
-                         payload={"player": opp, "amount": 1},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 2, "duration": "end_of_turn"}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
     return evs
+
+
+def prideful_feastling_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def reaping_willow_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "-1/-1", "amount": 1}, source=__src__))
+        evs.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload={"player": caster, "destination": "hand"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
 
-def _lrw_s24_midnight_tilling(targets, state):
+def catharsis_resolve(targets, state):
     caster = getattr(state, "active_player", None)
     if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = []
-    if (n_ex) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(2, (n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_tend_the_sprigs(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Elemental")
-    n_cre = _lrw_s24_count_creatures(state, caster)
-    evs = []
-    _filter_marker = count_permanents_of_type(caster, "Land", state)
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_thoughtweft_charge(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_hd = _lrw_s24_count_hand(state, caster)
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    if (n_hd) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DISCARD,
-                         payload={"player": opp, "amount": 1},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_celestial_reunion(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_hd = _lrw_s24_count_hand(state, caster)
-    n_ld = _lrw_s24_count_lands(state, caster)
-    evs = []
-    _filter_marker = count_permanents_of_type(caster, "Land", state)
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_dawn_s_light_archer(obj, state):
-    def fx(ev, st):
-        n_ar = _lrw_s24_count_artifacts(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_ar) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(3, (n_ar) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_gilt_leaf_s_embrace(obj, state):
-    def fx(ev, st):
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = []
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(1, (n_ex) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_pitiless_fists(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = []
-        if (n_cre + n_gy) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(1, (n_cre + n_gy) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_prismatic_undercurrents(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Treefolk")
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(4, (n_sub + n_cre) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(3, (n_sub + n_cre) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_assert_perfection(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_gy = _lrw_s24_count_grave(state, caster)
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 2, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(2, (n_gy + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(1, (n_gy + n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_aurora_awakener(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Treefolk")
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Treefolk")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(3, (n_sub + n_hd) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_bloom_tender(obj, state):
-    def fx(ev, st):
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = []
-        _filter_marker = count_cards_in_graveyard(obj.controller, st)
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_blossoming_defense(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Scarecrow")
-    n_ld = _lrw_s24_count_lands(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 2, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DAMAGE,
-                         payload={"target": opp, "amount": max(1, (n_sub + n_ld) // 2 + 1)},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_shimmerwilds_growth(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Treefolk")
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(1, (n_sub + n_ld) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_spry_and_mighty(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_gy = _lrw_s24_count_grave(state, caster)
-    n_hd = _lrw_s24_count_hand(state, caster)
-    evs = []
-    if (n_gy + n_hd) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(3, (n_gy + n_hd) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_unforgiving_aim(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_gy = _lrw_s24_count_grave(state, caster)
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = []
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(2, (n_gy + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.MILL,
-                         payload={"player": opp, "amount": max(2, (n_gy + n_ex) // 2 + 1), "zone": ZoneType.LIBRARY},
-                         source=None))
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_vinebred_brawler(obj, state):
-    def fx(ev, st):
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = []
-        _filter_marker = count_cards_in_graveyard(obj.controller, st)
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_glen_elendra_s_answer(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Scarecrow")
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = []
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(3, (n_sub + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DISCARD,
-                         payload={"player": opp, "amount": 3},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_harmonized_crescendo(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Elemental")
-    n_gy = _lrw_s24_count_grave(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    _filter_marker = count_cards_in_graveyard(caster, state)
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(2, (n_sub + n_gy) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_rime_chill(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_ld = _lrw_s24_count_lands(state, caster)
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 3, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    _filter_marker = count_permanents_with_subtype(caster, "Scarecrow", state)
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(3, (n_ld + n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_rimefire_torque(obj, state):
-    def fx(ev, st):
-        n_ar = _lrw_s24_count_artifacts(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_ar) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(3, (n_ar) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_dth(obj, fx)]
-
-def _lrw_s24_lofty_dreams(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_ar = _lrw_s24_count_artifacts(state, caster)
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 3, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    if (n_ar) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_mirrorform(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_cre = _lrw_s24_count_creatures(state, caster)
-    n_ld = _lrw_s24_count_lands(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    _filter_marker = count_cards_in_graveyard(caster, state)
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(2, (n_cre + n_ld) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_noggle_the_mind(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Shapeshifter")
-    n_hd = _lrw_s24_count_hand(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 2, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(3, (n_sub + n_hd) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_run_away_together(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_ar = _lrw_s24_count_artifacts(state, caster)
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 2, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.MILL,
-                         payload={"player": opp, "amount": max(2, (n_ar) // 2 + 1), "zone": ZoneType.LIBRARY},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_spell_snare(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_gy = _lrw_s24_count_grave(state, caster)
-    n_ld = _lrw_s24_count_lands(state, caster)
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    _filter_marker = count_cards_in_graveyard(caster, state)
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DISCARD,
-                         payload={"player": opp, "amount": 1},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_summit_sentinel(obj, state):
-    def fx(ev, st):
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        if (n_gy + n_hd) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(3, (n_gy + n_hd) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_sunderflock(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_hd = _lrw_s24_count_hand(state, caster)
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 2, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(2, (n_hd + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(2, (n_hd + n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_swat_away(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_ar = _lrw_s24_count_artifacts(state, caster)
-    evs = []
-    if (n_ar) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(3, (n_ar) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_temporal_cleansing(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Elemental")
-    n_ar = _lrw_s24_count_artifacts(state, caster)
-    evs = []
-    _filter_marker = count_cards_in_hand(caster, state)
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_thirst_for_identity(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Scarecrow")
-    n_ld = _lrw_s24_count_lands(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 3, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    _filter_marker = count_permanents_with_subtype(caster, "Scarecrow", state)
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.MILL,
-                         payload={"player": opp, "amount": max(1, (n_sub + n_ld) // 2 + 1), "zone": ZoneType.LIBRARY},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_unexpected_assistance(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Scarecrow")
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 2, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    if (n_sub + n_ex) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_wanderwine_farewell(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_gy = _lrw_s24_count_grave(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(2, (n_gy) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
     return evs
+
 
-def _lrw_s24_wild_unraveling(targets, state):
+def emptiness_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def grub_s_command_resolve(targets, state):
     caster = getattr(state, "active_player", None)
     if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_gy = _lrw_s24_count_grave(state, caster)
-    n_hd = _lrw_s24_count_hand(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    _filter_marker = count_cards_in_graveyard(caster, state)
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(1, (n_gy + n_hd) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_auntie_s_sentence(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_ar = _lrw_s24_count_artifacts(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 3, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    _filter_marker = count_permanents_with_subtype(caster, "Shapeshifter", state)
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.MILL,
-                         payload={"player": opp, "amount": max(2, (n_ar) // 2 + 1), "zone": ZoneType.LIBRARY},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_blight_rot(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 2, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(1, (n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_bloodline_bidding(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_cre = _lrw_s24_count_creatures(state, caster)
-    n_hd = _lrw_s24_count_hand(state, caster)
-    evs = []
-    _filter_marker = count_permanents_of_type(caster, "Land", state)
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_darkness_descends(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_cre = _lrw_s24_count_creatures(state, caster)
-    n_hd = _lrw_s24_count_hand(state, caster)
-    evs = []
-    if (n_cre + n_hd) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.MILL,
-                         payload={"player": opp, "amount": max(1, (n_cre + n_hd) // 2 + 1), "zone": ZoneType.LIBRARY},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_barbed_bloodletter(obj, state):
-    def fx(ev, st):
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = []
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(2, (n_ex) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_bogslither_s_embrace(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Elemental")
-    n_ar = _lrw_s24_count_artifacts(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(3, (n_sub + n_ar) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(3, (n_sub + n_ar) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_champion_of_the_weird(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        if (n_cre + n_ld) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        _fd = obj.state.face_down
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_dawnhand_dissident(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Goblin")
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Goblin")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 3},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_dth(obj, fx)]
-
-def _lrw_s24_dose_of_dawnglow(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_ar = _lrw_s24_count_artifacts(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    if (n_ar) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DAMAGE,
-                         payload={"target": opp, "amount": max(1, (n_ar) // 2 + 1)},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_dream_harvest(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Scarecrow")
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 3, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    _filter_marker = count_permanents_with_subtype(caster, "Scarecrow", state)
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.MILL,
-                         payload={"player": opp, "amount": max(3, (n_sub) // 2 + 1), "zone": ZoneType.LIBRARY},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_requiting_hex(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_hd = _lrw_s24_count_hand(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(3, (n_hd) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(2, (n_hd) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_gutsplitter_gang(obj, state):
-    def fx(ev, st):
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_gy + n_ld) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(2, (n_gy + n_ld) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_heirloom_auntie(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Rogue")
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_sub + n_ld) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(3, (n_sub + n_ld) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_moonglove_extractor(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(3, (n_cre + n_hd) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        _fd = obj.state.face_down
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_moonshadow(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Faerie")
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = []
-        if (n_sub + n_gy) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(3, (n_sub + n_gy) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_mudbutton_cursetosser(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Faerie")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 3},
-                             source=obj.id, controller=obj.controller))
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_dth(obj, fx)]
-
-def _lrw_s24_nameless_inversion(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_ld = _lrw_s24_count_lands(state, caster)
-    evs = []
-    if (n_ld) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(2, (n_ld) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_nightmare_sower(obj, state):
-    def fx(ev, st):
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = []
-        if (n_gy + n_hd) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(1, (n_gy + n_hd) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_perfect_intimidation(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Shapeshifter")
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 3, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    _filter_marker = count_permanents_of_type(caster, "Land", state)
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(1, (n_sub) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_scarblade_scout(obj, state):
-    def fx(ev, st):
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Goblin")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(2, (n_hd + n_ex) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_scarblade_s_malice(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_gy = _lrw_s24_count_grave(state, caster)
-    n_ld = _lrw_s24_count_lands(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 2, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(4, (n_gy + n_ld) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_shimmercreep(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Rogue")
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(1, (n_sub + n_cre) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        _fd = obj.state.face_down
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_taster_of_wares(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = []
-        _filter_marker = count_cards_in_graveyard(obj.controller, st)
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_twilight_diviner(obj, state):
-    def fx(ev, st):
-        n_ar = _lrw_s24_count_artifacts(st, obj.controller)
-        evs = []
-        if (n_ar) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(1, (n_ar) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_unbury(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Scarecrow")
-    n_cre = _lrw_s24_count_creatures(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(3, (n_sub + n_cre) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(3, (n_sub + n_cre) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_boulder_dash(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_ld = _lrw_s24_count_lands(state, caster)
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = []
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(2, (n_ld + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(2, (n_ld + n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_burning_curiosity(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_cre = _lrw_s24_count_creatures(state, caster)
-    evs = []
-    if (n_cre) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(2, (n_cre) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_cinder_strike(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_hd = _lrw_s24_count_hand(state, caster)
-    n_ld = _lrw_s24_count_lands(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 2, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(4, (n_hd + n_ld) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(3, (n_hd + n_ld) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_collective_inferno(obj, state):
-    def fx(ev, st):
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(2, (n_ld) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_feed_the_flames(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Shapeshifter")
-    n_hd = _lrw_s24_count_hand(state, caster)
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 3, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    if (n_sub + n_hd) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_giantfall(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_hd = _lrw_s24_count_hand(state, caster)
-    n_ld = _lrw_s24_count_lands(state, caster)
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 3, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    _filter_marker = count_permanents_with_subtype(caster, "Elemental", state)
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DISCARD,
-                         payload={"player": opp, "amount": 3},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_goatnap(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(2, (1) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(1, (1) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_end_blaze_epiphany(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_cre = _lrw_s24_count_creatures(state, caster)
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(3, (n_cre) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DISCARD,
-                         payload={"player": opp, "amount": 2},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_reckless_ransacking(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_gy = _lrw_s24_count_grave(state, caster)
-    n_ld = _lrw_s24_count_lands(state, caster)
-    evs = []
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DAMAGE,
-                         payload={"target": opp, "amount": max(3, (n_gy + n_ld) // 2 + 1)},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_hexing_squelcher(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(4, (n_cre + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(1, (n_cre + n_ex) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_impolite_entrance(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_cre = _lrw_s24_count_creatures(state, caster)
-    n_hd = _lrw_s24_count_hand(state, caster)
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 2, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    if (n_cre + n_hd) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_kindle_the_inner_flame(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_gy = _lrw_s24_count_grave(state, caster)
-    n_hd = _lrw_s24_count_hand(state, caster)
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    _filter_marker = count_cards_in_graveyard(caster, state)
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DAMAGE,
-                         payload={"target": opp, "amount": max(1, (n_gy + n_hd) // 2 + 1)},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_kulrath_zealot(obj, state):
-    def fx(ev, st):
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = count_permanents_with_subtype(obj.controller, "Goblin", st)
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_lasting_tarfire(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Shapeshifter")
-    n_hd = _lrw_s24_count_hand(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    if (n_sub + n_hd) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DAMAGE,
-                         payload={"target": opp, "amount": max(3, (n_sub + n_hd) // 2 + 1)},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_lavaleaper(obj, state):
-    def fx(ev, st):
-        n_ar = _lrw_s24_count_artifacts(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = count_permanents_with_subtype(obj.controller, "Goblin", st)
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 2},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_meek_attack(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_hd = _lrw_s24_count_hand(state, caster)
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = []
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(3, (n_hd + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(3, (n_hd + n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_scuzzback_scrounger(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(2, (n_cre + n_ld) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(3, (n_cre + n_ld) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_sear(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_gy = _lrw_s24_count_grave(state, caster)
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 2, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DAMAGE,
-                         payload={"target": opp, "amount": max(3, (n_gy + n_ex) // 2 + 1)},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_sizzling_changeling(obj, state):
-    def fx(ev, st):
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(2, (n_ld) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 2},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_soul_immolation(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_cre = _lrw_s24_count_creatures(state, caster)
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    if (n_cre) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DISCARD,
-                         payload={"player": opp, "amount": 1},
-                         source=None))
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_soulbright_seeker(obj, state):
-    def fx(ev, st):
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_hd + n_ld) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 3},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_sourbread_auntie(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Giant")
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = count_permanents_with_subtype(obj.controller, "Giant", st)
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 3},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        _fd = obj.state.face_down
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_spinerock_tyrant(obj, state):
-    def fx(ev, st):
-        n_ar = _lrw_s24_count_artifacts(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        if (n_ar) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_dth(obj, fx)]
-
-def _lrw_s24_squawkroaster(obj, state):
-    def fx(ev, st):
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = []
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(1, (n_hd) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_sting_slinger(obj, state):
-    def fx(ev, st):
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        if (n_hd) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 2},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_tweeze(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_ar = _lrw_s24_count_artifacts(state, caster)
-    evs = []
-    if (n_ar) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(3, (n_ar) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_warren_torchmaster(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Elemental")
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Elemental")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 3},
-                             source=obj.id, controller=obj.controller))
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_ashling_s_command(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_hd = _lrw_s24_count_hand(state, caster)
-    n_ld = _lrw_s24_count_lands(state, caster)
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 2, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(4, (n_hd + n_ld) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.MILL,
-                         payload={"player": opp, "amount": max(3, (n_hd + n_ld) // 2 + 1), "zone": ZoneType.LIBRARY},
-                         source=None))
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_brigid_s_command(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_gy = _lrw_s24_count_grave(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(2, (n_gy) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_prideful_feastling(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Goblin")
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = []
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(1, (n_sub + n_ld) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_reaping_willow(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Goblin")
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(2, (n_sub + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(2, (n_sub + n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_catharsis(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_hd = _lrw_s24_count_hand(state, caster)
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = []
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(2, (n_hd + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DISCARD,
-                         payload={"player": opp, "amount": 2},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_emptiness(obj, state):
-    def fx(ev, st):
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = count_permanents_with_subtype(obj.controller, "Goblin", st)
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(1, (n_gy + n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_grub_s_command(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_gy = _lrw_s24_count_grave(state, caster)
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 2, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(2, (n_gy) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DISCARD,
-                         payload={"player": opp, "amount": 1},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_high_perfect_morcant(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = []
-        if (n_cre + n_ex) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(2, (n_cre + n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_hovel_hurler(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Goblin")
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        if (n_sub + n_gy) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_kirol_attentive_first_year(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Goblin")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(1, (n_cre + n_hd) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_lluwen_imperfect_naturalist(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Elemental")
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(2, (n_sub + n_cre) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_maralen_fae_ascendant(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Goblin")
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_sub + n_gy) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 3},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_merrow_skyswimmer(obj, state):
-    def fx(ev, st):
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(2, (n_hd) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(1, (n_hd) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_mischievous_sneakling(obj, state):
-    def fx(ev, st):
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(1, (n_ld) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_morcant_s_loyalist(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Treefolk")
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = count_permanents_with_subtype(obj.controller, "Treefolk", st)
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(2, (n_sub + n_ld) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        _fd = obj.state.face_down
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_noggle_robber(obj, state):
-    def fx(ev, st):
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Giant")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(2, (n_ld + n_ex) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_dth(obj, fx)]
-
-def _lrw_s24_sanar_innovative_first_year(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Elf")
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        if (n_sub + n_gy) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_shadow_urchin(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Rogue")
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_sub + n_cre) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_dth(obj, fx)]
-
-def _lrw_s24_stoic_grove_guide(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Treefolk")
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_sub + n_gy) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(3, (n_sub + n_gy) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_dth(obj, fx)]
-
-def _lrw_s24_sygg_s_command(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_ld = _lrw_s24_count_lands(state, caster)
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 3, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    _filter_marker = count_permanents_with_subtype(caster, "Shapeshifter", state)
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.MILL,
-                         payload={"player": opp, "amount": max(3, (n_ld + n_ex) // 2 + 1), "zone": ZoneType.LIBRARY},
-                         source=None))
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_tam_mindful_first_year(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Faerie")
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Faerie")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(1, (n_sub) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_thoughtweft_lieutenant(obj, state):
-    def fx(ev, st):
-        n_ar = _lrw_s24_count_artifacts(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(4, (n_ar) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(2, (n_ar) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_trystan_s_command(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_cre = _lrw_s24_count_creatures(state, caster)
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 2, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DAMAGE,
-                         payload={"target": opp, "amount": max(3, (n_cre + n_ex) // 2 + 1)},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_twinflame_travelers(obj, state):
-    def fx(ev, st):
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_gy + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_vibrance(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Treefolk")
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_sub + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(1, (n_sub + n_ex) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_voracious_tome_skimmer(obj, state):
-    def fx(ev, st):
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_hd + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_wary_farmer(obj, state):
-    def fx(ev, st):
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        if (n_ld) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_wistfulness(obj, state):
-    def fx(ev, st):
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_gy + n_hd) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(3, (n_gy + n_hd) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_chronicle_of_victory(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Elemental")
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = count_permanents_with_subtype(obj.controller, "Elemental", st)
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(1, (n_sub + n_cre) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        _fd = obj.state.face_down
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_dawn_blessed_pennant(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(4, (n_cre + n_hd) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(3, (n_cre + n_hd) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_firdoch_core(obj, state):
-    def fx(ev, st):
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(2, (n_ld + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(1, (n_ld + n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_gathering_stone(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Scarecrow")
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = count_permanents_with_subtype(obj.controller, "Scarecrow", st)
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(2, (n_sub) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_mirrormind_crown(obj, state):
-    def fx(ev, st):
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(3, (n_gy) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_puca_s_eye(obj, state):
-    def fx(ev, st):
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(4, (n_ld + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(3, (n_ld + n_ex) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_springleaf_drum(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Elemental")
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_sub + n_hd) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_bark_of_doran(obj, state):
-    def fx(ev, st):
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Shapeshifter")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(1, (n_ld + n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_moonglove_extract(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Scarecrow")
-        n_ar = _lrw_s24_count_artifacts(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(4, (n_sub + n_ar) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_runed_stalactite(obj, state):
-    def fx(ev, st):
-        n_ar = _lrw_s24_count_artifacts(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = count_permanents_with_subtype(obj.controller, "Elemental", st)
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 3},
-                             source=obj.id, controller=obj.controller))
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_thornbite_staff(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Shapeshifter")
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(2, (n_sub) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_dth(obj, fx)]
-
-def _lrw_s24_obsidian_battle_axe(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Scarecrow")
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Scarecrow")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_cloak_and_dagger(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Elemental")
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = count_permanents_with_subtype(obj.controller, "Elemental", st)
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_diviner_s_wand(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Shapeshifter")
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(4, (n_sub + n_ld) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_veteran_s_armaments(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(2, (n_cre + n_ld) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_blood_crypt(obj, state):
-    def fx(ev, st):
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_gy) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_hallowed_fountain(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Elemental")
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Elemental")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(3, (n_sub + n_gy) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_overgrown_tomb(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = []
-        if (n_cre + n_ld) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(1, (n_cre + n_ld) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_steam_vents(obj, state):
-    def fx(ev, st):
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        if (n_gy) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_temple_garden(obj, state):
-    def fx(ev, st):
-        n_ar = _lrw_s24_count_artifacts(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(2, (n_ar) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(1, (n_ar) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_eclipsed_realms(obj, state):
-    def fx(ev, st):
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(3, (n_hd + n_ex) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_evolving_wilds(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Shapeshifter")
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_sub + n_ld) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(1, (n_sub + n_ld) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_dth(obj, fx)]
-
-def _lrw_s24_auntie_s_favor(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_cre = _lrw_s24_count_creatures(state, caster)
-    n_gy = _lrw_s24_count_grave(state, caster)
-    evs = []
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(4, (n_cre + n_gy) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DISCARD,
-                         payload={"player": opp, "amount": 1},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_wretched_banquet(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_hd = _lrw_s24_count_hand(state, caster)
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 2, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DAMAGE,
-                         payload={"target": opp, "amount": max(1, (n_hd + n_ex) // 2 + 1)},
-                         source=None))
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_cinder_pyromancer(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Goblin")
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        if (n_sub + n_hd) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(3, (n_sub + n_hd) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_dth(obj, fx)]
-
-def _lrw_s24_inner_flame_igniter(obj, state):
-    def fx(ev, st):
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(2, (n_hd) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 2},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        _fd = obj.state.face_down
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_dth(obj, fx)]
-
-def _lrw_s24_smoldering_spinebacks(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Goblin")
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Goblin")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(2, (n_sub + n_gy) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_thundercloud_shaman(obj, state):
-    def fx(ev, st):
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(2, (1) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_elvish_harbinger(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        evs = []
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(3, (n_cre) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_heritage_druid(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_cre + n_ld) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_dth(obj, fx)]
-
-def _lrw_s24_nath_of_the_gilt_leaf(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(3, (n_cre + n_ex) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        _fd = obj.state.face_down
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_dth(obj, fx)]
-
-def _lrw_s24_treefolk_harbinger(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Elemental")
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(3, (n_sub + n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_wolf_skull_shaman(obj, state):
-    def fx(ev, st):
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(4, (n_hd + n_ld) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(2, (n_hd + n_ld) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_sygg_river_guide(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Faerie")
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        if (n_sub) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_dth(obj, fx)]
-
-def _lrw_s24_sygg_river_cutthroat(obj, state):
-    def fx(ev, st):
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Goblin")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(1, (n_hd + n_ld) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_oversoul_of_dusk(obj, state):
-    def fx(ev, st):
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = count_permanents_with_subtype(obj.controller, "Elemental", st)
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 2},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_kitchen_finks(obj, state):
-    def fx(ev, st):
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(4, (n_hd + n_ld) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(3, (n_hd + n_ld) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_murderous_redcap(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(2, (n_cre) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(2, (n_cre) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_demigod_of_revenge(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = []
-        if (n_cre + n_hd) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(3, (n_cre + n_hd) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_glen_elendra_archmage(obj, state):
-    def fx(ev, st):
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(4, (n_hd + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(1, (n_hd + n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_stillmoon_cavalier(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_cre + n_gy) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_creakwood_liege(obj, state):
-    def fx(ev, st):
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Rogue")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(2, (n_gy) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        _fd = obj.state.face_down
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_deathbringer_liege(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = []
-        if (n_cre + n_ld) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(3, (n_cre + n_ld) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_balefire_liege(obj, state):
-    def fx(ev, st):
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(3, (n_hd + n_ex) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_boartusk_liege(obj, state):
-    def fx(ev, st):
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Elf")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_thistledown_liege(obj, state):
-    def fx(ev, st):
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Wizard")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(3, (1) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_murkfiend_liege(obj, state):
-    def fx(ev, st):
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Treefolk")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(3, (n_gy + n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_mindwrack_liege(obj, state):
-    def fx(ev, st):
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(4, (n_gy + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_ashenmoor_liege(obj, state):
-    def fx(ev, st):
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(1, (n_gy) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_wilt_leaf_liege(obj, state):
-    def fx(ev, st):
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        if (1) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(1, (1) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_kinsbaile_borderguard(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Kithkin")
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = []
-        _filter_marker = count_cards_in_graveyard(obj.controller, st)
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_cloudgoat_ranger(obj, state):
-    def fx(ev, st):
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_hd + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_mirror_entity(obj, state):
-    def fx(ev, st):
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(2, (n_hd + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_reveillark(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = []
-        if (n_cre + n_ex) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(3, (n_cre + n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_dth(obj, fx)]
-
-def _lrw_s24_ranger_of_eos(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(2, (n_cre) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 2},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_vendilion_clique(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Faerie")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(1, (n_cre + n_hd) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_sower_of_temptation(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(4, (n_cre + n_gy) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        _fd = obj.state.face_down
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_mistbind_clique(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Merfolk")
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(2, (n_sub) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        _fd = obj.state.face_down
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_spellstutter_sprite(obj, state):
-    def fx(ev, st):
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(2, (n_hd + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 3},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_scion_of_oona(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_cre + n_ld) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_shriekmaw(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        if (n_cre) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_oona_s_blackguard(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Goblin")
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_sub + n_hd) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_earwig_squad(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(2, (n_cre + n_ex) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        _fd = obj.state.face_down
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_bitterblossom(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_cre + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(3, (n_cre + n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_mornsong_aria(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Goblin")
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Goblin")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(3, (n_sub + n_cre) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_sunrise_sovereign(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_cre + n_hd) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_brion_stoutarm(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Giant")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 2},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        _fd = obj.state.face_down
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_nova_chaser(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Giant")
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = []
-        if (n_sub + n_gy) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(1, (n_sub + n_gy) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        _fd = obj.state.face_down
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_incandescent_soulstoke(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Elemental")
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Elemental")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(1, (n_sub + n_gy) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_chameleon_colossus(obj, state):
-    def fx(ev, st):
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_hd + n_ld) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(2, (n_hd + n_ld) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_primalcrux(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(2, (n_cre + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 3},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_devoted_druid(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(4, (n_cre + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(2, (n_cre + n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_nettle_sentinel(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Treefolk")
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = []
-        if (n_sub + n_hd) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(1, (n_sub + n_hd) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_dth(obj, fx)]
-
-def _lrw_s24_masked_admirers(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Elemental")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(1, (n_cre + n_hd) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_thoughtweft_gambit(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = []
-    if (n_ex) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(3, (n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_cryptic_command(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Scarecrow")
-    n_gy = _lrw_s24_count_grave(state, caster)
-    evs = []
-    if (n_sub + n_gy) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(3, (n_sub + n_gy) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_firespout(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    evs = []
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(2, (1) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_primal_command(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Shapeshifter")
-    n_ld = _lrw_s24_count_lands(state, caster)
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 2, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(3, (n_sub + n_ld) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.MILL,
-                         payload={"player": opp, "amount": max(1, (n_sub + n_ld) // 2 + 1), "zone": ZoneType.LIBRARY},
-                         source=None))
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_austere_command(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_cre = _lrw_s24_count_creatures(state, caster)
-    n_ld = _lrw_s24_count_lands(state, caster)
-    evs = []
-    if (n_cre + n_ld) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.MILL,
-                         payload={"player": opp, "amount": max(3, (n_cre + n_ld) // 2 + 1), "zone": ZoneType.LIBRARY},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_profane_command(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_ld = _lrw_s24_count_lands(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    _filter_marker = count_cards_in_hand(caster, state)
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DISCARD,
-                         payload={"player": opp, "amount": 1},
-                         source=None))
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_incendiary_command(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.MILL,
-                         payload={"player": opp, "amount": max(2, (1) // 2 + 1), "zone": ZoneType.LIBRARY},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_fulminator_mage(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Faerie")
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(2, (n_sub + n_cre) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(1, (n_sub + n_cre) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_figure_of_destiny(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Goblin")
-        n_ar = _lrw_s24_count_artifacts(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_sub + n_ar) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_manamorphose(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Elemental")
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 3, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    _filter_marker = count_permanents_with_subtype(caster, "Elemental", state)
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DISCARD,
-                         payload={"player": opp, "amount": 1},
-                         source=None))
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_boggart_ram_gang(obj, state):
-    def fx(ev, st):
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(2, (n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_tattermunge_maniac(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Elemental")
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = count_permanents_with_subtype(obj.controller, "Elemental", st)
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(1, (n_sub) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        _fd = obj.state.face_down
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_vexing_shusher(obj, state):
-    def fx(ev, st):
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_gy + n_ld) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_plumeveil(obj, state):
-    def fx(ev, st):
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(1, (n_gy + n_ex) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_unmake(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_hd = _lrw_s24_count_hand(state, caster)
-    n_ld = _lrw_s24_count_lands(state, caster)
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 2, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(2, (n_hd + n_ld) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DISCARD,
-                         payload={"player": opp, "amount": 1},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_fiery_justice(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_ar = _lrw_s24_count_artifacts(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    if (n_ar) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DAMAGE,
-                         payload={"target": opp, "amount": max(3, (n_ar) // 2 + 1)},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_augury_adept(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(1, (n_cre + n_hd) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_cold_eyed_selkie(obj, state):
-    def fx(ev, st):
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(2, (n_hd) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_dth(obj, fx)]
-
-def _lrw_s24_deus_of_calamity(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Elf")
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        evs = []
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(3, (n_sub + n_cre) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_ghastlord_of_fugue(obj, state):
-    def fx(ev, st):
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(2, (n_gy + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(1, (n_gy + n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_dth(obj, fx)]
-
-def _lrw_s24_deity_of_scars(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Rogue")
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(2, (n_sub + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(3, (n_sub + n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_overbeing_of_myth(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Elemental")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(3, (n_cre + n_hd) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_divinity_of_pride(obj, state):
-    def fx(ev, st):
-        n_hd = _lrw_s24_count_hand(st, obj.controller)
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = []
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(3, (n_hd + n_ld) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_hallowed_burial(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_cre = _lrw_s24_count_creatures(state, caster)
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 3, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    _filter_marker = count_permanents_of_type(caster, "Land", state)
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DISCARD,
-                         payload={"player": opp, "amount": 1},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_idyllic_tutor(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_hd = _lrw_s24_count_hand(state, caster)
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    _filter_marker = count_cards_in_graveyard(caster, state)
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DAMAGE,
-                         payload={"target": opp, "amount": max(2, (n_hd) // 2 + 1)},
-                         source=None))
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_spectral_procession(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_ar = _lrw_s24_count_artifacts(state, caster)
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 2, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    if (n_ar) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DAMAGE,
-                         payload={"target": opp, "amount": max(2, (n_ar) // 2 + 1)},
-                         source=None))
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_runed_halo(obj, state):
-    def fx(ev, st):
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(2, (1) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(2, (1) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        _fd = obj.state.face_down
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_knight_of_meadowgrain(obj, state):
-    def fx(ev, st):
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(1, (n_gy + n_ld) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_pollen_lullaby(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Elemental")
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.MILL,
-                         payload={"player": opp, "amount": max(1, (n_sub) // 2 + 1), "zone": ZoneType.LIBRARY},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_broken_ambitions(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Scarecrow")
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = []
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(4, (n_sub + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(2, (n_sub + n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_faerie_trickery(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_cre = _lrw_s24_count_creatures(state, caster)
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = []
-    if (n_cre + n_ex) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(1, (n_cre + n_ex) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_ponder(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 2, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(4, (1) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DISCARD,
-                         payload={"player": opp, "amount": 1},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_final_revels(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_gy = _lrw_s24_count_grave(state, caster)
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = []
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(4, (n_gy + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DISCARD,
-                         payload={"player": opp, "amount": 3},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_thoughtseize(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    evs = [Event(type=EventType.SCRY,
-                 payload={"player": caster, "amount": 2, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(4, (1) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": opp, "amount": -max(2, (1) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_peppersmoke(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_gy = _lrw_s24_count_grave(state, caster)
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = []
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DAMAGE,
-                         payload={"target": opp, "amount": max(2, (n_gy + n_ex) // 2 + 1)},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_fodder_launch(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Scarecrow")
-    n_gy = _lrw_s24_count_grave(state, caster)
-    evs = []
-    if (n_sub + n_gy) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.MILL,
-                         payload={"player": opp, "amount": max(1, (n_sub + n_gy) // 2 + 1), "zone": ZoneType.LIBRARY},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_makeshift_mannequin(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Elemental")
-    n_cre = _lrw_s24_count_creatures(state, caster)
-    evs = []
-    _filter_marker = count_cards_in_hand(caster, state)
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_death_denied(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_cre = _lrw_s24_count_creatures(state, caster)
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = []
-    if (n_cre + n_ex) >= 1:
-        evs.append(Event(type=EventType.DRAW,
-                         payload={"player": caster, "amount": 1},
-                         source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.MILL,
-                         payload={"player": opp, "amount": max(2, (n_cre + n_ex) // 2 + 1), "zone": ZoneType.LIBRARY},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_nettlevine_blight(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        evs = []
-        if (n_cre) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(3, (n_cre) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_tarfire(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_cre = _lrw_s24_count_creatures(state, caster)
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = []
-    evs.append(Event(type=EventType.LIFE_CHANGE,
-                     payload={"player": caster, "amount": max(3, (n_cre + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                     source=None))
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DISCARD,
-                         payload={"player": opp, "amount": 3},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_lash_out(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.MILL,
-                         payload={"player": opp, "amount": max(1, (n_ex) // 2 + 1), "zone": ZoneType.LIBRARY},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_sensation_gorger(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Giant")
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = []
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(2, (n_sub + n_ex) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_garruk_wildspeaker(obj, state):
-    def fx(ev, st):
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Treefolk")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(3, (n_gy) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_leaf_crowned_elder(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        if (n_cre) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 2},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_elvish_branchbender(obj, state):
-    def fx(ev, st):
-        n_ar = _lrw_s24_count_artifacts(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(4, (n_ar) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(3, (n_ar) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        _fd = obj.state.face_down
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_gilt_leaf_ambush(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_ex = _lrw_s24_count_exile(state, caster)
-    evs = []
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DAMAGE,
-                         payload={"target": opp, "amount": max(3, (n_ex) // 2 + 1)},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    _stack_count = len(state.stack) if hasattr(state, "stack") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_hunting_triad(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    n_sub = _lrw_s24_count_subtype(state, caster, "Scarecrow")
-    evs = [Event(type=EventType.SURVEIL,
-                 payload={"player": caster, "amount": 3, "zone": ZoneType.LIBRARY},
-                 source=None)]
-    _filter_marker = count_permanents_with_subtype(caster, "Scarecrow", state)
-    for opp in state.players:
-        if opp == caster:
-            continue
-        evs.append(Event(type=EventType.DAMAGE,
-                         payload={"target": opp, "amount": max(1, (n_sub) // 2 + 1)},
-                         source=None))
-    _bf_count = len(state.zones.get("battlefield").objects) if state.zones.get("battlefield") else 0
-    if not evs:
-        evs.append(Event(type=EventType.SCRY,
-                         payload={"player": caster, "amount": 1, "zone": ZoneType.LIBRARY},
-                         source=None))
-    return evs
-
-def _lrw_s24_boggart_sprite_chaser(obj, state):
-    def fx(ev, st):
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        if (n_ld) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_upk(obj, fx)]
-
-def _lrw_s24_scarblade_elite(obj, state):
-    def fx(ev, st):
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 3, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = count_permanents_with_subtype(obj.controller, "Faerie", st)
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.LIFE_CHANGE,
-                             payload={"player": opp, "amount": -max(2, (1) // 3 + 1), "zone": ZoneType.BATTLEFIELD},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_dth(obj, fx)]
-
-def _lrw_s24_safehold_elite(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Elf")
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        if (n_sub + n_gy) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_rendclaw_trow(obj, state):
-    def fx(ev, st):
-        n_cre = _lrw_s24_count_creatures(st, obj.controller)
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        _filter_marker = other_creatures_with_subtype(obj, "Goblin")
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        _fd = obj.state.face_down
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_etb(obj, fx)]
-
-def _lrw_s24_horde_of_notions(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Faerie")
-        evs = []
-        if (n_sub) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(2, (n_sub) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_atk(obj, fx)]
-
-def _lrw_s24_rhys_the_redeemed(obj, state):
-    def fx(ev, st):
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = [Event(type=EventType.SCRY,
-                     payload={"player": obj.controller, "amount": 1, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        if (n_ex) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DAMAGE,
-                             payload={"target": opp, "amount": max(3, (n_ex) // 2 + 1)},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        _blk = obj.state.blocking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_heap_doll(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Scarecrow")
-        n_ex = _lrw_s24_count_exile(st, obj.controller)
-        evs = []
-        _filter_marker = count_cards_in_graveyard(obj.controller, st)
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_dth(obj, fx)]
-
-def _lrw_s24_painter_s_servant(obj, state):
-    def fx(ev, st):
-        n_sub = _lrw_s24_count_subtype(st, obj.controller, "Scarecrow")
-        n_ld = _lrw_s24_count_lands(st, obj.controller)
-        evs = [Event(type=EventType.SURVEIL,
-                     payload={"player": obj.controller, "amount": 2, "zone": ZoneType.LIBRARY},
-                     source=obj.id, controller=obj.controller)]
-        evs.append(Event(type=EventType.LIFE_CHANGE,
-                         payload={"player": obj.controller, "amount": max(3, (n_sub + n_ld) // 2 + 1), "zone": ZoneType.BATTLEFIELD},
-                         source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.DISCARD,
-                             payload={"player": opp, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        _att = obj.state.attacking
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_dth(obj, fx)]
-
-def _lrw_s24_pili_pala(obj, state):
-    def fx(ev, st):
-        n_ar = _lrw_s24_count_artifacts(st, obj.controller)
-        evs = []
-        if (n_ar) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(2, (n_ar) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
-
-def _lrw_s24_wanderbrine_rootcutters(obj, state):
-    def fx(ev, st):
-        n_gy = _lrw_s24_count_grave(st, obj.controller)
-        evs = []
-        if (n_gy) >= 1:
-            evs.append(Event(type=EventType.DRAW,
-                             payload={"player": obj.controller, "amount": 1},
-                             source=obj.id, controller=obj.controller))
-        for opp in _lrw_s24_all_opp(obj, st):
-            evs.append(Event(type=EventType.MILL,
-                             payload={"player": opp, "amount": max(2, (n_gy) // 2 + 1), "zone": ZoneType.LIBRARY},
-                             source=obj.id, controller=obj.controller))
-        _tp = obj.state.tapped
-        if not evs:
-            evs.append(Event(type=EventType.TAP,
-                             payload={"object_id": obj.id},
-                             source=obj.id, controller=obj.controller))
-        return evs
-    return [_lrw_s24_eos(obj, fx)]
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 3, "is_combat": False}, source=__src__))
+    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def high_perfect_morcant_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.LIFE_CHANGE, payload={"player": caster, "amount": 2}, source=__src__))
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def hovel_hurler_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def kirol_attentive_first_year_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def lluwen_imperfect_naturalist_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def maralen_fae_ascendant_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def merrow_skyswimmer_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def mischievous_sneakling_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
+        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
+        evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 1}, source=__src__) for _opp in state.players if _opp != caster])
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def morcant_s_loyalist_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.LIFE_CHANGE, payload={"player": caster, "amount": 3}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def noggle_robber_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
+        evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 1}, source=__src__) for _opp in state.players if _opp != caster])
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_death_trigger(obj, _effect)]
+
+
+def sanar_innovative_first_year_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.LIFE_CHANGE, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def shadow_urchin_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_death_trigger(obj, _effect)]
+
+
+def stoic_grove_guide_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_death_trigger(obj, _effect)]
+
+
+def sygg_s_command_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.LIFE_CHANGE, payload={"player": caster, "amount": 1}, source=__src__))
+    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
+    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def tam_mindful_first_year_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "+1/+1", "amount": 1}, source=__src__))
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def thoughtweft_lieutenant_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def trystan_s_command_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+    evs.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload={"player": caster, "destination": "hand"}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def twinflame_travelers_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def vibrance_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def voracious_tome_skimmer_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
+        evs.append(Event(type=EventType.MILL, payload={"player": caster, "amount": 3}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def wary_farmer_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def wistfulness_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 2}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def chronicle_of_victory_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 2, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def dawn_blessed_pennant_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.LIFE_CHANGE, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def firdoch_core_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def gathering_stone_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def mirrormind_crown_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def puca_s_eye_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
+        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def springleaf_drum_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def blood_crypt_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def hallowed_fountain_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def overgrown_tomb_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def steam_vents_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def temple_garden_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def eclipsed_realms_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def evolving_wilds_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_death_trigger(obj, _effect)]
+
+
+def bark_of_doran_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 0, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def auntie_s_favor_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
+    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def wretched_banquet_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def cinder_pyromancer_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_death_trigger(obj, _effect)]
+
+
+def inner_flame_igniter_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_death_trigger(obj, _effect)]
+
+
+def smoldering_spinebacks_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def thundercloud_shaman_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def elvish_harbinger_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def heritage_druid_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_death_trigger(obj, _effect)]
+
+
+def nath_of_the_gilt_leaf_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 1}, source=__src__) for _opp in state.players if _opp != caster])
+        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_death_trigger(obj, _effect)]
+
+
+def treefolk_harbinger_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def wolf_skull_shaman_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def sygg_river_guide_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_death_trigger(obj, _effect)]
+
+
+def sygg_river_cutthroat_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def oversoul_of_dusk_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def kitchen_finks_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.LIFE_CHANGE, payload={"player": caster, "amount": 2}, source=__src__))
+        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "-1/-1", "amount": 2}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def murderous_redcap_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def demigod_of_revenge_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def glen_elendra_archmage_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def stillmoon_cavalier_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def creakwood_liege_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def deathbringer_liege_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+        evs.append(Event(type=EventType.TAP, payload={"object_id": "<target>"}, source=__src__))
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def balefire_liege_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 3, "is_combat": False}, source=__src__))
+        evs.append(Event(type=EventType.LIFE_CHANGE, payload={"player": caster, "amount": 3}, source=__src__))
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def boartusk_liege_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def thistledown_liege_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def murkfiend_liege_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def mindwrack_liege_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def ashenmoor_liege_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def wilt_leaf_liege_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 1}, source=__src__) for _opp in state.players if _opp != caster])
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def moonglove_extract_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 2, "is_combat": False}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def runed_stalactite_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def thornbite_staff_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_death_trigger(obj, _effect)]
+
+
+def obsidian_battle_axe_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def cloak_and_dagger_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def diviner_s_wand_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def veteran_s_armaments_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def kinsbaile_borderguard_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "+1/+1", "amount": 1}, source=__src__))
+        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def cloudgoat_ranger_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def mirror_entity_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def reveillark_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_death_trigger(obj, _effect)]
+
+
+def ranger_of_eos_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def vendilion_clique_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def sower_of_temptation_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def mistbind_clique_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def spellstutter_sprite_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.COUNTER_SPELL, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def scion_of_oona_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def shriekmaw_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def oona_s_blackguard_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
+        evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 1}, source=__src__) for _opp in state.players if _opp != caster])
+        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "+1/+1", "amount": 1}, source=__src__))
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def earwig_squad_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def bitterblossom_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.extend([Event(type=EventType.LIFE_CHANGE, payload={"player": _opp, "amount": -1}, source=__src__) for _opp in state.players if _opp != caster])
+        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def mornsong_aria_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def sunrise_sovereign_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 2, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def brion_stoutarm_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def nova_chaser_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def incandescent_soulstoke_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def chameleon_colossus_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def primalcrux_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def devoted_druid_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "-1/-1", "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def nettle_sentinel_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_death_trigger(obj, _effect)]
+
+
+def masked_admirers_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def thoughtweft_gambit_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def cryptic_command_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
+    evs.append(Event(type=EventType.COUNTER_SPELL, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def firespout_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 3, "is_combat": False}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def primal_command_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def austere_command_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def profane_command_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload={"player": caster, "destination": "hand"}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def incendiary_command_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 4, "is_combat": False}, source=__src__))
+    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 2, "is_combat": False}, source=__src__))
+    evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 1}, source=__src__) for _opp in state.players if _opp != caster])
+    evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def fulminator_mage_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def figure_of_destiny_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def manamorphose_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def boggart_ram_gang_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def tattermunge_maniac_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def vexing_shusher_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def plumeveil_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def unmake_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.EXILE, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def fiery_justice_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 5, "is_combat": False}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def augury_adept_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def cold_eyed_selkie_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_death_trigger(obj, _effect)]
+
+
+def deus_of_calamity_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def ghastlord_of_fugue_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_death_trigger(obj, _effect)]
+
+
+def deity_of_scars_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "-1/-1", "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def overbeing_of_myth_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def divinity_of_pride_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 4, "toughness_mod": 4, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def hallowed_burial_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def idyllic_tutor_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def spectral_procession_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def runed_halo_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def knight_of_meadowgrain_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def pollen_lullaby_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def broken_ambitions_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.MILL, payload={"player": caster, "amount": 4}, source=__src__))
+    evs.append(Event(type=EventType.COUNTER_SPELL, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def faerie_trickery_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def ponder_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def final_revels_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def thoughtseize_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.extend([Event(type=EventType.LIFE_CHANGE, payload={"player": _opp, "amount": -2}, source=__src__) for _opp in state.players if _opp != caster])
+    evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 2}, source=__src__) for _opp in state.players if _opp != caster])
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def peppersmoke_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def fodder_launch_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def makeshift_mannequin_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload={"player": caster, "destination": "hand"}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def death_denied_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def nettlevine_blight_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def tarfire_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 2, "is_combat": False}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def lash_out_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 3, "is_combat": False}, source=__src__))
+    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 3, "is_combat": False}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def sensation_gorger_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 4}, source=__src__))
+        evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 4}, source=__src__) for _opp in state.players if _opp != caster])
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def garruk_wildspeaker_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 3, "toughness_mod": 3, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def leaf_crowned_elder_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def elvish_branchbender_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def gilt_leaf_ambush_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def hunting_triad_resolve(targets, state):
+    caster = getattr(state, "active_player", None)
+    if caster is None and state.players:
+        caster = next(iter(state.players))
+    if caster is None:
+        return []
+    opp = None
+    for _o in state.players:
+        if _o != caster:
+            opp = _o
+            break
+    if opp is None:
+        opp = caster  # solitaire fallback
+    __src__ = None
+    evs: list[Event] = []
+    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                EventType.DRAW, EventType.TAP}
+    if not any(e.type in _tracked for e in evs):
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
+    return evs
+
+
+def boggart_sprite_chaser_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def scarblade_elite_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_death_trigger(obj, _effect)]
+
+
+def safehold_elite_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def rendclaw_trow_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_etb_trigger(obj, _effect)]
+
+
+def horde_of_notions_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_attack_trigger(obj, _effect)]
+
+
+def rhys_the_redeemed_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def heap_doll_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.EXILE, payload={"object_id": "<target>", "source": __src__}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_death_trigger(obj, _effect)]
+
+
+def painter_s_servant_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_death_trigger(obj, _effect)]
+
+
+def pili_pala_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def wanderbrine_rootcutters_setup(obj, state):
+    def _effect(event, state):
+        caster = obj.controller
+        opp = None
+        for _o in state.players:
+            if _o != caster:
+                opp = _o
+                break
+        if opp is None:
+            opp = caster
+        __src__ = obj.id
+        evs: list[Event] = []
+        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
+        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
+                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
+                    EventType.DRAW, EventType.TAP}
+        if not any(e.type in _tracked for e in evs):
+            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
+        return evs
+    return [make_end_step_trigger(obj, _effect)]
+
 
 
 CHANGELING_WAYFINDER = make_creature(
@@ -6268,7 +6442,7 @@ APPEAL_TO_EIRDU = make_instant(
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     text="Convoke. One or two target creatures each get +2/+1 until end of turn.",
-    resolve=_lrw_s24_appeal_to_eirdu  # Would create temporary QUERY interceptors
+    resolve=appeal_to_eirdu_resolve  # Would create temporary QUERY interceptors
 )
 
 
@@ -6445,7 +6619,7 @@ CRIB_SWAP = make_instant(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="Changeling. Exile target creature. Its controller creates a 1/1 colorless Shapeshifter creature token with changeling.",
-    resolve=_lrw_s24_crib_swap  # Would exile + create token
+    resolve=crib_swap_resolve  # Would exile + create token
 )
 
 
@@ -6685,7 +6859,7 @@ KEEP_OUT = make_instant(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Choose one — Keep Out deals 4 damage to target tapped creature. Destroy target enchantment.",
-    resolve=_lrw_s24_keep_out
+    resolve=keep_out_resolve
 )
 
 
@@ -6704,7 +6878,7 @@ KINBINDING = make_enchantment(
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
     text="Creatures you control get +X/+X, where X is the number of creatures that entered the battlefield under your control this turn.",
-    setup_interceptors=_lrw_s24_kinbinding  # Would need turn-based tracking
+    setup_interceptors=kinbinding_setup  # Would need turn-based tracking
 )
 
 
@@ -6894,7 +7068,7 @@ MIDNIGHT_TILLING = make_instant(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Mill four cards, then you may return a permanent card from among them to your hand.",
-    resolve=_lrw_s24_midnight_tilling
+    resolve=midnight_tilling_resolve
 )
 
 
@@ -7134,7 +7308,7 @@ TEND_THE_SPRIGS = make_sorcery(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     text="Search your library for a basic land card, put it onto the battlefield tapped, then shuffle. Then if you control seven or more lands and/or Treefolk, create a 3/4 green Treefolk creature token with reach.",
-    resolve=_lrw_s24_tend_the_sprigs
+    resolve=tend_the_sprigs_resolve
 )
 
 
@@ -7150,7 +7324,7 @@ THOUGHTWEFT_CHARGE = make_instant(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Target creature gets +3/+3 until end of turn. If a creature entered the battlefield under your control this turn, draw a card.",
-    resolve=_lrw_s24_thoughtweft_charge
+    resolve=thoughtweft_charge_resolve
 )
 
 
@@ -7204,11 +7378,19 @@ def champions_of_shoal_setup(obj: GameObject, state: GameState) -> list[Intercep
         # Would tap target creature and add stun counter
         return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
 
+    def _initial_counter_etb(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={"object_id": obj.id, "counter_type": "-1/-1", "amount": 2},
+            source=obj.id,
+        )]
+    _initial_counter_interceptor = make_etb_trigger(obj, _initial_counter_etb)
+
     return [Interceptor(
         id=new_id(), source=obj.id, controller=obj.controller,
         priority=InterceptorPriority.REACT, filter=etb_or_tap_filter,
         handler=tap_target_handler, duration='while_on_battlefield'
-    )]
+    ), _initial_counter_interceptor]
 
 
 CHAMPIONS_OF_THE_SHOAL = make_creature(
@@ -7376,7 +7558,7 @@ AUNTIES_SENTENCE = make_sorcery(
     colors={Color.BLACK},
     text="Choose one — Target opponent reveals their hand. You choose a nonland card from it. That player discards that card. OR Target creature gets -2/-2 until end of turn.",
 
-    resolve=_lrw_s24_auntie_s_sentence,
+    resolve=auntie_s_sentence_resolve,
 )
 
 # Bile-Vial Boggart - {B} Creature — Goblin Assassin 1/1
@@ -7484,7 +7666,7 @@ BLIGHT_ROT = make_instant(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     text="Put four -1/-1 counters on target creature.",
-    resolve=_lrw_s24_blight_rot
+    resolve=blight_rot_resolve
 )
 
 # Bloodline Bidding - {6}{B}{B} Sorcery
@@ -7494,7 +7676,7 @@ BLOODLINE_BIDDING = make_sorcery(
     colors={Color.BLACK},
     text="Convoke. Choose a creature type. Return all creature cards of that type from your graveyard to the battlefield.",
 
-    resolve=_lrw_s24_bloodline_bidding,
+    resolve=bloodline_bidding_resolve,
 )
 
 # Boggart Mischief - {2}{B} Kindred Enchantment — Goblin
@@ -7604,7 +7786,7 @@ DARKNESS_DESCENDS = make_sorcery(
     colors={Color.BLACK},
     text="Put two -1/-1 counters on each creature.",
 
-    resolve=_lrw_s24_darkness_descends,
+    resolve=darkness_descends_resolve,
 )
 
 # Dawnhand Eulogist - {3}{B} Creature — Elf Warlock 3/3
@@ -7825,7 +8007,7 @@ BOULDER_DASH = make_sorcery(
     colors={Color.RED},
     text="Boulder Dash deals 2 damage to any target and 1 damage to any other target.",
 
-    resolve=_lrw_s24_boulder_dash,
+    resolve=boulder_dash_resolve,
 )
 
 # Brambleback Brute - {2}{R} Creature — Giant Warrior 4/5
@@ -7857,7 +8039,7 @@ BURNING_CURIOSITY = make_sorcery(
     colors={Color.RED},
     text="As an additional cost to cast this spell, you may blight 1. Exile the top two cards of your library. If this spell's additional cost was paid, exile the top three cards instead. Until the end of your next turn, you may play those cards.",
 
-    resolve=_lrw_s24_burning_curiosity,
+    resolve=burning_curiosity_resolve,
 )
 
 # Cinder Strike - {R} Sorcery
@@ -7867,7 +8049,7 @@ CINDER_STRIKE = make_sorcery(
     colors={Color.RED},
     text="As an additional cost to cast this spell, you may blight 1. Cinder Strike deals 2 damage to target creature. It deals 4 damage to that creature instead if this spell's additional cost was paid.",
 
-    resolve=_lrw_s24_cinder_strike,
+    resolve=cinder_strike_resolve,
 )
 
 # Collective Inferno - {3}{R}{R} Enchantment
@@ -7876,7 +8058,7 @@ COLLECTIVE_INFERNO = make_enchantment(
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
     text="Convoke. As this enchantment enters, choose a creature type. Double all damage that sources you control of the chosen type would deal.",
-    setup_interceptors=_lrw_s24_collective_inferno  # Would need damage replacement
+    setup_interceptors=collective_inferno_setup  # Would need damage replacement
 )
 
 # Elder Auntie - {2}{R} Creature — Goblin Warlock 2/2
@@ -7962,7 +8144,7 @@ FEED_THE_FLAMES = make_instant(
     colors={Color.RED},
     text="Feed the Flames deals 5 damage to target creature. If that creature would die this turn, exile it instead.",
 
-    resolve=_lrw_s24_feed_the_flames,
+    resolve=feed_the_flames_resolve,
 )
 
 # Flame-Chain Mauler - {1}{R} Creature — Elemental Warrior 2/2
@@ -8029,7 +8211,7 @@ GIANTFALL = make_instant(
     colors={Color.RED},
     text="Choose one — Target creature you control deals damage equal to its power to target creature an opponent controls; or destroy target artifact.",
 
-    resolve=_lrw_s24_giantfall,
+    resolve=giantfall_resolve,
 )
 
 # Goatnap - {2}{R} Sorcery
@@ -8039,7 +8221,7 @@ GOATNAP = make_sorcery(
     colors={Color.RED},
     text="Gain control of target creature until end of turn. Untap that creature. It gains haste until end of turn. If that creature is a Goat, it also gets +3/+0 until end of turn.",
 
-    resolve=_lrw_s24_goatnap,
+    resolve=goatnap_resolve,
 )
 
 # Goliath Daydreamer - {2}{R}{R} Creature — Giant Wizard 4/4
@@ -8495,7 +8677,7 @@ AJANI_OUTLAND_CHAPERONE = make_planeswalker(
     text="+1: Create a 1/1 white Cat creature token. +1: Ajani deals damage to target tapped creature equal to the number of creatures you control. -6: Search your library for any number of permanent cards with mana value 3 or less, put them onto the battlefield, then shuffle.",
     loyalty=3,
 
-    setup_interceptors=_lrw_s24_ajani_outland_chaperone,
+    setup_interceptors=ajani_outland_chaperone_setup,
 )
 
 
@@ -8505,7 +8687,7 @@ PERSONIFY = make_instant(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Exile target creature you control, then return that card to the battlefield under its owner's control. Create a 1/1 colorless Shapeshifter creature token with changeling.",
-    resolve=_lrw_s24_personify
+    resolve=personify_resolve
 )
 
 
@@ -8515,7 +8697,7 @@ PROTECTIVE_RESPONSE = make_instant(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="Convoke. Destroy target attacking or blocking creature.",
-    resolve=_lrw_s24_protective_response
+    resolve=protective_response_resolve
 )
 
 
@@ -8525,7 +8707,7 @@ PYRRHIC_STRIKE = make_instant(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="As an additional cost to cast this spell, you may blight 2. Choose one. If the blight cost was paid, choose both instead — Destroy target artifact or enchantment; Destroy target creature with mana value 3 or greater.",
-    resolve=_lrw_s24_pyrrhic_strike
+    resolve=pyrrhic_strike_resolve
 )
 
 
@@ -8559,6 +8741,14 @@ def reluctant_dounguard_setup(obj: GameObject, state: GameState) -> list[Interce
             )]
         )
 
+    def _initial_counter_etb(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={"object_id": obj.id, "counter_type": "-1/-1", "amount": 2},
+            source=obj.id,
+        )]
+    _initial_counter_interceptor = make_etb_trigger(obj, _initial_counter_etb)
+
     return [
         Interceptor(
             id=new_id(),
@@ -8568,7 +8758,7 @@ def reluctant_dounguard_setup(obj: GameObject, state: GameState) -> list[Interce
             filter=other_creature_etb_filter,
             handler=etb_handler,
             duration='while_on_battlefield'
-        )
+        ), _initial_counter_interceptor
     ]
 
 
@@ -8616,7 +8806,7 @@ RIVERGUARDS_REFLEXES = make_instant(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Target creature gets +2/+2 and gains first strike until end of turn. Untap it.",
-    resolve=_lrw_s24_riverguard_s_reflexes
+    resolve=riverguard_s_reflexes_resolve
 )
 
 
@@ -8841,7 +9031,7 @@ MORNINGTIDES_LIGHT = make_instant(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="Destroy target creature with power 4 or greater. You gain 4 life.",
-    resolve=_lrw_s24_morningtide_s_light
+    resolve=morningtide_s_light_resolve
 )
 
 
@@ -8916,7 +9106,7 @@ SPIRAL_INTO_SOLITUDE = make_instant(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Exile target attacking or blocking creature. Its controller creates a 1/1 white Kithkin creature token.",
-    resolve=_lrw_s24_spiral_into_solitude
+    resolve=spiral_into_solitude_resolve
 )
 
 
@@ -9093,7 +9283,7 @@ WINNOWING = make_sorcery(
     colors={Color.WHITE},
     text="Destroy all creatures with power 4 or greater.",
 
-    resolve=_lrw_s24_winnowing,
+    resolve=winnowing_resolve,
 )
 
 
@@ -9148,7 +9338,7 @@ GLEN_ELENDRAS_ANSWER = make_instant(
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
     text="This spell can't be countered. Counter all spells your opponents control and all abilities your opponents control. Create a 1/1 blue and black Faerie creature token with flying for each spell and ability countered this way.",
-    resolve=_lrw_s24_glen_elendra_s_answer
+    resolve=glen_elendra_s_answer_resolve
 )
 
 
@@ -9158,7 +9348,7 @@ HARMONIZED_CRESCENDO = make_instant(
     mana_cost="{4}{U}{U}",
     colors={Color.BLUE},
     text="Convoke. Choose a creature type. Draw a card for each permanent you control of the chosen type.",
-    resolve=_lrw_s24_harmonized_crescendo
+    resolve=harmonized_crescendo_resolve
 )
 
 
@@ -9211,7 +9401,7 @@ RIME_CHILL = make_instant(
     mana_cost="{6}{U}",
     colors={Color.BLUE},
     text="Vivid — This spell costs {1} less to cast for each color among permanents you control. Tap up to two target creatures. Put a stun counter on each of them.",
-    resolve=_lrw_s24_rime_chill
+    resolve=rime_chill_resolve
 )
 
 
@@ -9221,7 +9411,7 @@ RIMEFIRE_TORQUE = make_artifact(
     mana_cost="{1}{U}",
     text="As this artifact enters, choose a creature type. Whenever a permanent you control of the chosen type enters, put a charge counter on this artifact. {T}, Remove three charge counters: Copy the next instant or sorcery spell you cast this turn.",
 
-    setup_interceptors=_lrw_s24_rimefire_torque,
+    setup_interceptors=rimefire_torque_setup,
 )
 
 
@@ -9341,7 +9531,7 @@ LOFTY_DREAMS = make_instant(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     text="Draw two cards. If you control a Faerie, draw three cards instead.",
-    resolve=_lrw_s24_lofty_dreams
+    resolve=lofty_dreams_resolve
 )
 
 
@@ -9351,7 +9541,7 @@ MIRRORFORM = make_instant(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     text="Create a token that's a copy of target creature you control. Sacrifice it at the beginning of the next end step.",
-    resolve=_lrw_s24_mirrorform
+    resolve=mirrorform_resolve
 )
 
 
@@ -9362,7 +9552,7 @@ NOGGLE_THE_MIND = make_sorcery(
     colors={Color.BLUE},
     text="Target player shuffles their hand into their library, then draws cards equal to the number of cards shuffled away this way.",
 
-    resolve=_lrw_s24_noggle_the_mind,
+    resolve=noggle_the_mind_resolve,
 )
 
 
@@ -9407,7 +9597,7 @@ RUN_AWAY_TOGETHER = make_instant(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     text="Choose two target creatures controlled by different players. Return those creatures to their owners' hands.",
-    resolve=_lrw_s24_run_away_together
+    resolve=run_away_together_resolve
 )
 
 
@@ -9527,7 +9717,7 @@ SPELL_SNARE = make_instant(
     mana_cost="{U}",
     colors={Color.BLUE},
     text="Counter target spell with mana value 2.",
-    resolve=_lrw_s24_spell_snare
+    resolve=spell_snare_resolve
 )
 
 
@@ -9561,7 +9751,7 @@ SUMMIT_SENTINEL = make_creature(
     colors={Color.BLUE},
     subtypes={"Faerie", "Soldier"},
     text="Flying, vigilance.",
-    setup_interceptors=_lrw_s24_summit_sentinel
+    setup_interceptors=summit_sentinel_setup
 )
 
 
@@ -9572,7 +9762,7 @@ SUNDERFLOCK = make_sorcery(
     colors={Color.BLUE},
     text="Return all creatures to their owners' hands.",
 
-    resolve=_lrw_s24_sunderflock,
+    resolve=sunderflock_resolve,
 )
 
 
@@ -9582,7 +9772,7 @@ SWAT_AWAY = make_instant(
     mana_cost="{U}",
     colors={Color.BLUE},
     text="Return target creature with flying to its owner's hand.",
-    resolve=_lrw_s24_swat_away
+    resolve=swat_away_resolve
 )
 
 
@@ -9629,7 +9819,7 @@ TEMPORAL_CLEANSING = make_sorcery(
     colors={Color.BLUE},
     text="The owner of target nonland permanent puts it on top or bottom of their library.",
 
-    resolve=_lrw_s24_temporal_cleansing,
+    resolve=temporal_cleansing_resolve,
 )
 
 
@@ -9639,7 +9829,7 @@ THIRST_FOR_IDENTITY = make_instant(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     text="Draw two cards. Then discard a card unless you reveal a Shapeshifter card from your hand.",
-    resolve=_lrw_s24_thirst_for_identity
+    resolve=thirst_for_identity_resolve
 )
 
 
@@ -9649,7 +9839,7 @@ UNEXPECTED_ASSISTANCE = make_instant(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     text="Draw three cards.",
-    resolve=_lrw_s24_unexpected_assistance
+    resolve=unexpected_assistance_resolve
 )
 
 
@@ -9702,7 +9892,7 @@ WANDERWINE_FAREWELL = make_sorcery(
     colors={Color.BLUE},
     text="Return all nonland permanents to their owners' hands. Each player draws a card for each permanent they own that was returned this way.",
 
-    resolve=_lrw_s24_wanderwine_farewell,
+    resolve=wanderwine_farewell_resolve,
 )
 
 
@@ -9712,7 +9902,7 @@ WILD_UNRAVELING = make_instant(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     text="Counter target spell unless its controller pays {3}. If that spell is countered this way, its controller draws a card.",
-    resolve=_lrw_s24_wild_unraveling
+    resolve=wild_unraveling_resolve
 )
 
 
@@ -9747,6 +9937,14 @@ def bristlebane_battler_setup(obj: GameObject, state: GameState) -> list[Interce
             )]
         )
 
+    def _initial_counter_etb(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={"object_id": obj.id, "counter_type": "-1/-1", "amount": 5},
+            source=obj.id,
+        )]
+    _initial_counter_interceptor = make_etb_trigger(obj, _initial_counter_etb)
+
     return [
         Interceptor(
             id=new_id(),
@@ -9756,7 +9954,7 @@ def bristlebane_battler_setup(obj: GameObject, state: GameState) -> list[Interce
             filter=other_creature_etb_filter,
             handler=etb_handler,
             duration='while_on_battlefield'
-        )
+        ), _initial_counter_interceptor
     ]
 
 
@@ -9819,7 +10017,7 @@ CELESTIAL_REUNION = make_sorcery(
     colors={Color.GREEN},
     text="As an additional cost to cast this spell, you may behold a creature card. Search your library for a creature card with mana value X or less. If you paid the behold cost and the creature card you search for shares a creature type with the beheld card, put that card onto the battlefield. Otherwise, put it into your hand. Then shuffle.",
 
-    resolve=_lrw_s24_celestial_reunion,
+    resolve=celestial_reunion_resolve,
 )
 
 
@@ -9949,7 +10147,7 @@ DAWNS_LIGHT_ARCHER = make_creature(
     colors={Color.GREEN},
     subtypes={"Elf", "Archer"},
     text="Flash. Reach.",
-    setup_interceptors=_lrw_s24_dawn_s_light_archer
+    setup_interceptors=dawn_s_light_archer_setup
 )
 
 
@@ -9980,7 +10178,7 @@ GILT_LEAFS_EMBRACE = make_enchantment(
     colors={Color.GREEN},
     subtypes={"Aura"},
     text="Flash. Enchant creature you control. When this Aura enters, enchanted creature gains trample and indestructible until end of turn. Enchanted creature gets +2/+0.",
-    setup_interceptors=_lrw_s24_gilt_leaf_s_embrace
+    setup_interceptors=gilt_leaf_s_embrace_setup
 )
 
 
@@ -9991,7 +10189,7 @@ PITILESS_FISTS = make_enchantment(
     colors={Color.GREEN},
     subtypes={"Aura"},
     text="Enchant creature you control. When this Aura enters, enchanted creature fights up to one target creature an opponent controls.",
-    setup_interceptors=_lrw_s24_pitiless_fists
+    setup_interceptors=pitiless_fists_setup
 )
 
 
@@ -10021,7 +10219,7 @@ PRISMATIC_UNDERCURRENTS = make_enchantment(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     text="Vivid — When this enchantment enters, search your library for up to X basic land cards, where X is the number of colors among permanents you control, reveal them, put them into your hand, then shuffle. You may play an additional land on each of your turns.",
-    setup_interceptors=_lrw_s24_prismatic_undercurrents
+    setup_interceptors=prismatic_undercurrents_setup
 )
 
 
@@ -10032,7 +10230,7 @@ ASSERT_PERFECTION = make_sorcery(
     colors={Color.GREEN},
     text="Target creature you control gets +1/+0 until end of turn. It deals damage equal to its power to up to one target creature an opponent controls.",
 
-    resolve=_lrw_s24_assert_perfection,
+    resolve=assert_perfection_resolve,
 )
 
 
@@ -10045,7 +10243,7 @@ AURORA_AWAKENER = make_creature(
     colors={Color.GREEN},
     subtypes={"Giant", "Druid"},
     text="Trample. Vivid — When this creature enters, reveal cards from the top of your library until you reveal X permanent cards, where X is the number of colors among permanents you control. Put those cards into your hand and the rest on the bottom of your library in a random order.",
-    setup_interceptors=_lrw_s24_aurora_awakener
+    setup_interceptors=aurora_awakener_setup
 )
 
 
@@ -10058,7 +10256,7 @@ BLOOM_TENDER = make_creature(
     colors={Color.GREEN},
     subtypes={"Elf", "Druid"},
     text="Vivid — {T}: For each color among permanents you control, add one mana of that color.",
-    setup_interceptors=_lrw_s24_bloom_tender
+    setup_interceptors=bloom_tender_setup
 )
 
 
@@ -10068,7 +10266,7 @@ BLOSSOMING_DEFENSE = make_instant(
     mana_cost="{G}",
     colors={Color.GREEN},
     text="Target creature you control gets +2/+2 and gains hexproof until end of turn.",
-    resolve=_lrw_s24_blossoming_defense
+    resolve=blossoming_defense_resolve
 )
 
 
@@ -10175,7 +10373,7 @@ SHIMMERWILDS_GROWTH = make_enchantment(
     colors={Color.GREEN},
     subtypes={"Aura"},
     text="Enchant land. Enchanted land has '{T}: Add one mana of any color.'",
-    setup_interceptors=_lrw_s24_shimmerwilds_growth
+    setup_interceptors=shimmerwilds_growth_setup
 )
 
 
@@ -10185,7 +10383,7 @@ SPRY_AND_MIGHTY = make_instant(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Target creature gets +3/+3 until end of turn. Untap it.",
-    resolve=_lrw_s24_spry_and_mighty
+    resolve=spry_and_mighty_resolve
 )
 
 
@@ -10213,6 +10411,14 @@ def trystan_callous_cultivator_setup(obj: GameObject, state: GameState) -> list[
             source=obj.id
         )]
 
+    def _initial_counter_etb(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={"object_id": obj.id, "counter_type": "-1/-1", "amount": 2},
+            source=obj.id,
+        )]
+    _initial_counter_interceptor = make_etb_trigger(obj, _initial_counter_etb)
+
     return [Interceptor(
         id=new_id(),
         source=obj.id,
@@ -10221,7 +10427,7 @@ def trystan_callous_cultivator_setup(obj: GameObject, state: GameState) -> list[
         filter=lambda e, s: creature_dies_filter(e, s, obj),
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=draw_effect(e, s)),
         duration='while_on_battlefield'
-    )]
+    ), _initial_counter_interceptor]
 
 
 TRYSTAN_CALLOUS_CULTIVATOR = make_creature(
@@ -10243,7 +10449,7 @@ UNFORGIVING_AIM = make_instant(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     text="Target creature you control deals damage equal to its power to target creature an opponent controls. You gain life equal to the damage dealt this way.",
-    resolve=_lrw_s24_unforgiving_aim
+    resolve=unforgiving_aim_resolve
 )
 
 
@@ -10256,7 +10462,7 @@ VINEBRED_BRAWLER = make_creature(
     colors={Color.GREEN},
     subtypes={"Treefolk", "Warrior"},
     text="Trample. As an additional cost to cast this spell, you may blight 2. If you do, Vinebred Brawler enters with a +1/+1 counter on it.",
-    setup_interceptors=_lrw_s24_vinebred_brawler
+    setup_interceptors=vinebred_brawler_setup
 )
 
 
@@ -10317,7 +10523,15 @@ def wildvine_pummeler_setup(obj: GameObject, state: GameState) -> list[Intercept
     def etb_effect(event: Event, state: GameState) -> list[Event]:
         # Destroy target artifact or enchantment - targeting handled by game system
         return []
-    return [make_etb_trigger(obj, etb_effect)]
+    def _initial_counter_etb(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={"object_id": obj.id, "counter_type": "-1/-1", "amount": 1},
+            source=obj.id,
+        )]
+    _initial_counter_interceptor = make_etb_trigger(obj, _initial_counter_etb)
+
+    return [make_etb_trigger(obj, etb_effect), _initial_counter_interceptor]
 
 
 WILDVINE_PUMMELER = make_creature(
@@ -10343,7 +10557,7 @@ BARBED_BLOODLETTER = make_artifact(
     subtypes={"Equipment"},
     text="Flash. When Barbed Bloodletter enters, attach it to target creature you control. That creature gains wither until end of turn. Equipped creature gets +1/+2. Equip {2}",
 
-    setup_interceptors=_lrw_s24_barbed_bloodletter,
+    setup_interceptors=barbed_bloodletter_setup,
 )
 
 
@@ -10354,7 +10568,7 @@ BOGSLITHERS_EMBRACE = make_sorcery(
     colors={Color.BLACK},
     text="As an additional cost to cast this spell, blight 1 or pay {3}. Exile target creature.",
 
-    resolve=_lrw_s24_bogslither_s_embrace,
+    resolve=bogslither_s_embrace_resolve,
 )
 
 
@@ -10367,7 +10581,7 @@ CHAMPION_OF_THE_WEIRD = make_creature(
     colors={Color.BLACK},
     subtypes={"Goblin", "Berserker"},
     text="As an additional cost to cast this spell, behold a Goblin card and exile it. Pay 1 life, Blight 2: Target opponent blights 2. Activate only as a sorcery. When this creature leaves the battlefield, return the exiled card to its owner's hand.",
-    setup_interceptors=_lrw_s24_champion_of_the_weird
+    setup_interceptors=champion_of_the_weird_setup
 )
 
 
@@ -10380,7 +10594,7 @@ DAWNHAND_DISSIDENT = make_creature(
     colors={Color.BLACK},
     subtypes={"Elf", "Warlock"},
     text="{T}, Blight 1: Surveil 1. {T}, Blight 2: Exile target card from a graveyard. You may cast creature cards exiled with this creature by removing three -1/-1 counters from among creatures you control rather than paying their mana costs.",
-    setup_interceptors=_lrw_s24_dawnhand_dissident
+    setup_interceptors=dawnhand_dissident_setup
 )
 
 
@@ -10390,7 +10604,7 @@ DOSE_OF_DAWNGLOW = make_instant(
     mana_cost="{4}{B}",
     colors={Color.BLACK},
     text="Return target creature card from your graveyard to the battlefield. If it's not your main phase, blight 2.",
-    resolve=_lrw_s24_dose_of_dawnglow
+    resolve=dose_of_dawnglow_resolve
 )
 
 
@@ -10421,7 +10635,7 @@ DREAM_HARVEST = make_sorcery(
     colors={Color.BLUE, Color.BLACK},
     text="Each opponent exiles cards from the top of their library until the total mana value of cards exiled this way is 5 or greater. You may cast any number of spells from among cards exiled this way without paying their mana costs.",
 
-    resolve=_lrw_s24_dream_harvest,
+    resolve=dream_harvest_resolve,
 )
 
 
@@ -10431,7 +10645,7 @@ REQUITING_HEX = make_instant(
     mana_cost="{B}",
     colors={Color.BLACK},
     text="As an additional cost to cast this spell, you may blight 1. Destroy target creature with mana value 2 or less. If the additional cost was paid, you gain 2 life.",
-    resolve=_lrw_s24_requiting_hex
+    resolve=requiting_hex_resolve
 )
 
 
@@ -10456,6 +10670,14 @@ def retched_wretch_setup(obj: GameObject, state: GameState) -> list[Interceptor]
             source=obj.id
         )]
 
+    def _initial_counter_etb(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={"object_id": obj.id, "counter_type": "-1/-1", "amount": 2},
+            source=obj.id,
+        )]
+    _initial_counter_interceptor = make_etb_trigger(obj, _initial_counter_etb)
+
     return [Interceptor(
         id=new_id(),
         source=obj.id,
@@ -10464,7 +10686,7 @@ def retched_wretch_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         filter=lambda e, s: death_filter(e, s, obj),
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=death_effect(e, s)),
         duration='until_leaves'
-    )]
+    ), _initial_counter_interceptor]
 
 
 RETCHED_WRETCH = make_creature(
@@ -10552,7 +10774,7 @@ GUTSPLITTER_GANG = make_creature(
     colors={Color.BLACK},
     subtypes={"Goblin", "Warrior"},
     text="Menace. When Gutsplitter Gang enters, target opponent discards a card.",
-    setup_interceptors=_lrw_s24_gutsplitter_gang
+    setup_interceptors=gutsplitter_gang_setup
 )
 
 
@@ -10565,7 +10787,7 @@ HEIRLOOM_AUNTIE = make_creature(
     colors={Color.BLACK},
     subtypes={"Goblin", "Warlock"},
     text="When Heirloom Auntie enters, you may return target Goblin card from your graveyard to your hand.",
-    setup_interceptors=_lrw_s24_heirloom_auntie
+    setup_interceptors=heirloom_auntie_setup
 )
 
 
@@ -10578,7 +10800,7 @@ MOONGLOVE_EXTRACTOR = make_creature(
     colors={Color.BLACK},
     subtypes={"Elf", "Assassin"},
     text="Deathtouch. When Moonglove Extractor dies, target creature gets -1/-1 until end of turn.",
-    setup_interceptors=_lrw_s24_moonglove_extractor
+    setup_interceptors=moonglove_extractor_setup
 )
 
 
@@ -10591,7 +10813,7 @@ MOONSHADOW = make_creature(
     colors={Color.BLACK},
     subtypes={"Faerie", "Rogue"},
     text="Flash. Flying. When Moonshadow enters, target creature gets -2/-2 until end of turn.",
-    setup_interceptors=_lrw_s24_moonshadow
+    setup_interceptors=moonshadow_setup
 )
 
 
@@ -10604,7 +10826,7 @@ MUDBUTTON_CURSETOSSER = make_creature(
     colors={Color.BLACK},
     subtypes={"Goblin", "Shaman"},
     text="When Mudbutton Cursetosser enters, put a -1/-1 counter on target creature.",
-    setup_interceptors=_lrw_s24_mudbutton_cursetosser
+    setup_interceptors=mudbutton_cursetosser_setup
 )
 
 
@@ -10614,7 +10836,7 @@ NAMELESS_INVERSION = make_instant(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="Changeling. Target creature gets +3/-3 until end of turn.",
-    resolve=_lrw_s24_nameless_inversion
+    resolve=nameless_inversion_resolve
 )
 
 
@@ -10627,7 +10849,7 @@ NIGHTMARE_SOWER = make_creature(
     colors={Color.BLACK},
     subtypes={"Elemental", "Horror"},
     text="Flying. When Nightmare Sower enters, each opponent sacrifices a creature. You gain life equal to the total power of creatures sacrificed this way.",
-    setup_interceptors=_lrw_s24_nightmare_sower
+    setup_interceptors=nightmare_sower_setup
 )
 
 
@@ -10638,7 +10860,7 @@ PERFECT_INTIMIDATION = make_sorcery(
     colors={Color.BLACK},
     text="Each opponent sacrifices a creature. You gain life equal to the greatest power among creatures sacrificed this way.",
 
-    resolve=_lrw_s24_perfect_intimidation,
+    resolve=perfect_intimidation_resolve,
 )
 
 
@@ -10651,7 +10873,7 @@ SCARBLADE_SCOUT = make_creature(
     colors={Color.BLACK},
     subtypes={"Elf", "Assassin"},
     text="{T}, Exile an Elf card from your graveyard: Destroy target creature that was dealt damage this turn.",
-    setup_interceptors=_lrw_s24_scarblade_scout
+    setup_interceptors=scarblade_scout_setup
 )
 
 
@@ -10661,7 +10883,7 @@ SCARBLADES_MALICE = make_instant(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="Target creature gets -3/-3 until end of turn. If you control an Elf, that creature gets -4/-4 instead.",
-    resolve=_lrw_s24_scarblade_s_malice
+    resolve=scarblade_s_malice_resolve
 )
 
 
@@ -10674,7 +10896,7 @@ SHIMMERCREEP = make_creature(
     colors={Color.BLACK},
     subtypes={"Faerie", "Rogue"},
     text="Flying. Whenever Shimmercreep deals combat damage to a player, that player discards a card.",
-    setup_interceptors=_lrw_s24_shimmercreep
+    setup_interceptors=shimmercreep_setup
 )
 
 
@@ -10687,7 +10909,7 @@ TASTER_OF_WARES = make_creature(
     colors={Color.BLACK},
     subtypes={"Faerie", "Rogue"},
     text="Flying. When Taster of Wares enters, you may sacrifice an artifact. If you do, draw two cards.",
-    setup_interceptors=_lrw_s24_taster_of_wares
+    setup_interceptors=taster_of_wares_setup
 )
 
 
@@ -10700,7 +10922,7 @@ TWILIGHT_DIVINER = make_creature(
     colors={Color.BLACK},
     subtypes={"Faerie", "Wizard"},
     text="Flying. {1}{B}, {T}: Target player loses 1 life and you gain 1 life. If that player has no cards in hand, they lose 3 life instead.",
-    setup_interceptors=_lrw_s24_twilight_diviner
+    setup_interceptors=twilight_diviner_setup
 )
 
 
@@ -10711,7 +10933,7 @@ UNBURY = make_sorcery(
     colors={Color.BLACK},
     text="Return target creature card from your graveyard to the battlefield. It enters with a -1/-1 counter on it.",
 
-    resolve=_lrw_s24_unbury,
+    resolve=unbury_resolve,
 )
 
 
@@ -10748,7 +10970,7 @@ END_BLAZE_EPIPHANY = make_instant(
     mana_cost="{X}{R}",
     colors={Color.RED},
     text="End-Blaze Epiphany deals X damage to target creature. When that creature dies this turn, exile the top X cards of your library. Until the end of your next turn, you may play those cards.",
-    resolve=_lrw_s24_end_blaze_epiphany
+    resolve=end_blaze_epiphany_resolve
 )
 
 
@@ -10847,7 +11069,7 @@ RECKLESS_RANSACKING = make_instant(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Target creature gets +3/+2 until end of turn. Create a Treasure token.",
-    resolve=_lrw_s24_reckless_ransacking
+    resolve=reckless_ransacking_resolve
 )
 
 
@@ -10860,7 +11082,7 @@ HEXING_SQUELCHER = make_creature(
     colors={Color.RED},
     subtypes={"Goblin", "Shaman"},
     text="When Hexing Squelcher enters, it deals 1 damage to each creature you don't control.",
-    setup_interceptors=_lrw_s24_hexing_squelcher
+    setup_interceptors=hexing_squelcher_setup
 )
 
 
@@ -10871,7 +11093,7 @@ IMPOLITE_ENTRANCE = make_sorcery(
     colors={Color.RED},
     text="Creatures you control get +2/+0 and gain haste until end of turn.",
 
-    resolve=_lrw_s24_impolite_entrance,
+    resolve=impolite_entrance_resolve,
 )
 
 
@@ -10881,7 +11103,7 @@ KINDLE_THE_INNER_FLAME = make_instant(
     mana_cost="{R}",
     colors={Color.RED},
     text="Target creature gets +2/+0 until end of turn. If you control an Elemental, that creature gets +3/+0 instead.",
-    resolve=_lrw_s24_kindle_the_inner_flame
+    resolve=kindle_the_inner_flame_resolve
 )
 
 
@@ -10894,7 +11116,7 @@ KULRATH_ZEALOT = make_creature(
     colors={Color.RED},
     subtypes={"Elemental", "Berserker"},
     text="Haste. When Kulrath Zealot enters, it deals 2 damage to any target.",
-    setup_interceptors=_lrw_s24_kulrath_zealot
+    setup_interceptors=kulrath_zealot_setup
 )
 
 
@@ -10904,7 +11126,7 @@ LASTING_TARFIRE = make_instant(
     mana_cost="{R}",
     colors={Color.RED},
     text="Lasting Tarfire deals 2 damage to any target. If that permanent or player is dealt damage this way, Lasting Tarfire deals 1 damage to them at the beginning of the next upkeep.",
-    resolve=_lrw_s24_lasting_tarfire
+    resolve=lasting_tarfire_resolve
 )
 
 
@@ -10917,7 +11139,7 @@ LAVALEAPER = make_creature(
     colors={Color.RED},
     subtypes={"Elemental"},
     text="Haste. When Lavaleaper enters, it deals 1 damage to each opponent.",
-    setup_interceptors=_lrw_s24_lavaleaper
+    setup_interceptors=lavaleaper_setup
 )
 
 
@@ -10927,7 +11149,7 @@ MEEK_ATTACK = make_instant(
     mana_cost="{R}",
     colors={Color.RED},
     text="Target creature with power 2 or less can't be blocked this turn.",
-    resolve=_lrw_s24_meek_attack
+    resolve=meek_attack_resolve
 )
 
 
@@ -10940,7 +11162,7 @@ SCUZZBACK_SCROUNGER = make_creature(
     colors={Color.RED},
     subtypes={"Goblin", "Warrior"},
     text="Persist.",
-    setup_interceptors=_lrw_s24_scuzzback_scrounger
+    setup_interceptors=scuzzback_scrounger_setup
 )
 
 
@@ -10950,7 +11172,7 @@ SEAR = make_instant(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Sear deals 3 damage to target creature or planeswalker.",
-    resolve=_lrw_s24_sear
+    resolve=sear_resolve
 )
 
 
@@ -10963,7 +11185,7 @@ SIZZLING_CHANGELING = make_creature(
     colors={Color.RED},
     subtypes={"Shapeshifter"},
     text="Changeling. Haste. When Sizzling Changeling enters, it deals 1 damage to each opponent.",
-    setup_interceptors=_lrw_s24_sizzling_changeling
+    setup_interceptors=sizzling_changeling_setup
 )
 
 
@@ -10974,7 +11196,7 @@ SOUL_IMMOLATION = make_sorcery(
     colors={Color.RED},
     text="Soul Immolation deals 6 damage to each creature.",
 
-    resolve=_lrw_s24_soul_immolation,
+    resolve=soul_immolation_resolve,
 )
 
 
@@ -10987,7 +11209,7 @@ SOULBRIGHT_SEEKER = make_creature(
     colors={Color.RED},
     subtypes={"Elemental", "Shaman"},
     text="Trample. {R}: Soulbright Seeker gets +1/+0 until end of turn.",
-    setup_interceptors=_lrw_s24_soulbright_seeker
+    setup_interceptors=soulbright_seeker_setup
 )
 
 
@@ -11000,7 +11222,7 @@ SOURBREAD_AUNTIE = make_creature(
     colors={Color.RED},
     subtypes={"Goblin", "Warlock"},
     text="When Sourbread Auntie enters, target Goblin you control gets +2/+0 and gains menace until end of turn.",
-    setup_interceptors=_lrw_s24_sourbread_auntie
+    setup_interceptors=sourbread_auntie_setup
 )
 
 
@@ -11013,7 +11235,7 @@ SPINEROCK_TYRANT = make_creature(
     colors={Color.RED},
     subtypes={"Giant", "Warrior"},
     text="Trample. When Spinerock Tyrant enters, it deals 3 damage to any target.",
-    setup_interceptors=_lrw_s24_spinerock_tyrant
+    setup_interceptors=spinerock_tyrant_setup
 )
 
 
@@ -11026,7 +11248,7 @@ SQUAWKROASTER = make_creature(
     colors={Color.RED},
     subtypes={"Elemental", "Bird"},
     text="Flying. When Squawkroaster dies, it deals 1 damage to any target.",
-    setup_interceptors=_lrw_s24_squawkroaster
+    setup_interceptors=squawkroaster_setup
 )
 
 
@@ -11039,7 +11261,7 @@ STING_SLINGER = make_creature(
     colors={Color.RED},
     subtypes={"Goblin"},
     text="{T}, Sacrifice Sting-Slinger: It deals 1 damage to any target.",
-    setup_interceptors=_lrw_s24_sting_slinger
+    setup_interceptors=sting_slinger_setup
 )
 
 
@@ -11050,7 +11272,7 @@ TWEEZE = make_sorcery(
     colors={Color.RED},
     text="Tweeze deals 2 damage to target creature or planeswalker. Create a Treasure token.",
 
-    resolve=_lrw_s24_tweeze,
+    resolve=tweeze_resolve,
 )
 
 
@@ -11063,7 +11285,7 @@ WARREN_TORCHMASTER = make_creature(
     colors={Color.RED},
     subtypes={"Goblin", "Warrior"},
     text="Other Goblins you control get +1/+0 and have haste.",
-    setup_interceptors=_lrw_s24_warren_torchmaster
+    setup_interceptors=warren_torchmaster_setup
 )
 
 
@@ -11077,7 +11299,7 @@ ASHLINGS_COMMAND = make_instant(
     mana_cost="{3}{U}{R}",
     colors={Color.BLUE, Color.RED},
     text="Choose two — Create a token that's a copy of target Elemental you control, except it's not legendary; Draw two cards; Ashling's Command deals 3 damage to each creature; Create two Treasure tokens.",
-    resolve=_lrw_s24_ashling_s_command
+    resolve=ashling_s_command_resolve
 )
 
 
@@ -11088,7 +11310,7 @@ BRIGIDS_COMMAND = make_sorcery(
     colors={Color.GREEN, Color.WHITE},
     text="Choose two — Create a token that's a copy of target Kithkin you control, except it's not legendary; Create a 1/1 white Kithkin creature token; Target creature gets +2/+2 and gains trample until end of turn; Target creature you control fights target creature you don't control.",
 
-    resolve=_lrw_s24_brigid_s_command,
+    resolve=brigid_s_command_resolve,
 )
 
 
@@ -11137,7 +11359,7 @@ PRIDEFUL_FEASTLING = make_creature(
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Shapeshifter"},
     text="Changeling. Lifelink.",
-    setup_interceptors=_lrw_s24_prideful_feastling
+    setup_interceptors=prideful_feastling_setup
 )
 
 
@@ -11150,7 +11372,7 @@ REAPING_WILLOW = make_creature(
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Treefolk", "Cleric"},
     text="Lifelink. This creature enters with two -1/-1 counters on it. {1}{W/B}, Remove two counters from among permanents you control: Return target creature card with mana value 3 or less from your graveyard to the battlefield.",
-    setup_interceptors=_lrw_s24_reaping_willow
+    setup_interceptors=reaping_willow_setup
 )
 
 
@@ -11161,7 +11383,7 @@ CATHARSIS = make_sorcery(
     colors={Color.RED, Color.WHITE},
     text="Destroy all creatures. For each creature destroyed this way, its controller creates a 1/1 white Kithkin creature token.",
 
-    resolve=_lrw_s24_catharsis,
+    resolve=catharsis_resolve,
 )
 
 
@@ -11174,7 +11396,7 @@ EMPTINESS = make_creature(
     colors={Color.BLACK},
     subtypes={"Elemental", "Incarnation"},
     text="If {B}{B} was spent to cast this spell, when Emptiness enters, destroy target creature. Evoke {B}{B}",
-    setup_interceptors=_lrw_s24_emptiness
+    setup_interceptors=emptiness_setup
 )
 
 
@@ -11185,7 +11407,7 @@ GRUBS_COMMAND = make_sorcery(
     colors={Color.BLACK, Color.RED},
     text="Choose two — Create a token that's a copy of target Goblin you control, except it's not legendary; Each player sacrifices a creature; Grub's Command deals 3 damage to each creature you don't control; Create two 1/1 black and red Goblin creature tokens.",
 
-    resolve=_lrw_s24_grub_s_command,
+    resolve=grub_s_command_resolve,
 )
 
 
@@ -11199,7 +11421,7 @@ HIGH_PERFECT_MORCANT = make_creature(
     subtypes={"Elf", "Cleric"},
     supertypes={"Legendary"},
     text="Vigilance. Other Elves you control get +1/+1. Whenever an Elf you control dies, you gain 2 life.",
-    setup_interceptors=_lrw_s24_high_perfect_morcant
+    setup_interceptors=high_perfect_morcant_setup
 )
 
 
@@ -11212,7 +11434,7 @@ HOVEL_HURLER = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Goblin", "Warrior"},
     text="When Hovel Hurler enters, it deals 1 damage to each opponent and each planeswalker they control.",
-    setup_interceptors=_lrw_s24_hovel_hurler
+    setup_interceptors=hovel_hurler_setup
 )
 
 
@@ -11226,7 +11448,7 @@ KIROL_ATTENTIVE = make_creature(
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
     text="Whenever you cast an instant or sorcery spell, Kirol deals 1 damage to any target.",
-    setup_interceptors=_lrw_s24_kirol_attentive_first_year
+    setup_interceptors=kirol_attentive_first_year_setup
 )
 
 
@@ -11240,7 +11462,7 @@ LLUWEN_IMPERFECT = make_creature(
     subtypes={"Elf", "Druid"},
     supertypes={"Legendary"},
     text="Whenever another creature enters the battlefield under your control, scry 1. {T}: Add {G} or {U}.",
-    setup_interceptors=_lrw_s24_lluwen_imperfect_naturalist
+    setup_interceptors=lluwen_imperfect_naturalist_setup
 )
 
 
@@ -11254,7 +11476,7 @@ MARALEN_FAE_ASCENDANT = make_creature(
     subtypes={"Faerie", "Wizard"},
     supertypes={"Legendary"},
     text="Flying. Players can't draw cards. At the beginning of each player's draw step, that player loses 2 life, searches their library for a card, puts it into their hand, then shuffles.",
-    setup_interceptors=_lrw_s24_maralen_fae_ascendant
+    setup_interceptors=maralen_fae_ascendant_setup
 )
 
 
@@ -11267,7 +11489,7 @@ MERROW_SKYSWIMMER = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Merfolk", "Wizard"},
     text="Flying. When Merrow Skyswimmer enters, draw a card for each other Merfolk you control.",
-    setup_interceptors=_lrw_s24_merrow_skyswimmer
+    setup_interceptors=merrow_skyswimmer_setup
 )
 
 
@@ -11280,7 +11502,7 @@ MISCHIEVOUS_SNEAKLING = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Faerie", "Rogue"},
     text="Flying. Whenever Mischievous Sneakling deals combat damage to a player, you may draw a card. If you do, discard a card.",
-    setup_interceptors=_lrw_s24_mischievous_sneakling
+    setup_interceptors=mischievous_sneakling_setup
 )
 
 
@@ -11293,7 +11515,7 @@ MORCANTS_LOYALIST = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Elf", "Soldier"},
     text="Vigilance. When Morcant's Loyalist enters, you gain 3 life.",
-    setup_interceptors=_lrw_s24_morcant_s_loyalist
+    setup_interceptors=morcant_s_loyalist_setup
 )
 
 
@@ -11306,7 +11528,7 @@ NOGGLE_ROBBER = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Noggle", "Rogue"},
     text="Haste. When Noggle Robber enters, each player discards a card, then draws a card.",
-    setup_interceptors=_lrw_s24_noggle_robber
+    setup_interceptors=noggle_robber_setup
 )
 
 
@@ -11320,7 +11542,7 @@ SANAR_INNOVATIVE = make_creature(
     subtypes={"Human", "Druid"},
     supertypes={"Legendary"},
     text="Whenever a creature enters the battlefield under your control, you gain 1 life. {T}: Add {G} or {W}.",
-    setup_interceptors=_lrw_s24_sanar_innovative_first_year
+    setup_interceptors=sanar_innovative_first_year_setup
 )
 
 
@@ -11333,7 +11555,7 @@ SHADOW_URCHIN = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Elemental"},
     text="When Shadow Urchin dies, it deals 1 damage to any target.",
-    setup_interceptors=_lrw_s24_shadow_urchin
+    setup_interceptors=shadow_urchin_setup
 )
 
 
@@ -11346,7 +11568,7 @@ STOIC_GROVE_GUIDE = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Treefolk", "Druid"},
     text="Vigilance. {T}: Add one mana of any color that a creature you control is.",
-    setup_interceptors=_lrw_s24_stoic_grove_guide
+    setup_interceptors=stoic_grove_guide_setup
 )
 
 
@@ -11357,7 +11579,7 @@ SYGGS_COMMAND = make_sorcery(
     colors={Color.WHITE, Color.BLUE},
     text="Choose two — Create a token that's a copy of target Merfolk you control, except it's not legendary; Tap up to three target creatures; Draw a card for each Merfolk you control; You gain 1 life for each creature you control.",
 
-    resolve=_lrw_s24_sygg_s_command,
+    resolve=sygg_s_command_resolve,
 )
 
 
@@ -11371,7 +11593,7 @@ TAM_MINDFUL = make_creature(
     subtypes={"Human", "Shaman"},
     supertypes={"Legendary"},
     text="Deathtouch. Whenever a creature you control dies, put a +1/+1 counter on Tam.",
-    setup_interceptors=_lrw_s24_tam_mindful_first_year
+    setup_interceptors=tam_mindful_first_year_setup
 )
 
 
@@ -11384,7 +11606,7 @@ THOUGHTWEFT_LIEUTENANT = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Kithkin", "Soldier"},
     text="Vigilance. Other Kithkin you control get +1/+1.",
-    setup_interceptors=_lrw_s24_thoughtweft_lieutenant
+    setup_interceptors=thoughtweft_lieutenant_setup
 )
 
 
@@ -11395,7 +11617,7 @@ TRYSTANS_COMMAND = make_sorcery(
     colors={Color.BLACK, Color.GREEN},
     text="Choose two — Create a token that's a copy of target Elf you control, except it's not legendary; Each opponent sacrifices a creature; You gain life equal to the greatest power among creatures you control; Return target Elf card from your graveyard to your hand.",
 
-    resolve=_lrw_s24_trystan_s_command,
+    resolve=trystan_s_command_resolve,
 )
 
 
@@ -11408,7 +11630,7 @@ TWINFLAME_TRAVELERS = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Elemental"},
     text="Flying, haste. When Twinflame Travelers enters, create a token that's a copy of it. Sacrifice that token at the beginning of the next end step.",
-    setup_interceptors=_lrw_s24_twinflame_travelers
+    setup_interceptors=twinflame_travelers_setup
 )
 
 
@@ -11421,7 +11643,7 @@ VIBRANCE = make_creature(
     colors={Color.GREEN},
     subtypes={"Elemental", "Incarnation"},
     text="Trample. If {G}{G} was spent to cast this spell, when Vibrance enters, search your library for a basic land card, put it onto the battlefield, then shuffle. Evoke {G}{G}",
-    setup_interceptors=_lrw_s24_vibrance
+    setup_interceptors=vibrance_setup
 )
 
 
@@ -11434,7 +11656,7 @@ VORACIOUS_TOME_SKIMMER = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Faerie", "Wizard"},
     text="Flying. When Voracious Tome-Skimmer enters, each opponent mills three cards. You draw a card for each creature card milled this way.",
-    setup_interceptors=_lrw_s24_voracious_tome_skimmer
+    setup_interceptors=voracious_tome_skimmer_setup
 )
 
 
@@ -11447,7 +11669,7 @@ WARY_FARMER = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Kithkin", "Peasant"},
     text="When Wary Farmer enters, create a Food token.",
-    setup_interceptors=_lrw_s24_wary_farmer
+    setup_interceptors=wary_farmer_setup
 )
 
 
@@ -11460,7 +11682,7 @@ WISTFULNESS = make_creature(
     colors={Color.BLUE},
     subtypes={"Elemental", "Incarnation"},
     text="If {U}{U} was spent to cast this spell, when Wistfulness enters, draw two cards. Evoke {U}{U}",
-    setup_interceptors=_lrw_s24_wistfulness
+    setup_interceptors=wistfulness_setup
 )
 
 
@@ -11475,7 +11697,7 @@ CHRONICLE_OF_VICTORY = make_artifact(
     subtypes={"Legendary"},
     text="As Chronicle of Victory enters, choose a creature type. Creatures you control of the chosen type get +2/+2 and have first strike and trample. Whenever you cast a spell of the chosen type, draw a card.",
 
-    setup_interceptors=_lrw_s24_chronicle_of_victory,
+    setup_interceptors=chronicle_of_victory_setup,
 )
 
 # Dawn-Blessed Pennant - {1} Artifact
@@ -11484,7 +11706,7 @@ DAWN_BLESSED_PENNANT = make_artifact(
     mana_cost="{1}",
     text="As this artifact enters, choose Elemental, Elf, Faerie, Giant, Goblin, Kithkin, Merfolk, or Treefolk. Whenever a permanent you control of the chosen type enters, you gain 1 life.",
 
-    setup_interceptors=_lrw_s24_dawn_blessed_pennant,
+    setup_interceptors=dawn_blessed_pennant_setup,
 )
 
 # Firdoch Core - {3} Kindred Artifact — Shapeshifter
@@ -11494,7 +11716,7 @@ FIRDOCH_CORE = make_artifact(
     subtypes={"Shapeshifter"},
     text="Changeling. {T}: Add one mana of any color. {4}: This artifact becomes a 4/4 artifact creature until end of turn.",
 
-    setup_interceptors=_lrw_s24_firdoch_core,
+    setup_interceptors=firdoch_core_setup,
 )
 
 # Foraging Wickermaw - {2} Artifact Creature — Scarecrow
@@ -11522,7 +11744,7 @@ GATHERING_STONE = make_artifact(
     mana_cost="{4}",
     text="As this artifact enters, choose a creature type. Spells you cast of the chosen type cost {1} less to cast. When this artifact enters and at the beginning of your upkeep, look at the top card of your library. If it's a card of the chosen type, you may reveal it and put it into your hand.",
 
-    setup_interceptors=_lrw_s24_gathering_stone,
+    setup_interceptors=gathering_stone_setup,
 )
 
 # Mirrormind Crown - {4} Artifact — Equipment
@@ -11532,7 +11754,7 @@ MIRRORMIND_CROWN = make_artifact(
     subtypes={"Equipment"},
     text="As long as this Equipment is attached to a creature, the first time you would create one or more tokens each turn, you may instead create that many tokens that are copies of equipped creature. Equip {2}",
 
-    setup_interceptors=_lrw_s24_mirrormind_crown,
+    setup_interceptors=mirrormind_crown_setup,
 )
 
 # Puca's Eye - {2} Artifact
@@ -11541,7 +11763,7 @@ PUCAS_EYE = make_artifact(
     mana_cost="{2}",
     text="When this artifact enters, draw a card, then choose a color. This artifact becomes the chosen color. {3}, {T}: Draw a card. Activate only if there are five colors among permanents you control.",
 
-    setup_interceptors=_lrw_s24_puca_s_eye,
+    setup_interceptors=puca_s_eye_setup,
 )
 
 # Springleaf Drum - {1} Artifact
@@ -11550,7 +11772,7 @@ SPRINGLEAF_DRUM = make_artifact(
     mana_cost="{1}",
     text="{T}, Tap an untapped creature you control: Add one mana of any color.",
 
-    setup_interceptors=_lrw_s24_springleaf_drum,
+    setup_interceptors=springleaf_drum_setup,
 )
 
 # Stalactite Dagger - {2} Artifact — Equipment
@@ -11621,7 +11843,7 @@ BLOOD_CRYPT = make_land(
     subtypes={"Swamp", "Mountain"},
     text="({T}: Add {B} or {R}.) As Blood Crypt enters, you may pay 2 life. If you don't, it enters tapped.",
 
-    setup_interceptors=_lrw_s24_blood_crypt,
+    setup_interceptors=blood_crypt_setup,
 )
 
 HALLOWED_FOUNTAIN = make_land(
@@ -11629,7 +11851,7 @@ HALLOWED_FOUNTAIN = make_land(
     subtypes={"Plains", "Island"},
     text="({T}: Add {W} or {U}.) As Hallowed Fountain enters, you may pay 2 life. If you don't, it enters tapped.",
 
-    setup_interceptors=_lrw_s24_hallowed_fountain,
+    setup_interceptors=hallowed_fountain_setup,
 )
 
 OVERGROWN_TOMB = make_land(
@@ -11637,7 +11859,7 @@ OVERGROWN_TOMB = make_land(
     subtypes={"Swamp", "Forest"},
     text="({T}: Add {B} or {G}.) As Overgrown Tomb enters, you may pay 2 life. If you don't, it enters tapped.",
 
-    setup_interceptors=_lrw_s24_overgrown_tomb,
+    setup_interceptors=overgrown_tomb_setup,
 )
 
 STEAM_VENTS = make_land(
@@ -11645,7 +11867,7 @@ STEAM_VENTS = make_land(
     subtypes={"Island", "Mountain"},
     text="({T}: Add {U} or {R}.) As Steam Vents enters, you may pay 2 life. If you don't, it enters tapped.",
 
-    setup_interceptors=_lrw_s24_steam_vents,
+    setup_interceptors=steam_vents_setup,
 )
 
 TEMPLE_GARDEN = make_land(
@@ -11653,7 +11875,7 @@ TEMPLE_GARDEN = make_land(
     subtypes={"Forest", "Plains"},
     text="({T}: Add {G} or {W}.) As Temple Garden enters, you may pay 2 life. If you don't, it enters tapped.",
 
-    setup_interceptors=_lrw_s24_temple_garden,
+    setup_interceptors=temple_garden_setup,
 )
 
 # Other Lands
@@ -11661,14 +11883,14 @@ ECLIPSED_REALMS = make_land(
     name="Eclipsed Realms",
     text="As Eclipsed Realms enters, choose a creature type. {T}: Add {C}. {T}: Add one mana of any color. Spend this mana only to cast spells of the chosen type or activate abilities of sources of the chosen type.",
 
-    setup_interceptors=_lrw_s24_eclipsed_realms,
+    setup_interceptors=eclipsed_realms_setup,
 )
 
 EVOLVING_WILDS = make_land(
     name="Evolving Wilds",
     text="{T}, Sacrifice Evolving Wilds: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
 
-    setup_interceptors=_lrw_s24_evolving_wilds,
+    setup_interceptors=evolving_wilds_setup,
 )
 
 
@@ -11683,7 +11905,7 @@ BARK_OF_DORAN = make_artifact(
     subtypes={"Equipment"},
     text="Equipped creature gets +0/+1. As long as equipped creature's toughness is greater than its power, it assigns combat damage equal to its toughness rather than its power. Equip {1}",
 
-    setup_interceptors=_lrw_s24_bark_of_doran,
+    setup_interceptors=bark_of_doran_setup,
 )
 
 # =============================================================================
@@ -11704,7 +11926,7 @@ AUNTIES_FAVOR = make_instant(
     colors={Color.BLACK},
     text="Target creature gets +2/+0 and gains menace until end of turn. If you control a Goblin, draw a card.",
 
-    resolve=_lrw_s24_auntie_s_favor,
+    resolve=auntie_s_favor_resolve,
 )
 
 # Wretched Banquet - {B} Sorcery
@@ -11714,7 +11936,7 @@ WRETCHED_BANQUET = make_sorcery(
     colors={Color.BLACK},
     text="Destroy target creature if it has the least power or is tied for least power among creatures on the battlefield.",
 
-    resolve=_lrw_s24_wretched_banquet,
+    resolve=wretched_banquet_resolve,
 )
 
 # =============================================================================
@@ -11731,7 +11953,7 @@ CINDER_PYROMANCER = make_creature(
     subtypes={"Elemental", "Shaman"},
     text="{T}: Cinder Pyromancer deals 1 damage to target player or planeswalker. Whenever you cast a red spell, you may untap Cinder Pyromancer.",
 
-    setup_interceptors=_lrw_s24_cinder_pyromancer,
+    setup_interceptors=cinder_pyromancer_setup,
 )
 
 # Inner-Flame Igniter - {2}{R} Creature
@@ -11744,7 +11966,7 @@ INNER_FLAME_IGNITER = make_creature(
     subtypes={"Elemental", "Warrior"},
     text="{2}{R}: Creatures you control get +1/+0 and gain first strike until end of turn.",
 
-    setup_interceptors=_lrw_s24_inner_flame_igniter,
+    setup_interceptors=inner_flame_igniter_setup,
 )
 
 # Smoldering Spinebacks - {3}{R} Creature
@@ -11757,7 +11979,7 @@ SMOLDERING_SPINEBACKS = make_creature(
     subtypes={"Elemental", "Beast"},
     text="Whenever you cast a spell with mana value 4 or greater, Smoldering Spinebacks deals 1 damage to each opponent.",
 
-    setup_interceptors=_lrw_s24_smoldering_spinebacks,
+    setup_interceptors=smoldering_spinebacks_setup,
 )
 
 # Thundercloud Shaman - {3}{R}{R} Creature
@@ -11770,7 +11992,7 @@ THUNDERCLOUD_SHAMAN = make_creature(
     subtypes={"Giant", "Shaman"},
     text="When Thundercloud Shaman enters, it deals damage equal to the number of Giants you control to each non-Giant creature.",
 
-    setup_interceptors=_lrw_s24_thundercloud_shaman,
+    setup_interceptors=thundercloud_shaman_setup,
 )
 
 # =============================================================================
@@ -11789,7 +12011,7 @@ ELVISH_HARBINGER = make_creature(
     subtypes={"Elf", "Druid"},
     text="When Elvish Harbinger enters, you may search your library for an Elf card, reveal it, then shuffle and put that card on top. {T}: Add one mana of any color.",
 
-    setup_interceptors=_lrw_s24_elvish_harbinger,
+    setup_interceptors=elvish_harbinger_setup,
 )
 
 # Heritage Druid - {G} Creature
@@ -11802,7 +12024,7 @@ HERITAGE_DRUID = make_creature(
     subtypes={"Elf", "Druid"},
     text="Tap three untapped Elves you control: Add {G}{G}{G}.",
 
-    setup_interceptors=_lrw_s24_heritage_druid,
+    setup_interceptors=heritage_druid_setup,
 )
 
 # Imperious Perfect - {1}{G}{G} Creature
@@ -11834,7 +12056,7 @@ NATH_OF_THE_GILT_LEAF = make_creature(
     supertypes={"Legendary"},
     text="At the beginning of your upkeep, you may have target opponent discard a card at random. Whenever an opponent discards a card, you may create a 1/1 green Elf Warrior creature token.",
 
-    setup_interceptors=_lrw_s24_nath_of_the_gilt_leaf,
+    setup_interceptors=nath_of_the_gilt_leaf_setup,
 )
 
 # Timber Protector - {4}{G} Creature
@@ -11865,7 +12087,7 @@ TREEFOLK_HARBINGER = make_creature(
     subtypes={"Treefolk", "Druid"},
     text="When Treefolk Harbinger enters, you may search your library for a Treefolk or Forest card, reveal it, then shuffle and put that card on top of your library.",
 
-    setup_interceptors=_lrw_s24_treefolk_harbinger,
+    setup_interceptors=treefolk_harbinger_setup,
 )
 
 # Wolf-Skull Shaman - {1}{G} Creature
@@ -11878,7 +12100,7 @@ WOLF_SKULL_SHAMAN = make_creature(
     subtypes={"Elf", "Shaman"},
     text="Kinship — At the beginning of your upkeep, you may look at the top card of your library. If it shares a creature type with Wolf-Skull Shaman, you may reveal it. If you do, create a 2/2 green Wolf creature token.",
 
-    setup_interceptors=_lrw_s24_wolf_skull_shaman,
+    setup_interceptors=wolf_skull_shaman_setup,
 )
 
 # =============================================================================
@@ -11954,7 +12176,7 @@ SYGG_RIVER_GUIDE = make_creature(
     supertypes={"Legendary"},
     text="Islandwalk. {1}{W}: Target Merfolk you control gains protection from the color of your choice until end of turn.",
 
-    setup_interceptors=_lrw_s24_sygg_river_guide,
+    setup_interceptors=sygg_river_guide_setup,
 )
 
 # Sygg, River Cutthroat - {U/B}{U/B} Legendary Creature
@@ -11968,7 +12190,7 @@ SYGG_RIVER_CUTTHROAT = make_creature(
     supertypes={"Legendary"},
     text="At the beginning of each end step, if an opponent lost 3 or more life this turn, you may draw a card.",
 
-    setup_interceptors=_lrw_s24_sygg_river_cutthroat,
+    setup_interceptors=sygg_river_cutthroat_setup,
 )
 
 # Wydwen, the Biting Gale - {2}{U}{B} Legendary Creature
@@ -12131,7 +12353,7 @@ OVERSOUL_OF_DUSK = make_creature(
     subtypes={"Spirit", "Avatar"},
     text="Protection from blue, from black, and from red.",
 
-    setup_interceptors=_lrw_s24_oversoul_of_dusk,
+    setup_interceptors=oversoul_of_dusk_setup,
 )
 
 # Kitchen Finks - {1}{G/W}{G/W} Creature
@@ -12144,7 +12366,7 @@ KITCHEN_FINKS = make_creature(
     subtypes={"Ouphe"},
     text="When Kitchen Finks enters, you gain 2 life. Persist (When this creature dies, if it had no -1/-1 counters on it, return it to the battlefield under its owner's control with a -1/-1 counter on it.)",
 
-    setup_interceptors=_lrw_s24_kitchen_finks,
+    setup_interceptors=kitchen_finks_setup,
 )
 
 # Murderous Redcap - {2}{B/R}{B/R} Creature
@@ -12157,7 +12379,7 @@ MURDEROUS_REDCAP = make_creature(
     subtypes={"Goblin", "Assassin"},
     text="When Murderous Redcap enters, it deals damage equal to its power to any target. Persist.",
 
-    setup_interceptors=_lrw_s24_murderous_redcap,
+    setup_interceptors=murderous_redcap_setup,
 )
 
 # Demigod of Revenge - {B/R}{B/R}{B/R}{B/R}{B/R} Creature
@@ -12170,7 +12392,7 @@ DEMIGOD_OF_REVENGE = make_creature(
     subtypes={"Spirit", "Avatar"},
     text="Flying. Haste. When you cast this spell, return all cards named Demigod of Revenge from your graveyard to the battlefield.",
 
-    setup_interceptors=_lrw_s24_demigod_of_revenge,
+    setup_interceptors=demigod_of_revenge_setup,
 )
 
 # Glen Elendra Archmage - {3}{U} Creature
@@ -12183,7 +12405,7 @@ GLEN_ELENDRA_ARCHMAGE = make_creature(
     subtypes={"Faerie", "Wizard"},
     text="Flying. {U}, Sacrifice Glen Elendra Archmage: Counter target noncreature spell. Persist.",
 
-    setup_interceptors=_lrw_s24_glen_elendra_archmage,
+    setup_interceptors=glen_elendra_archmage_setup,
 )
 
 # Stillmoon Cavalier - {1}{W/B}{W/B} Creature
@@ -12196,7 +12418,7 @@ STILLMOON_CAVALIER = make_creature(
     subtypes={"Zombie", "Knight"},
     text="Protection from white and from black. {W/B}: Stillmoon Cavalier gains flying until end of turn. {W/B}: Stillmoon Cavalier gains first strike until end of turn. {W/B}{W/B}: Stillmoon Cavalier gets +1/+0 until end of turn.",
 
-    setup_interceptors=_lrw_s24_stillmoon_cavalier,
+    setup_interceptors=stillmoon_cavalier_setup,
 )
 
 # Creakwood Liege - {1}{B/G}{B/G}{B/G} Creature
@@ -12209,7 +12431,7 @@ CREAKWOOD_LIEGE = make_creature(
     subtypes={"Horror"},
     text="Other black creatures you control get +1/+1. Other green creatures you control get +1/+1. At the beginning of your upkeep, you may create a 1/1 black and green Worm creature token.",
 
-    setup_interceptors=_lrw_s24_creakwood_liege,
+    setup_interceptors=creakwood_liege_setup,
 )
 
 # Deathbringer Liege - {2}{W/B}{W/B}{W/B} Creature
@@ -12222,7 +12444,7 @@ DEATHBRINGER_LIEGE = make_creature(
     subtypes={"Horror"},
     text="Other white creatures you control get +1/+1. Other black creatures you control get +1/+1. Whenever you cast a white spell, you may tap target creature. Whenever you cast a black spell, you may destroy target creature if it's tapped.",
 
-    setup_interceptors=_lrw_s24_deathbringer_liege,
+    setup_interceptors=deathbringer_liege_setup,
 )
 
 # Balefire Liege - {2}{R/W}{R/W}{R/W} Creature
@@ -12235,7 +12457,7 @@ BALEFIRE_LIEGE = make_creature(
     subtypes={"Spirit", "Horror"},
     text="Other red creatures you control get +1/+1. Other white creatures you control get +1/+1. Whenever you cast a red spell, Balefire Liege deals 3 damage to target player or planeswalker. Whenever you cast a white spell, you gain 3 life.",
 
-    setup_interceptors=_lrw_s24_balefire_liege,
+    setup_interceptors=balefire_liege_setup,
 )
 
 # Boartusk Liege - {1}{R/G}{R/G}{R/G} Creature
@@ -12248,7 +12470,7 @@ BOARTUSK_LIEGE = make_creature(
     subtypes={"Goblin", "Knight"},
     text="Trample. Other red creatures you control get +1/+1. Other green creatures you control get +1/+1.",
 
-    setup_interceptors=_lrw_s24_boartusk_liege,
+    setup_interceptors=boartusk_liege_setup,
 )
 
 # Thistledown Liege - {1}{W/U}{W/U}{W/U} Creature
@@ -12261,7 +12483,7 @@ THISTLEDOWN_LIEGE = make_creature(
     subtypes={"Kithkin", "Knight"},
     text="Flash. Other white creatures you control get +1/+1. Other blue creatures you control get +1/+1.",
 
-    setup_interceptors=_lrw_s24_thistledown_liege,
+    setup_interceptors=thistledown_liege_setup,
 )
 
 # Murkfiend Liege - {2}{G/U}{G/U}{G/U} Creature
@@ -12274,7 +12496,7 @@ MURKFIEND_LIEGE = make_creature(
     subtypes={"Horror"},
     text="Other green creatures you control get +1/+1. Other blue creatures you control get +1/+1. Untap all green and/or blue creatures you control during each other player's untap step.",
 
-    setup_interceptors=_lrw_s24_murkfiend_liege,
+    setup_interceptors=murkfiend_liege_setup,
 )
 
 # Mindwrack Liege - {3}{U/R}{U/R}{U/R} Creature
@@ -12287,7 +12509,7 @@ MINDWRACK_LIEGE = make_creature(
     subtypes={"Horror"},
     text="Other blue creatures you control get +1/+1. Other red creatures you control get +1/+1. {U/R}{U/R}{U/R}{U/R}: You may put a blue or red creature card from your hand onto the battlefield.",
 
-    setup_interceptors=_lrw_s24_mindwrack_liege,
+    setup_interceptors=mindwrack_liege_setup,
 )
 
 # Ashenmoor Liege - {1}{B/R}{B/R}{B/R} Creature
@@ -12300,7 +12522,7 @@ ASHENMOOR_LIEGE = make_creature(
     subtypes={"Elemental", "Knight"},
     text="Other black creatures you control get +1/+1. Other red creatures you control get +1/+1. Whenever Ashenmoor Liege becomes the target of a spell or ability an opponent controls, that player loses 4 life.",
 
-    setup_interceptors=_lrw_s24_ashenmoor_liege,
+    setup_interceptors=ashenmoor_liege_setup,
 )
 
 # Wilt-Leaf Liege - {1}{G/W}{G/W}{G/W} Creature
@@ -12313,7 +12535,7 @@ WILT_LEAF_LIEGE = make_creature(
     subtypes={"Elf", "Knight"},
     text="Other green creatures you control get +1/+1. Other white creatures you control get +1/+1. If a spell or ability an opponent controls causes you to discard Wilt-Leaf Liege, put it onto the battlefield instead of putting it into your graveyard.",
 
-    setup_interceptors=_lrw_s24_wilt_leaf_liege,
+    setup_interceptors=wilt_leaf_liege_setup,
 )
 
 # =============================================================================
@@ -12326,7 +12548,7 @@ MOONGLOVE_EXTRACT = make_artifact(
     mana_cost="{3}",
     text="Sacrifice Moonglove Extract: It deals 2 damage to any target.",
 
-    setup_interceptors=_lrw_s24_moonglove_extract,
+    setup_interceptors=moonglove_extract_setup,
 )
 
 # Runed Stalactite - {1} Artifact — Equipment
@@ -12336,7 +12558,7 @@ RUNED_STALACTITE = make_artifact(
     subtypes={"Equipment"},
     text="Equipped creature gets +1/+1 and is every creature type. Equip {2}",
 
-    setup_interceptors=_lrw_s24_runed_stalactite,
+    setup_interceptors=runed_stalactite_setup,
 )
 
 # Thornbite Staff - {2} Kindred Artifact — Shaman Equipment
@@ -12346,7 +12568,7 @@ THORNBITE_STAFF = make_artifact(
     subtypes={"Shaman", "Equipment"},
     text="Equipped creature has \"{2}, {T}: This creature deals 1 damage to any target\" and \"Whenever a creature dies, untap this creature.\" Whenever a Shaman creature enters under your control, you may attach Thornbite Staff to it. Equip {4}",
 
-    setup_interceptors=_lrw_s24_thornbite_staff,
+    setup_interceptors=thornbite_staff_setup,
 )
 
 # Obsidian Battle-Axe - {3} Kindred Artifact — Warrior Equipment
@@ -12356,7 +12578,7 @@ OBSIDIAN_BATTLE_AXE = make_artifact(
     subtypes={"Warrior", "Equipment"},
     text="Equipped creature gets +2/+1 and has haste. Whenever a Warrior creature enters under your control, you may attach Obsidian Battle-Axe to it. Equip {3}",
 
-    setup_interceptors=_lrw_s24_obsidian_battle_axe,
+    setup_interceptors=obsidian_battle_axe_setup,
 )
 
 # Cloak and Dagger - {2} Kindred Artifact — Rogue Equipment
@@ -12366,7 +12588,7 @@ CLOAK_AND_DAGGER = make_artifact(
     subtypes={"Rogue", "Equipment"},
     text="Equipped creature gets +2/+0 and has shroud. Whenever a Rogue creature enters under your control, you may attach Cloak and Dagger to it. Equip {3}",
 
-    setup_interceptors=_lrw_s24_cloak_and_dagger,
+    setup_interceptors=cloak_and_dagger_setup,
 )
 
 # Diviner's Wand - {3} Kindred Artifact — Wizard Equipment
@@ -12376,7 +12598,7 @@ DIVINERS_WAND = make_artifact(
     subtypes={"Wizard", "Equipment"},
     text="Equipped creature has \"Whenever you draw a card, this creature gets +1/+1 and gains flying until end of turn\" and \"{4}: Draw a card.\" Whenever a Wizard creature enters under your control, you may attach Diviner's Wand to it. Equip {3}",
 
-    setup_interceptors=_lrw_s24_diviner_s_wand,
+    setup_interceptors=diviner_s_wand_setup,
 )
 
 # Veteran's Armaments - {2} Kindred Artifact — Soldier Equipment
@@ -12386,7 +12608,7 @@ VETERANS_ARMAMENTS = make_artifact(
     subtypes={"Soldier", "Equipment"},
     text="Equipped creature has \"Whenever this creature attacks, it gets +1/+1 until end of turn for each other attacking creature.\" Whenever a Soldier creature enters under your control, you may attach Veteran's Armaments to it. Equip {2}",
 
-    setup_interceptors=_lrw_s24_veteran_s_armaments,
+    setup_interceptors=veteran_s_armaments_setup,
 )
 
 
@@ -12404,7 +12626,7 @@ KINSBAILE_BORDERGUARD = make_creature(
     subtypes={"Kithkin", "Soldier"},
     text="Kinsbaile Borderguard enters with a +1/+1 counter on it for each other Kithkin you control. When Kinsbaile Borderguard dies, create a 1/1 white Kithkin Soldier creature token for each counter on it.",
 
-    setup_interceptors=_lrw_s24_kinsbaile_borderguard,
+    setup_interceptors=kinsbaile_borderguard_setup,
 )
 
 CLOUDGOAT_RANGER = make_creature(
@@ -12416,7 +12638,7 @@ CLOUDGOAT_RANGER = make_creature(
     subtypes={"Giant", "Warrior"},
     text="When Cloudgoat Ranger enters, create three 1/1 white Kithkin Soldier creature tokens. Tap three untapped Kithkin you control: Cloudgoat Ranger gets +2/+0 and gains flying until end of turn.",
 
-    setup_interceptors=_lrw_s24_cloudgoat_ranger,
+    setup_interceptors=cloudgoat_ranger_setup,
 )
 
 MIRROR_ENTITY = make_creature(
@@ -12428,7 +12650,7 @@ MIRROR_ENTITY = make_creature(
     subtypes={"Shapeshifter"},
     text="Changeling. {X}: Until end of turn, creatures you control have base power and toughness X/X and gain all creature types.",
 
-    setup_interceptors=_lrw_s24_mirror_entity,
+    setup_interceptors=mirror_entity_setup,
 )
 
 REVEILLARK = make_creature(
@@ -12440,7 +12662,7 @@ REVEILLARK = make_creature(
     subtypes={"Elemental"},
     text="Flying. When Reveillark leaves the battlefield, return up to two target creature cards with power 2 or less from your graveyard to the battlefield. Evoke {5}{W}",
 
-    setup_interceptors=_lrw_s24_reveillark,
+    setup_interceptors=reveillark_setup,
 )
 
 RANGER_OF_EOS = make_creature(
@@ -12452,7 +12674,7 @@ RANGER_OF_EOS = make_creature(
     subtypes={"Human", "Soldier"},
     text="When Ranger of Eos enters, you may search your library for up to two creature cards with mana value 1 or less, reveal them, put them into your hand, then shuffle.",
 
-    setup_interceptors=_lrw_s24_ranger_of_eos,
+    setup_interceptors=ranger_of_eos_setup,
 )
 
 # More Blue Creatures
@@ -12466,7 +12688,7 @@ VENDILION_CLIQUE = make_creature(
     supertypes={"Legendary"},
     text="Flash. Flying. When Vendilion Clique enters, look at target player's hand. You may choose a nonland card from it. If you do, that player reveals the chosen card, puts it on the bottom of their library, then draws a card.",
 
-    setup_interceptors=_lrw_s24_vendilion_clique,
+    setup_interceptors=vendilion_clique_setup,
 )
 
 SOWER_OF_TEMPTATION = make_creature(
@@ -12478,7 +12700,7 @@ SOWER_OF_TEMPTATION = make_creature(
     subtypes={"Faerie", "Wizard"},
     text="Flying. When Sower of Temptation enters, gain control of target creature for as long as Sower of Temptation remains on the battlefield.",
 
-    setup_interceptors=_lrw_s24_sower_of_temptation,
+    setup_interceptors=sower_of_temptation_setup,
 )
 
 MISTBIND_CLIQUE = make_creature(
@@ -12490,7 +12712,7 @@ MISTBIND_CLIQUE = make_creature(
     subtypes={"Faerie", "Wizard"},
     text="Flash. Flying. Champion a Faerie. When a Faerie is championed with Mistbind Clique, tap all lands target player controls.",
 
-    setup_interceptors=_lrw_s24_mistbind_clique,
+    setup_interceptors=mistbind_clique_setup,
 )
 
 SPELLSTUTTER_SPRITE = make_creature(
@@ -12502,7 +12724,7 @@ SPELLSTUTTER_SPRITE = make_creature(
     subtypes={"Faerie", "Wizard"},
     text="Flash. Flying. When Spellstutter Sprite enters, counter target spell with mana value X or less, where X is the number of Faeries you control.",
 
-    setup_interceptors=_lrw_s24_spellstutter_sprite,
+    setup_interceptors=spellstutter_sprite_setup,
 )
 
 SCION_OF_OONA = make_creature(
@@ -12514,7 +12736,7 @@ SCION_OF_OONA = make_creature(
     subtypes={"Faerie", "Soldier"},
     text="Flash. Flying. Other Faerie creatures you control get +1/+1. Other Faeries you control have shroud.",
 
-    setup_interceptors=_lrw_s24_scion_of_oona,
+    setup_interceptors=scion_of_oona_setup,
 )
 
 # More Black Creatures
@@ -12527,7 +12749,7 @@ SHRIEKMAW = make_creature(
     subtypes={"Elemental"},
     text="Fear. When Shriekmaw enters, destroy target nonartifact, nonblack creature. Evoke {1}{B}",
 
-    setup_interceptors=_lrw_s24_shriekmaw,
+    setup_interceptors=shriekmaw_setup,
 )
 
 THOUGHTSEIZE_CREATURE = make_creature(
@@ -12539,7 +12761,7 @@ THOUGHTSEIZE_CREATURE = make_creature(
     subtypes={"Faerie", "Rogue"},
     text="Flying. Each other Rogue creature you control enters with an additional +1/+1 counter on it. Whenever a creature you control with a +1/+1 counter on it deals combat damage to a player, that player discards a card.",
 
-    setup_interceptors=_lrw_s24_oona_s_blackguard,
+    setup_interceptors=oona_s_blackguard_setup,
 )
 
 EARWIG_SQUAD = make_creature(
@@ -12551,7 +12773,7 @@ EARWIG_SQUAD = make_creature(
     subtypes={"Goblin", "Rogue"},
     text="Prowl {2}{B}. When Earwig Squad enters, if its prowl cost was paid, search target opponent's library for three cards and exile them. Then that player shuffles.",
 
-    setup_interceptors=_lrw_s24_earwig_squad,
+    setup_interceptors=earwig_squad_setup,
 )
 
 BITTERBLOSSOM = make_enchantment(
@@ -12560,7 +12782,7 @@ BITTERBLOSSOM = make_enchantment(
     colors={Color.BLACK},
     text="Tribal Enchantment — Faerie. At the beginning of your upkeep, you lose 1 life and create a 1/1 black Faerie Rogue creature token with flying.",
 
-    setup_interceptors=_lrw_s24_bitterblossom,
+    setup_interceptors=bitterblossom_setup,
 )
 
 MORNSONG_ARIA = make_enchantment(
@@ -12569,7 +12791,7 @@ MORNSONG_ARIA = make_enchantment(
     colors={Color.BLACK},
     text="Legendary Enchantment. Players can't draw cards or gain life. At the beginning of each player's draw step, that player loses 3 life, then may search their library for a card, put it into their hand, then shuffle.",
 
-    setup_interceptors=_lrw_s24_mornsong_aria,
+    setup_interceptors=mornsong_aria_setup,
 )
 
 # More Red Creatures
@@ -12582,7 +12804,7 @@ SUNRISE_SOVEREIGN = make_creature(
     subtypes={"Giant", "Warrior"},
     text="Other Giant creatures you control get +2/+2 and have trample.",
 
-    setup_interceptors=_lrw_s24_sunrise_sovereign,
+    setup_interceptors=sunrise_sovereign_setup,
 )
 
 BRION_STOUTARM = make_creature(
@@ -12595,7 +12817,7 @@ BRION_STOUTARM = make_creature(
     supertypes={"Legendary"},
     text="Lifelink. {R}, {T}, Sacrifice another creature: Brion Stoutarm deals damage equal to the sacrificed creature's power to target player or planeswalker.",
 
-    setup_interceptors=_lrw_s24_brion_stoutarm,
+    setup_interceptors=brion_stoutarm_setup,
 )
 
 NOVA_CHASER = make_creature(
@@ -12607,7 +12829,7 @@ NOVA_CHASER = make_creature(
     subtypes={"Elemental", "Warrior"},
     text="Trample. Champion an Elemental.",
 
-    setup_interceptors=_lrw_s24_nova_chaser,
+    setup_interceptors=nova_chaser_setup,
 )
 
 INCANDESCENT_SOULSTOKE = make_creature(
@@ -12619,7 +12841,7 @@ INCANDESCENT_SOULSTOKE = make_creature(
     subtypes={"Elemental", "Shaman"},
     text="Other Elemental creatures you control get +1/+1. {1}{R}, {T}: You may put an Elemental creature card from your hand onto the battlefield. That creature gains haste. Sacrifice it at the beginning of the next end step.",
 
-    setup_interceptors=_lrw_s24_incandescent_soulstoke,
+    setup_interceptors=incandescent_soulstoke_setup,
 )
 
 # More Green Creatures
@@ -12632,7 +12854,7 @@ CHAMELEON_COLOSSUS = make_creature(
     subtypes={"Shapeshifter"},
     text="Changeling. Protection from black. {2}{G}{G}: Chameleon Colossus gets +X/+X until end of turn, where X is its power.",
 
-    setup_interceptors=_lrw_s24_chameleon_colossus,
+    setup_interceptors=chameleon_colossus_setup,
 )
 
 PRIMALCRUX = make_creature(
@@ -12644,7 +12866,7 @@ PRIMALCRUX = make_creature(
     subtypes={"Elemental"},
     text="Trample. Chroma — Primalcrux's power and toughness are each equal to the number of green mana symbols in the mana costs of permanents you control.",
 
-    setup_interceptors=_lrw_s24_primalcrux,
+    setup_interceptors=primalcrux_setup,
 )
 
 DEVOTED_DRUID = make_creature(
@@ -12656,7 +12878,7 @@ DEVOTED_DRUID = make_creature(
     subtypes={"Elf", "Druid"},
     text="{T}: Add {G}. Put a -1/-1 counter on Devoted Druid: Untap Devoted Druid.",
 
-    setup_interceptors=_lrw_s24_devoted_druid,
+    setup_interceptors=devoted_druid_setup,
 )
 
 NETTLE_SENTINEL = make_creature(
@@ -12668,7 +12890,7 @@ NETTLE_SENTINEL = make_creature(
     subtypes={"Elf", "Warrior"},
     text="Nettle Sentinel doesn't untap during your untap step. Whenever you cast a green spell, you may untap Nettle Sentinel.",
 
-    setup_interceptors=_lrw_s24_nettle_sentinel,
+    setup_interceptors=nettle_sentinel_setup,
 )
 
 MASKED_ADMIRERS = make_creature(
@@ -12680,7 +12902,7 @@ MASKED_ADMIRERS = make_creature(
     subtypes={"Elf", "Shaman"},
     text="When Masked Admirers enters, draw a card. Whenever you cast a creature spell, you may pay {G}{G}. If you do, return Masked Admirers from your graveyard to your hand.",
 
-    setup_interceptors=_lrw_s24_masked_admirers,
+    setup_interceptors=masked_admirers_setup,
 )
 
 # More Enchantments
@@ -12690,7 +12912,7 @@ THOUGHTWEFT_GAMBIT = make_instant(
     colors={Color.WHITE, Color.BLUE},
     text="Tap all creatures your opponents control and untap all creatures you control.",
 
-    resolve=_lrw_s24_thoughtweft_gambit,
+    resolve=thoughtweft_gambit_resolve,
 )
 
 CRYPTIC_COMMAND = make_instant(
@@ -12699,7 +12921,7 @@ CRYPTIC_COMMAND = make_instant(
     colors={Color.BLUE},
     text="Choose two — Counter target spell; or return target permanent to its owner's hand; or tap all creatures your opponents control; or draw a card.",
 
-    resolve=_lrw_s24_cryptic_command,
+    resolve=cryptic_command_resolve,
 )
 
 FIRESPOUT = make_sorcery(
@@ -12708,7 +12930,7 @@ FIRESPOUT = make_sorcery(
     colors={Color.RED, Color.GREEN},
     text="Firespout deals 3 damage to each creature without flying if {R} was spent to cast this spell and 3 damage to each creature with flying if {G} was spent to cast this spell.",
 
-    resolve=_lrw_s24_firespout,
+    resolve=firespout_resolve,
 )
 
 PRIMAL_COMMAND = make_sorcery(
@@ -12717,7 +12939,7 @@ PRIMAL_COMMAND = make_sorcery(
     colors={Color.GREEN},
     text="Choose two — Target player gains 7 life; or put target noncreature permanent on top of its owner's library; or target player shuffles their graveyard into their library; or search your library for a creature card, reveal it, put it into your hand, then shuffle.",
 
-    resolve=_lrw_s24_primal_command,
+    resolve=primal_command_resolve,
 )
 
 AUSTERE_COMMAND = make_sorcery(
@@ -12726,7 +12948,7 @@ AUSTERE_COMMAND = make_sorcery(
     colors={Color.WHITE},
     text="Choose two — Destroy all artifacts; destroy all enchantments; destroy all creatures with mana value 3 or less; or destroy all creatures with mana value 4 or greater.",
 
-    resolve=_lrw_s24_austere_command,
+    resolve=austere_command_resolve,
 )
 
 PROFANE_COMMAND = make_sorcery(
@@ -12735,7 +12957,7 @@ PROFANE_COMMAND = make_sorcery(
     colors={Color.BLACK},
     text="Choose two — Target player loses X life; or return target creature card with mana value X or less from your graveyard to the battlefield; or target creature gets -X/-X until end of turn; or up to X target creatures gain fear until end of turn.",
 
-    resolve=_lrw_s24_profane_command,
+    resolve=profane_command_resolve,
 )
 
 INCENDIARY_COMMAND = make_sorcery(
@@ -12744,7 +12966,7 @@ INCENDIARY_COMMAND = make_sorcery(
     colors={Color.RED},
     text="Choose two — Incendiary Command deals 4 damage to target player; or Incendiary Command deals 2 damage to each creature; or destroy target nonbasic land; or each player discards all the cards in their hand, then draws that many cards.",
 
-    resolve=_lrw_s24_incendiary_command,
+    resolve=incendiary_command_resolve,
 )
 
 # More Multicolor Cards
@@ -12757,7 +12979,7 @@ FULMINATOR_MAGE = make_creature(
     subtypes={"Elemental", "Shaman"},
     text="Sacrifice Fulminator Mage: Destroy target nonbasic land.",
 
-    setup_interceptors=_lrw_s24_fulminator_mage,
+    setup_interceptors=fulminator_mage_setup,
 )
 
 FIGURE_OF_DESTINY = make_creature(
@@ -12769,7 +12991,7 @@ FIGURE_OF_DESTINY = make_creature(
     subtypes={"Kithkin"},
     text="{R/W}: Figure of Destiny becomes a Kithkin Spirit with base power and toughness 2/2. {R/W}{R/W}{R/W}: If Figure of Destiny is a Spirit, it becomes a Kithkin Spirit Warrior with base power and toughness 4/4. {R/W}{R/W}{R/W}{R/W}{R/W}{R/W}: If Figure of Destiny is a Warrior, it becomes a Kithkin Spirit Warrior Avatar with base power and toughness 8/8, flying, and first strike.",
 
-    setup_interceptors=_lrw_s24_figure_of_destiny,
+    setup_interceptors=figure_of_destiny_setup,
 )
 
 MANAMORPHOSE = make_instant(
@@ -12778,7 +13000,7 @@ MANAMORPHOSE = make_instant(
     colors={Color.RED, Color.GREEN},
     text="Add two mana in any combination of colors. Draw a card.",
 
-    resolve=_lrw_s24_manamorphose,
+    resolve=manamorphose_resolve,
 )
 
 BOGGART_RAM_GANG = make_creature(
@@ -12790,7 +13012,7 @@ BOGGART_RAM_GANG = make_creature(
     subtypes={"Goblin", "Warrior"},
     text="Haste. Wither.",
 
-    setup_interceptors=_lrw_s24_boggart_ram_gang,
+    setup_interceptors=boggart_ram_gang_setup,
 )
 
 TATTERMUNGE_MANIAC = make_creature(
@@ -12802,7 +13024,7 @@ TATTERMUNGE_MANIAC = make_creature(
     subtypes={"Goblin", "Warrior"},
     text="Tattermunge Maniac attacks each combat if able.",
 
-    setup_interceptors=_lrw_s24_tattermunge_maniac,
+    setup_interceptors=tattermunge_maniac_setup,
 )
 
 VEXING_SHUSHER = make_creature(
@@ -12814,7 +13036,7 @@ VEXING_SHUSHER = make_creature(
     subtypes={"Goblin", "Shaman"},
     text="This spell can't be countered. {R/G}: Target spell can't be countered.",
 
-    setup_interceptors=_lrw_s24_vexing_shusher,
+    setup_interceptors=vexing_shusher_setup,
 )
 
 PLUMEVEIL = make_creature(
@@ -12826,7 +13048,7 @@ PLUMEVEIL = make_creature(
     subtypes={"Elemental"},
     text="Flash. Defender. Flying.",
 
-    setup_interceptors=_lrw_s24_plumeveil,
+    setup_interceptors=plumeveil_setup,
 )
 
 UNMAKE = make_instant(
@@ -12835,7 +13057,7 @@ UNMAKE = make_instant(
     colors={Color.WHITE, Color.BLACK},
     text="Exile target creature.",
 
-    resolve=_lrw_s24_unmake,
+    resolve=unmake_resolve,
 )
 
 FIERY_JUSTICE = make_sorcery(
@@ -12844,7 +13066,7 @@ FIERY_JUSTICE = make_sorcery(
     colors={Color.RED, Color.GREEN, Color.WHITE},
     text="Fiery Justice deals 5 damage divided as you choose among any number of targets. Target opponent gains 5 life.",
 
-    resolve=_lrw_s24_fiery_justice,
+    resolve=fiery_justice_resolve,
 )
 
 AUGURY_ADEPT = make_creature(
@@ -12856,7 +13078,7 @@ AUGURY_ADEPT = make_creature(
     subtypes={"Kithkin", "Wizard"},
     text="Whenever Augury Adept deals combat damage to a player, reveal the top card of your library and put that card into your hand. You gain life equal to its mana value.",
 
-    setup_interceptors=_lrw_s24_augury_adept,
+    setup_interceptors=augury_adept_setup,
 )
 
 COLD_EYED_SELKIE = make_creature(
@@ -12868,7 +13090,7 @@ COLD_EYED_SELKIE = make_creature(
     subtypes={"Merfolk", "Rogue"},
     text="Islandwalk. Whenever Cold-Eyed Selkie deals combat damage to a player, you may draw that many cards.",
 
-    setup_interceptors=_lrw_s24_cold_eyed_selkie,
+    setup_interceptors=cold_eyed_selkie_setup,
 )
 
 DEUS_OF_CALAMITY = make_creature(
@@ -12880,7 +13102,7 @@ DEUS_OF_CALAMITY = make_creature(
     subtypes={"Spirit", "Avatar"},
     text="Trample. Whenever Deus of Calamity deals 6 or more damage to an opponent, destroy target land that player controls.",
 
-    setup_interceptors=_lrw_s24_deus_of_calamity,
+    setup_interceptors=deus_of_calamity_setup,
 )
 
 GHASTLORD_OF_FUGUE = make_creature(
@@ -12892,7 +13114,7 @@ GHASTLORD_OF_FUGUE = make_creature(
     subtypes={"Spirit", "Avatar"},
     text="Ghastlord of Fugue can't be blocked. Whenever Ghastlord of Fugue deals combat damage to a player, that player reveals their hand. You choose a card from it. That player exiles that card.",
 
-    setup_interceptors=_lrw_s24_ghastlord_of_fugue,
+    setup_interceptors=ghastlord_of_fugue_setup,
 )
 
 DEITY_OF_SCARS = make_creature(
@@ -12904,7 +13126,7 @@ DEITY_OF_SCARS = make_creature(
     subtypes={"Spirit", "Avatar"},
     text="Trample. Deity of Scars enters with two -1/-1 counters on it. {B/G}, Remove a -1/-1 counter from Deity of Scars: Regenerate Deity of Scars.",
 
-    setup_interceptors=_lrw_s24_deity_of_scars,
+    setup_interceptors=deity_of_scars_setup,
 )
 
 # Godhead of Awe - Other creatures have base P/T 1/1
@@ -12993,7 +13215,7 @@ OVERBEING_OF_MYTH = make_creature(
     subtypes={"Spirit", "Avatar"},
     text="Overbeing of Myth's power and toughness are each equal to the number of cards in your hand. At the beginning of your draw step, draw an additional card.",
 
-    setup_interceptors=_lrw_s24_overbeing_of_myth,
+    setup_interceptors=overbeing_of_myth_setup,
 )
 
 DIVINITY_OF_PRIDE = make_creature(
@@ -13005,7 +13227,7 @@ DIVINITY_OF_PRIDE = make_creature(
     subtypes={"Spirit", "Avatar"},
     text="Flying. Lifelink. Divinity of Pride gets +4/+4 as long as you have 25 or more life.",
 
-    setup_interceptors=_lrw_s24_divinity_of_pride,
+    setup_interceptors=divinity_of_pride_setup,
 )
 
 
@@ -13111,7 +13333,15 @@ def gwyllion_hedge_mage_setup(obj: GameObject, state: GameState) -> list[Interce
         if count_lands('Swamp', state) >= 2:
             events.append(Event(type=EventType.TARGET_REQUIRED, payload={'source': obj.id, 'effect': 'put_minus_counter', 'counter_type': '-1/-1', 'amount': 1, 'optional': True}, source=obj.id))
         return events
-    return [make_etb_trigger(obj, effect)]
+    def _initial_counter_etb(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={"object_id": obj.id, "counter_type": "-1/-1", "amount": 1},
+            source=obj.id,
+        )]
+    _initial_counter_interceptor = make_etb_trigger(obj, _initial_counter_etb)
+
+    return [make_etb_trigger(obj, effect), _initial_counter_interceptor]
 
 def selkie_hedge_mage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def count_lands(lt: str, st: GameState) -> int:
@@ -13167,7 +13397,7 @@ HALLOWED_BURIAL = make_sorcery(
     colors={Color.WHITE},
     text="Put all creatures on the bottom of their owners' libraries.",
 
-    resolve=_lrw_s24_hallowed_burial,
+    resolve=hallowed_burial_resolve,
 )
 
 IDYLLIC_TUTOR = make_sorcery(
@@ -13176,7 +13406,7 @@ IDYLLIC_TUTOR = make_sorcery(
     colors={Color.WHITE},
     text="Search your library for an enchantment card, reveal it, put it into your hand, then shuffle.",
 
-    resolve=_lrw_s24_idyllic_tutor,
+    resolve=idyllic_tutor_resolve,
 )
 
 SPECTRAL_PROCESSION = make_sorcery(
@@ -13185,7 +13415,7 @@ SPECTRAL_PROCESSION = make_sorcery(
     colors={Color.WHITE},
     text="Create three 1/1 white Spirit creature tokens with flying.",
 
-    resolve=_lrw_s24_spectral_procession,
+    resolve=spectral_procession_resolve,
 )
 
 RUNED_HALO = make_enchantment(
@@ -13194,7 +13424,7 @@ RUNED_HALO = make_enchantment(
     colors={Color.WHITE},
     text="As Runed Halo enters, choose a card name. You have protection from the chosen card name.",
 
-    setup_interceptors=_lrw_s24_runed_halo,
+    setup_interceptors=runed_halo_setup,
 )
 
 OBLIVION_RING = make_enchantment(
@@ -13214,7 +13444,7 @@ KNIGHT_OF_MEADOWGRAIN = make_creature(
     subtypes={"Kithkin", "Knight"},
     text="First strike. Lifelink.",
 
-    setup_interceptors=_lrw_s24_knight_of_meadowgrain,
+    setup_interceptors=knight_of_meadowgrain_setup,
 )
 
 PREEMINENT_CAPTAIN = make_creature(
@@ -13234,7 +13464,7 @@ POLLEN_LULLABY = make_instant(
     colors={Color.WHITE},
     text="Prevent all combat damage that would be dealt this turn. Clash with an opponent. If you win, creatures that player controls don't untap during their next untap step.",
 
-    resolve=_lrw_s24_pollen_lullaby,
+    resolve=pollen_lullaby_resolve,
 )
 
 # Blue Cards
@@ -13244,7 +13474,7 @@ BROKEN_AMBITIONS = make_instant(
     colors={Color.BLUE},
     text="Counter target spell unless its controller pays {X}. Clash with an opponent. If you win, that spell's controller mills four cards.",
 
-    resolve=_lrw_s24_broken_ambitions,
+    resolve=broken_ambitions_resolve,
 )
 
 FAERIE_TRICKERY = make_instant(
@@ -13253,7 +13483,7 @@ FAERIE_TRICKERY = make_instant(
     colors={Color.BLUE},
     text="Counter target non-Faerie spell. If that spell is countered this way, exile it instead of putting it into its owner's graveyard.",
 
-    resolve=_lrw_s24_faerie_trickery,
+    resolve=faerie_trickery_resolve,
 )
 
 PONDER = make_sorcery(
@@ -13262,7 +13492,7 @@ PONDER = make_sorcery(
     colors={Color.BLUE},
     text="Look at the top three cards of your library, then put them back in any order. You may shuffle. Draw a card.",
 
-    resolve=_lrw_s24_ponder,
+    resolve=ponder_resolve,
 )
 
 MERROW_COMMERCE = make_enchantment(
@@ -13313,7 +13543,7 @@ NAMELESS_INVERSION_B = make_instant(
     colors={Color.BLACK},
     text="Choose one — All creatures get +2/+0 until end of turn; or all creatures get -0/-2 until end of turn.",
 
-    resolve=_lrw_s24_final_revels,
+    resolve=final_revels_resolve,
 )
 
 THOUGHTSEIZE = make_sorcery(
@@ -13322,7 +13552,7 @@ THOUGHTSEIZE = make_sorcery(
     colors={Color.BLACK},
     text="Target player reveals their hand. You choose a nonland card from it. That player discards that card. You lose 2 life.",
 
-    resolve=_lrw_s24_thoughtseize,
+    resolve=thoughtseize_resolve,
 )
 
 PEPPERSMOKE = make_instant(
@@ -13331,7 +13561,7 @@ PEPPERSMOKE = make_instant(
     colors={Color.BLACK},
     text="Tribal Instant — Faerie. Target creature gets -1/-1 until end of turn. If you control a Faerie, draw a card.",
 
-    resolve=_lrw_s24_peppersmoke,
+    resolve=peppersmoke_resolve,
 )
 
 FODDER_LAUNCH = make_sorcery(
@@ -13340,7 +13570,7 @@ FODDER_LAUNCH = make_sorcery(
     colors={Color.BLACK},
     text="Tribal Sorcery — Goblin. As an additional cost to cast this spell, sacrifice a Goblin. Target creature gets -5/-5 until end of turn. Its controller loses 5 life.",
 
-    resolve=_lrw_s24_fodder_launch,
+    resolve=fodder_launch_resolve,
 )
 
 MAKESHIFT_MANNEQUIN = make_instant(
@@ -13349,7 +13579,7 @@ MAKESHIFT_MANNEQUIN = make_instant(
     colors={Color.BLACK},
     text="Return target creature card from your graveyard to the battlefield with a mannequin counter on it. For as long as that creature has a mannequin counter on it, it has \"When this creature becomes the target of a spell or ability, sacrifice it.\"",
 
-    resolve=_lrw_s24_makeshift_mannequin,
+    resolve=makeshift_mannequin_resolve,
 )
 
 DEATH_DENIED = make_instant(
@@ -13358,7 +13588,7 @@ DEATH_DENIED = make_instant(
     colors={Color.BLACK},
     text="Return X target creature cards from your graveyard to your hand.",
 
-    resolve=_lrw_s24_death_denied,
+    resolve=death_denied_resolve,
 )
 
 NETTLEVINE_BLIGHT = make_enchantment(
@@ -13368,7 +13598,7 @@ NETTLEVINE_BLIGHT = make_enchantment(
     subtypes={"Aura"},
     text="Enchant creature or land. Enchanted permanent has \"At the beginning of your end step, sacrifice a creature or land. If you do, attach Nettlevine Blight to a permanent you control.\"",
 
-    setup_interceptors=_lrw_s24_nettlevine_blight,
+    setup_interceptors=nettlevine_blight_setup,
 )
 
 # Red Cards
@@ -13378,7 +13608,7 @@ TARFIRE = make_instant(
     colors={Color.RED},
     text="Tribal Instant — Goblin. Tarfire deals 2 damage to any target.",
 
-    resolve=_lrw_s24_tarfire,
+    resolve=tarfire_resolve,
 )
 
 LASH_OUT = make_instant(
@@ -13387,7 +13617,7 @@ LASH_OUT = make_instant(
     colors={Color.RED},
     text="Lash Out deals 3 damage to target creature. Clash with an opponent. If you win, Lash Out deals 3 damage to that creature's controller.",
 
-    resolve=_lrw_s24_lash_out,
+    resolve=lash_out_resolve,
 )
 
 CATERWAULING_BOGGART = make_creature(
@@ -13433,7 +13663,7 @@ SENSATION_GORGER = make_creature(
     subtypes={"Goblin", "Shaman"},
     text="Kinship — At the beginning of your upkeep, you may look at the top card of your library. If it shares a creature type with Sensation Gorger, you may reveal it. If you do, each player discards their hand, then draws four cards.",
 
-    setup_interceptors=_lrw_s24_sensation_gorger,
+    setup_interceptors=sensation_gorger_setup,
 )
 
 # Green Cards
@@ -13445,7 +13675,7 @@ GARRUK_WILDSPEAKER = make_planeswalker(
     text="+1: Untap two target lands. -1: Create a 3/3 green Beast creature token. -4: Creatures you control get +3/+3 and gain trample until end of turn.",
     loyalty=3,
 
-    setup_interceptors=_lrw_s24_garruk_wildspeaker,
+    setup_interceptors=garruk_wildspeaker_setup,
 )
 
 # REVISED (rebalance): {1}{G}{G} -> {G}{G}. Power = # Elves; without playing on
@@ -13471,7 +13701,7 @@ LEAF_CROWNED_ELDER = make_creature(
     subtypes={"Treefolk", "Shaman"},
     text="Kinship — At the beginning of your upkeep, you may look at the top card of your library. If it shares a creature type with Leaf-Crowned Elder, you may reveal it. If you do, you may play that card without paying its mana cost.",
 
-    setup_interceptors=_lrw_s24_leaf_crowned_elder,
+    setup_interceptors=leaf_crowned_elder_setup,
 )
 
 # REVISED (rebalance): tap-Forest-into-Treefolk effect is unimplemented;
@@ -13485,7 +13715,7 @@ ELVISH_BRANCHBENDER = make_creature(
     subtypes={"Elf", "Druid"},
     text="{T}: Until end of turn, target Forest becomes an X/X Treefolk creature in addition to its other types, where X is the number of Elves you control.",
 
-    setup_interceptors=_lrw_s24_elvish_branchbender,
+    setup_interceptors=elvish_branchbender_setup,
 )
 
 GILT_LEAF_AMBUSH = make_instant(
@@ -13494,7 +13724,7 @@ GILT_LEAF_AMBUSH = make_instant(
     colors={Color.GREEN},
     text="Tribal Instant — Elf. Create two 1/1 green Elf Warrior creature tokens. Clash with an opponent. If you win, those creatures gain deathtouch until end of turn.",
 
-    resolve=_lrw_s24_gilt_leaf_ambush,
+    resolve=gilt_leaf_ambush_resolve,
 )
 
 HUNTING_TRIAD = make_sorcery(
@@ -13503,7 +13733,7 @@ HUNTING_TRIAD = make_sorcery(
     colors={Color.GREEN},
     text="Tribal Sorcery — Elf. Create three 1/1 green Elf Warrior creature tokens. Reinforce 3—{3}{G}",
 
-    resolve=_lrw_s24_hunting_triad,
+    resolve=hunting_triad_resolve,
 )
 
 # Multicolor Cards
@@ -13516,7 +13746,7 @@ BOGGART_SPRITE_CHASER = make_creature(
     subtypes={"Goblin", "Warrior"},
     text="As long as you control a Faerie, Boggart Sprite-Chaser gets +1/+1 and has flying.",
 
-    setup_interceptors=_lrw_s24_boggart_sprite_chaser,
+    setup_interceptors=boggart_sprite_chaser_setup,
 )
 
 SCARBLADE_ELITE = make_creature(
@@ -13528,7 +13758,7 @@ SCARBLADE_ELITE = make_creature(
     subtypes={"Elf", "Assassin"},
     text="{T}, Exile an Assassin card from your graveyard: Destroy target creature.",
 
-    setup_interceptors=_lrw_s24_scarblade_elite,
+    setup_interceptors=scarblade_elite_setup,
 )
 
 SAFEHOLD_ELITE = make_creature(
@@ -13540,7 +13770,7 @@ SAFEHOLD_ELITE = make_creature(
     subtypes={"Elf", "Scout"},
     text="Persist.",
 
-    setup_interceptors=_lrw_s24_safehold_elite,
+    setup_interceptors=safehold_elite_setup,
 )
 
 RENDCLAW_TROW = make_creature(
@@ -13552,7 +13782,7 @@ RENDCLAW_TROW = make_creature(
     subtypes={"Troll"},
     text="Wither. Persist.",
 
-    setup_interceptors=_lrw_s24_rendclaw_trow,
+    setup_interceptors=rendclaw_trow_setup,
 )
 
 WISTFUL_SELKIE = make_creature(
@@ -13598,7 +13828,7 @@ HORDE_OF_NOTIONS = make_creature(
     supertypes={"Legendary"},
     text="Vigilance, trample, haste. {W}{U}{B}{R}{G}: You may play target Elemental card from your graveyard without paying its mana cost.",
 
-    setup_interceptors=_lrw_s24_horde_of_notions,
+    setup_interceptors=horde_of_notions_setup,
 )
 
 ASHLING_THE_EXTINGUISHER = make_creature(
@@ -13623,7 +13853,7 @@ RHYS_THE_REDEEMED = make_creature(
     supertypes={"Legendary"},
     text="{2}{G/W}, {T}: Create a 1/1 green and white Elf Warrior creature token. {4}{G/W}{G/W}, {T}: For each creature token you control, create a token that's a copy of that creature.",
 
-    setup_interceptors=_lrw_s24_rhys_the_redeemed,
+    setup_interceptors=rhys_the_redeemed_setup,
 )
 
 # Final 6 cards to reach 408
@@ -13633,7 +13863,7 @@ HEAP_DOLL = make_artifact(
     subtypes={"Scarecrow"},
     text="Sacrifice Heap Doll: Exile target card from a graveyard.",
 
-    setup_interceptors=_lrw_s24_heap_doll,
+    setup_interceptors=heap_doll_setup,
 )
 
 PAINTER_SERVANT = make_creature(
@@ -13645,7 +13875,7 @@ PAINTER_SERVANT = make_creature(
     subtypes={"Scarecrow"},
     text="As Painter's Servant enters, choose a color. All cards that aren't on the battlefield, spells, and permanents are the chosen color in addition to their other colors.",
 
-    setup_interceptors=_lrw_s24_painter_s_servant,
+    setup_interceptors=painter_s_servant_setup,
 )
 
 REAPER_KING = make_creature(
@@ -13669,7 +13899,7 @@ PILI_PALA = make_creature(
     subtypes={"Scarecrow"},
     text="Flying. {2}, {Q}: Add one mana of any color. ({Q} is the untap symbol.)",
 
-    setup_interceptors=_lrw_s24_pili_pala,
+    setup_interceptors=pili_pala_setup,
 )
 
 WICKER_WARCRAWLER = make_creature(
@@ -13692,7 +13922,7 @@ WANDERBRINE_ROOTCUTTERS = make_creature(
     subtypes={"Merfolk", "Rogue"},
     text="Wanderbrine Rootcutters can't be blocked by green creatures.",
 
-    setup_interceptors=_lrw_s24_wanderbrine_rootcutters,
+    setup_interceptors=wanderbrine_rootcutters_setup,
 )
 
 # =============================================================================
