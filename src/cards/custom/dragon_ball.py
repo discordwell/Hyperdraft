@@ -19,6 +19,8 @@ from src.engine import (
     Characteristics, ObjectState, CardDefinition,
     make_creature, make_instant, make_enchantment,
     new_id, get_power, get_toughness,
+    create_damage_spell, create_destroy_spell,
+    target_any, target_creature,
 )
 from src.cards.ability_bundles import (
     etb_gain_life, etb_draw, etb_deal_damage, etb_create_token,
@@ -227,2923 +229,6 @@ def _dbz_s14_active_caster(state: GameState) -> str:
     return None
 
 
-# --- SHAPE 1: ETB scry + drain (W Z-Fighter / Earth defender ally drain) ---
-
-
-def _dbz_world_champion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Warrior ally (championship aura)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        warriors = _dbz_s14_count_subtype(st, obj.controller, 'Warrior')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, warriors), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_otherworld_fighter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Spirit ally (otherworld training)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        spirits = _dbz_s14_count_subtype(st, obj.controller, 'Spirit')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, spirits), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-# --- SHAPE 2: Attack drain (combat trigger, ally scaling) ---
-
-
-def _dbz_turtle_student_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: scry 1 + each opp -1 per Monk ally (turtle-school discipline)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        monks = _dbz_s14_count_subtype(st, obj.controller, 'Monk')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, monks), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_attack_trigger(obj, effect)]
-
-
-def _dbz_crane_student_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: scry 1 + each opp -1 per Monk ally (crane-school precision)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        monks = _dbz_s14_count_subtype(st, obj.controller, 'Monk')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, monks), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_attack_trigger(obj, effect)]
-
-
-# --- SHAPE 3: ETB surveil + mill (U Android / Capsule Corp surveillance) ---
-
-
-def _dbz_android_19_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 2 (energy absorption scan)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_android_20_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 1 per Android ally (Dr. Gero's directive)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        androids = _dbz_s14_count_subtype(st, obj.controller, 'Android')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, androids), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_capsule_drone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 1 (Capsule Corp telemetry)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_repair_bot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 1 per Construct ally (auto-repair sweep)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        constructs = _dbz_s14_count_subtype(st, obj.controller, 'Construct')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, constructs), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_analysis_drone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + each opp mills 1 (deep tactical scan)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_scientist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 1 per Scientist ally (Capsule Corp R&D)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        sci = _dbz_s14_count_subtype(st, obj.controller, 'Scientist')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, sci), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_energy_absorber_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 1 per Android ally (energy intake)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        androids = _dbz_s14_count_subtype(st, obj.controller, 'Android')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, androids), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-# --- SHAPE 4: ETB scry + heal (Namekian / cleric healing) ---
-
-
-def _dbz_namekian_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain X per Namekian ally (warrior creed)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        nameks = _dbz_s14_count_subtype(st, obj.controller, 'Namekian')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, nameks), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_namekian_healer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain X per Cleric ally (healing trance)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        clerics = _dbz_s14_count_subtype(st, obj.controller, 'Cleric')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(2, clerics + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_namekian_elder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain X per Elder ally (elder wisdom)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        elders = _dbz_s14_count_subtype(st, obj.controller, 'Elder')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(2, elders + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_giant_namekian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain X per Namekian ally (looming giant)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        nameks = _dbz_s14_count_subtype(st, obj.controller, 'Namekian')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(2, nameks + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_porunga_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + gain X per Dragon ally (the Namekian dragon answers)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        dragons = _dbz_s14_count_subtype(st, obj.controller, 'Dragon')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(3, dragons + 2), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_ajisa_tree_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain X per Plant ally (the Ajisa tree blooms)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        plants = _dbz_s14_count_subtype(st, obj.controller, 'Plant')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, plants + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_namek_fish_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain X per Fish ally (the wild waters fight back)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        fish = _dbz_s14_count_subtype(st, obj.controller, 'Fish')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, fish + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-# --- SHAPE 5: ETB surveil + discard (Demon / Majin / Buu interrogation) ---
-
-
-def _dbz_majin_buu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + each opp discards 1 (innocent menace)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            hd_count = _dbz_s14_count_in_hand(st, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
-                                         'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_super_buu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp discards 1 per Demon/Majin ally (absorbs all)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        demons = _dbz_s14_count_subtype(st, obj.controller, 'Demon') + _dbz_s14_count_subtype(st, obj.controller, 'Majin')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            hd_count = _dbz_s14_count_in_hand(st, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hd_count, max(1, demons))),
-                                         'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_dabura_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp discards 1 (Demon King decree)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            hd_count = _dbz_s14_count_in_hand(st, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
-                                         'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_majin_minion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp discards 1 (minion serves)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            hd_count = _dbz_s14_count_in_hand(st, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
-                                         'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_cell_junior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp discards 1 per Android ally (junior hive)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        androids = _dbz_s14_count_subtype(st, obj.controller, 'Android')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            hd_count = _dbz_s14_count_in_hand(st, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hd_count, max(1, androids))),
-                                         'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-# --- SHAPE 6: ETB scry + damage (R Saiyan / Ki Blast combat) ---
-
-
-def _dbz_saiyan_elite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Saiyan ally (the elite arrives)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        saiyans = _dbz_s14_count_subtype(st, obj.controller, 'Saiyan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, saiyans),
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_great_ape_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Saiyan ally (Oozaru rampage)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        saiyans = _dbz_s14_count_subtype(st, obj.controller, 'Saiyan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(2, saiyans + 1),
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_raging_saiyan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Berserker/Saiyan ally (battle rage)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        saiyans = _dbz_s14_count_subtype(st, obj.controller, 'Saiyan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, saiyans),
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_saiyan_child_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage (a Saiyan baby's roar)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 1,
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_saiyan_pod_pilot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Saiyan ally (pod orbit-strike)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        saiyans = _dbz_s14_count_subtype(st, obj.controller, 'Saiyan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, saiyans),
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-# --- SHAPE 7: Death trigger + drain (B villain on-death payoff) ---
-
-
-def _dbz_zarbon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Death: scry 1 + each opp -1 per Alien ally (vengeance from the grave)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        aliens = _dbz_s14_count_subtype(st, obj.controller, 'Alien')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, aliens), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_death_trigger(obj, effect)]
-
-
-def _dbz_dodoria_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Death: scry 1 + each opp -1 per Alien ally (Frieza's enforcer falls)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        aliens = _dbz_s14_count_subtype(st, obj.controller, 'Alien')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, aliens), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_death_trigger(obj, effect)]
-
-
-def _dbz_ginyu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp -2 (Body Change menace)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_recoome_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp -1 per Ginyu Force ally (showtime kicks)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        ginyu = _dbz_s14_count_subtype(st, obj.controller, 'Ginyu Force')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, ginyu), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_jeice_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp -1 per Ginyu Force ally (Crusher Ball spin)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        ginyu = _dbz_s14_count_subtype(st, obj.controller, 'Ginyu Force')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, ginyu), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_frieza_soldier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp -1 per Soldier ally (rank-and-file Frieza Force)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        soldiers = _dbz_s14_count_subtype(st, obj.controller, 'Soldier')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, soldiers), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_saibaman_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Death: scry 1 + each opp 1 damage (self-destruct)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 1,
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_death_trigger(obj, effect)]
-
-
-# --- SHAPE 8: ETB hand-reveal (U Scout / Sensor intel) ---
-
-
-def _dbz_red_ribbon_scout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp reveals hand (Red Ribbon recon)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.REVEAL_HAND,
-                                payload={'player': opp, 'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-# --- SHAPE 9: ETB graveyard read + drain (multicolor fusion / god threats) ---
-
-
-def _dbz_goku_ssj_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + draw if graveyard >= 3 + each opp 2 damage (Super Saiyan transformation)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        gy = _dbz_s14_count_in_graveyard(st, obj.controller)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.DRAW,
-                        payload={'player': obj.controller, 'amount': 1 if gy >= 3 else 0, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2,
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_goku_ui_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + draw if graveyard >= 4 + each opp -2 (Ultra Instinct calm)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        gy = _dbz_s14_count_in_graveyard(st, obj.controller)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.DRAW,
-                        payload={'player': obj.controller, 'amount': 1 if gy >= 4 else 0, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_vegeta_ssj_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + draw if Saiyan >= 2 + each opp 2 damage (royal Super Saiyan)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        saiyans = _dbz_s14_count_subtype(st, obj.controller, 'Saiyan')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.DRAW,
-                        payload={'player': obj.controller, 'amount': 1 if saiyans >= 2 else 0, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2,
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_gohan_ssj2_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + draw if Z-Fighter >= 2 + each opp 3 damage (rage explosion)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        zf = _dbz_s14_count_subtype(st, obj.controller, 'Z-Fighter')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.DRAW,
-                        payload={'player': obj.controller, 'amount': 1 if zf >= 2 else 0, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 3,
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_whis_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + gain X per Angel/God ally + each opp -1 (divine attendant)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        gods = _dbz_s14_count_subtype(st, obj.controller, 'Angel') + _dbz_s14_count_subtype(st, obj.controller, 'God')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(2, gods + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_jiren_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + each opp 3 damage (the strongest mortal warrior)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 3,
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_golden_frieza_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + draw if graveyard >= 3 + each opp -3 (golden form supremacy)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        gy = _dbz_s14_count_in_graveyard(st, obj.controller)
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.DRAW,
-                        payload={'player': obj.controller, 'amount': 1 if gy >= 3 else 0, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -3, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_majin_vegeta_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + draw if Saiyan >= 2 + each opp -2 (Majin influence)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        saiyans = _dbz_s14_count_subtype(st, obj.controller, 'Saiyan')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.DRAW,
-                        payload={'player': obj.controller, 'amount': 1 if saiyans >= 2 else 0, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_android_21_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + each opp 2 damage + each opp -1 (Hunger Incarnate)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2,
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_kefla_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 2 damage per Saiyan/Fusion ally (Potara fury)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        fus = _dbz_s14_count_subtype(st, obj.controller, 'Fusion')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(2, fus + 1),
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_goku_black_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp -2 + each opp discards 1 (Zero Mortal Plan)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-            hd_count = _dbz_s14_count_in_hand(st, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
-                                         'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_zamasu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain X per Kai/God ally + each opp -1 (divine justice)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        gods = _dbz_s14_count_subtype(st, obj.controller, 'God') + _dbz_s14_count_subtype(st, obj.controller, 'Kai')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(2, gods + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_shenron_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + gain X per Dragon ally + each opp -2 (Eternal Dragon answers)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        dragons = _dbz_s14_count_subtype(st, obj.controller, 'Dragon')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(3, dragons + 2), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_future_trunks_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + draw if Saiyan >= 2 + each opp 2 damage (Time Warrior arrives)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        saiyans = _dbz_s14_count_subtype(st, obj.controller, 'Saiyan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.DRAW,
-                        payload={'player': obj.controller, 'amount': 1 if saiyans >= 2 else 0, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2,
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_bardock_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + draw if Saiyan >= 1 + each opp -1 (father's foresight)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        saiyans = _dbz_s14_count_subtype(st, obj.controller, 'Saiyan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.DRAW,
-                        payload={'player': obj.controller, 'amount': 1 if saiyans >= 1 else 0, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-# --- SHAPE 10: ETB gain + ally scaling (G Namekian, lands tribal payoff) ---
-
-
-# --- ENCHANTMENT setups ----------------------------------------------------
-
-
-def _dbz_otherworld_ench_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain X per Spirit ally + each opp -1 (otherworld reaches in)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        spirits = _dbz_s14_count_subtype(st, obj.controller, 'Spirit')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, spirits + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_kais_blessing_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain X per creature ally (Kai's grace)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        creatures = _dbz_s14_count_type(st, obj.controller, CardType.CREATURE)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(2, creatures), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_infinite_energy_ench_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills X per Android ally (boundless reactor)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        androids = _dbz_s14_count_subtype(st, obj.controller, 'Android')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, androids), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_capsule_tech_ench_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills X per artifact ally (R&D stockpile)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        arts = _dbz_s14_count_type(st, obj.controller, CardType.ARTIFACT)
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, arts), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_energy_field_ench_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + each opp mills 1 (binding field hums)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_dark_energy_ench_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp -1 per graveyard card (dark seep)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        gy = _dbz_s14_count_in_graveyard(st, obj.controller)
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, gy), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_battle_rage_ench_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Warrior ally (combat fury)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        warriors = _dbz_s14_count_subtype(st, obj.controller, 'Warrior')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, warriors),
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_healing_aura_ench_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain X per Cleric ally (the aura settles in)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        clerics = _dbz_s14_count_subtype(st, obj.controller, 'Cleric')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(2, clerics + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_namek_wilds_ench_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain X per Namekian ally (the wilds renew)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        nameks = _dbz_s14_count_subtype(st, obj.controller, 'Namekian')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(2, nameks + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-# --- ARTIFACT setups (Dragon Balls, Capsule Corp tech, vehicles, equipment) -
-
-
-def _dbz_dragon_ball_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Dragon Ball / artifact ally (wish pool)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        arts = _dbz_s14_count_type(st, obj.controller, CardType.ARTIFACT)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, arts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_senzu_bean_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain X per Z-Fighter ally (a healing bean is enough)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        zf = _dbz_s14_count_subtype(st, obj.controller, 'Z-Fighter')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(2, zf + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_scouter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp reveals hand (power-level read)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.REVEAL_HAND,
-                                payload={'player': opp, 'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_potara_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain X per Fusion ally (Potara's union)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        fus = _dbz_s14_count_subtype(st, obj.controller, 'Fusion')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, fus + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_fusion_earrings_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain X per Saiyan ally (twin earrings sync)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        saiyans = _dbz_s14_count_subtype(st, obj.controller, 'Saiyan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, saiyans + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_gravity_chamber_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Warrior ally (gravity training crunch)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        warriors = _dbz_s14_count_subtype(st, obj.controller, 'Warrior')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, warriors), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_time_machine_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + draw if graveyard >= 2 + each opp -1 (a timeline branches)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        gy = _dbz_s14_count_in_graveyard(st, obj.controller)
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.DRAW,
-                        payload={'player': obj.controller, 'amount': 1 if gy >= 2 else 0, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_capsule_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per artifact ally (a capsule pops)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        arts = _dbz_s14_count_type(st, obj.controller, CardType.ARTIFACT)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, arts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_space_pod_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Saiyan ally (pod orbital strike)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        saiyans = _dbz_s14_count_subtype(st, obj.controller, 'Saiyan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, saiyans),
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_nimbus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain X per Z-Fighter ally (pure-hearted ride)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        zf = _dbz_s14_count_subtype(st, obj.controller, 'Z-Fighter')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, zf + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_dragon_radar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + draw if artifact >= 2 + each opp -1 (signal pulse locks in)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        arts = _dbz_s14_count_type(st, obj.controller, CardType.ARTIFACT)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.DRAW,
-                        payload={'player': obj.controller, 'amount': 1 if arts >= 2 else 0, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_z_sword_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Saiyan ally (legendary blade)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        saiyans = _dbz_s14_count_subtype(st, obj.controller, 'Saiyan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, saiyans),
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_power_pole_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Monk ally (Goku's heirloom)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        monks = _dbz_s14_count_subtype(st, obj.controller, 'Monk')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, monks),
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_turtle_shell_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain X per Monk ally (Master Roshi's shell)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        monks = _dbz_s14_count_subtype(st, obj.controller, 'Monk')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(2, monks + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_weighted_clothing_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain X per Warrior ally (the weight builds strength)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        warriors = _dbz_s14_count_subtype(st, obj.controller, 'Warrior')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, warriors + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-# --- LAND setups (non-basic lands; basic Plains/Island/etc are skipped) ----
-
-
-def _dbz_kame_house_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain X per Z-Fighter ally (the master's refuge)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        zf = _dbz_s14_count_subtype(st, obj.controller, 'Z-Fighter')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, zf + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_capsule_corp_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 1 (Bulma's HQ logs them)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_hyperbolic_chamber_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + draw if Z-Fighter >= 1 + each opp -1 (a year in a day)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        zf = _dbz_s14_count_subtype(st, obj.controller, 'Z-Fighter')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.DRAW,
-                        payload={'player': obj.controller, 'amount': 1 if zf >= 1 else 0, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_planet_namek_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain X per Namekian ally (Namek's life essence)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        nameks = _dbz_s14_count_subtype(st, obj.controller, 'Namekian')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, nameks + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_planet_vegeta_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Saiyan ally (homeworld memory)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        saiyans = _dbz_s14_count_subtype(st, obj.controller, 'Saiyan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, saiyans),
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_lookout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + gain X per Z-Fighter ally (Kami's high vantage)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        zf = _dbz_s14_count_subtype(st, obj.controller, 'Z-Fighter')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, zf + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_tournament_arena_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Warrior ally (the crowd roars)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        warriors = _dbz_s14_count_subtype(st, obj.controller, 'Warrior')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, warriors),
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_korin_tower_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain X per Cleric ally (sacred bean cache)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        clerics = _dbz_s14_count_subtype(st, obj.controller, 'Cleric')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(2, clerics + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_frieza_spaceship_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp -1 per Alien ally (Frieza's command deck)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        aliens = _dbz_s14_count_subtype(st, obj.controller, 'Alien')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, aliens), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_cell_games_arena_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + each opp 1 damage (Cell's tournament invitation)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 1,
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_king_kai_planet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + gain X per Z-Fighter ally (King Kai's training)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        zf = _dbz_s14_count_subtype(st, obj.controller, 'Z-Fighter')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, zf + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_serpent_road_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 (the long road to Otherworld)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_majin_buu_house_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp -1 per Majin ally (Buu's candy castle)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        majins = _dbz_s14_count_subtype(st, obj.controller, 'Majin')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, majins), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_red_ribbon_hq_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills X per Android ally (manufactory hum)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        androids = _dbz_s14_count_subtype(st, obj.controller, 'Android')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, androids), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _dbz_otherworld_arena_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain X per Spirit ally (otherworld tourney)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        spirits = _dbz_s14_count_subtype(st, obj.controller, 'Spirit')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, spirits + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-# --- SHAPE 12: resolve handlers (instants/sorceries; caster reads state) ---
-
-
-def _dbz_resolve_scry_gain_drain(targets: list, state: GameState, scry_n: int = 1, gain_n: int = 2,
-                                 opp_loss: int = 1) -> list[Event]:
-    """Shared scry+gain+drain resolve (used by many DBZ W/G/U/B spells)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': scry_n, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': gain_n, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -opp_loss, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_scry_damage(targets: list, state: GameState, scry_n: int = 1,
-                             dmg: int = 3) -> list[Event]:
-    """Shared scry + each-opp damage resolve (R/multicolor offensive spells)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': scry_n, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': dmg,
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_surveil_drain(targets: list, state: GameState, surveil_n: int = 1,
-                               opp_loss: int = 2) -> list[Event]:
-    """Shared surveil + each-opp drain resolve (B sorceries / villain spells)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': surveil_n, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -opp_loss, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_surveil_discard(targets: list, state: GameState, surveil_n: int = 1) -> list[Event]:
-    """Shared surveil + each-opp discard resolve (B mind-attack spells)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': surveil_n, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
-                                source=None))
-    return events
-
-
-# White spell resolves -- each inlined with a unique state-zone read so the
-# AST fingerprint diverges across cards.
-
-def _dbz_resolve_senzu_heal(targets, state):
-    """Senzu Heal: scry 1 + gain 5 + each opp -1 (healing bean)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    zf = sum(1 for o in state.objects.values()
-             if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-             and o.characteristics and 'Z-Fighter' in (o.characteristics.subtypes or set()))
-    bonus = 1 if zf >= 1 else 0
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 5 + bonus, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_divine_protection(targets, state):
-    """Divine Protection: scry 1 + gain 3 + each opp -1 (Kami's shield)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    angels = sum(1 for o in state.objects.values()
-                 if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                 and o.characteristics and 'Angel' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 3 + angels, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_instant_transmission(targets, state):
-    """Heroic Rescue: scry 2 + gain 2 + each opp -1 (Goku-step rescue)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    monks = sum(1 for o in state.objects.values()
-                if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                and o.characteristics and 'Monk' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2 + monks, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_energy_barrier(targets, state):
-    """Energy Barrier: scry 1 + gain 2 + each opp -1 (a wall of ki)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    humans = sum(1 for o in state.objects.values()
-                 if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                 and o.characteristics and 'Human' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2 + humans, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_kiai_shout(targets, state):
-    """Kiai Shout: scry 1 + gain 1 + each opp -2 (a martial shout)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    warriors = sum(1 for o in state.objects.values()
-                   if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                   and o.characteristics and 'Warrior' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(2, warriors + 1),
-                                         'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_hope_of_earth(targets, state):
-    """Hope of Earth: scry 2 + gain 3 + each opp -1 (Earth's promise)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    creatures = sum(1 for o in state.objects.values()
-                    if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                    and o.characteristics and CardType.CREATURE in (o.characteristics.types or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 3 + creatures, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_revival(targets, state):
-    """Revival: scry 1 + gain 5 + each opp -2 (returned from death)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    gy = state.zones.get(f'graveyard_{caster}')
-    gy_n = len(gy.objects) if gy else 0
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 5 + gy_n, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_dragon_ball_wish(targets, state):
-    """Dragon Ball Wish: scry 2 + gain 6 + each opp -2 (the wish granted)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    arts = sum(1 for o in state.objects.values()
-               if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-               and o.characteristics and CardType.ARTIFACT in (o.characteristics.types or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 6 + arts, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(2, arts), 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_training_complete(targets, state):
-    """Training Complete: scry 1 + gain 2 + each opp -1 (master signs off)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    saiyans = sum(1 for o in state.objects.values()
-                  if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                  and o.characteristics and 'Saiyan' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2 + saiyans, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_world_tournament(targets, state):
-    """World Tournament: scry 1 + gain 3 + each opp -1 (the bell rings)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    fighters = sum(1 for o in state.objects.values()
-                   if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                   and o.characteristics
-                   and ('Z-Fighter' in (o.characteristics.subtypes or set())
-                        or 'Warrior' in (o.characteristics.subtypes or set())))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 3 + fighters, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-# Blue spell resolves -- each varies its zone read + payload computation.
-
-def _dbz_resolve_ki_sense(targets, state):
-    """Ki Sense: scry 3 + each opp -1 (reads every power level)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    androids = sum(1 for o in state.objects.values()
-                   if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                   and o.characteristics and 'Android' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, androids), 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_energy_drain(targets, state):
-    """Energy Drain: surveil 1 + each opp -2 (saps the spark)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    hd = state.zones.get(f'hand_{caster}')
-    hand_n = len(hd.objects) if hd else 0
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(2, hand_n // 2 + 1),
-                                         'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_afterimage(targets, state):
-    """Afterimage: scry 1 + gain 1 + each opp -1 (an illusion of motion)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    scientists = sum(1 for o in state.objects.values()
-                     if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                     and o.characteristics and 'Scientist' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 1 + scientists, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_instant_transmission_blue(targets, state):
-    """Instant Transmission (blue): scry 2 + each opp -1 (a heartbeat away)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    constructs = sum(1 for o in state.objects.values()
-                     if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                     and o.characteristics and 'Construct' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, constructs),
-                                         'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_photon_wave(targets, state):
-    """Photon Wave: surveil 1 + each opp -1 (energy ripples)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    bf = state.zones.get('battlefield')
-    opp_creatures = 0
-    if bf:
-        for oid in bf.objects:
-            o = state.objects.get(oid)
-            if o and o.controller != caster and o.characteristics \
-                    and CardType.CREATURE in (o.characteristics.types or set()):
-                opp_creatures += 1
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, opp_creatures),
-                                         'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_solar_flare(targets, state):
-    """Solar Flare: scry 2 + each opp -1 (everyone blinks)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    bf = state.zones.get('battlefield')
-    tapped = 0
-    if bf:
-        for oid in bf.objects:
-            o = state.objects.get(oid)
-            if o and o.controller != caster and getattr(o.state, 'tapped', False):
-                tapped += 1
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, tapped + 1),
-                                         'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_android_construction(targets, state):
-    """Android Construction: surveil 2 + each opp -2 (a new threat assembles)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    arts = sum(1 for o in state.objects.values()
-               if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-               and o.characteristics and CardType.ARTIFACT in (o.characteristics.types or set()))
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(2, arts + 1),
-                                         'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_tech_advancement(targets, state):
-    """Technology Advancement: surveil 2 + each opp -1 (research closes in)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    sci = sum(1 for o in state.objects.values()
-              if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-              and o.characteristics and 'Scientist' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.DRAW,
-                    payload={'player': caster, 'amount': 1 if sci >= 1 else 0,
-                             'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_energy_analysis(targets, state):
-    """Energy Analysis: scry 2 + gain 2 + each opp -1 (decoded signal)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    bf = state.zones.get('battlefield')
-    arts = 0
-    if bf:
-        for oid in bf.objects:
-            o = state.objects.get(oid)
-            if o and o.controller == caster and o.characteristics \
-                    and CardType.ARTIFACT in (o.characteristics.types or set()):
-                arts += 1
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2 + (1 if arts >= 2 else 0),
-                             'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_red_ribbon_research(targets, state):
-    """Red Ribbon Research: surveil 2 + each opp -1 (covert tech surfaces)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    soldiers = sum(1 for o in state.objects.values()
-                   if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                   and o.characteristics and 'Soldier' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, soldiers),
-                                         'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-# Black spell resolves -- varied by graveyard / subtype reads.
-
-def _dbz_resolve_death_beam(targets, state):
-    """Death Beam: surveil 1 + each opp -3 (Frieza's signature kill-shot)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    tyrants = sum(1 for o in state.objects.values()
-                  if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                  and o.characteristics and 'Tyrant' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(3, tyrants + 2),
-                                         'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_supernova(targets, state):
-    """Supernova: surveil 2 + each opp -3 (a planet-busting ball)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    gy = state.zones.get(f'graveyard_{caster}')
-    gy_n = len(gy.objects) if gy else 0
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(3, gy_n),
-                                         'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_finger_beam(targets, state):
-    """Finger Beam: surveil 1 + each opp -2 (a casual kill flick)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    aliens = sum(1 for o in state.objects.values()
-                 if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                 and o.characteristics and 'Alien' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(2, aliens + 1),
-                                         'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_absorption(targets, state):
-    """Absorption: surveil 1 + each opp -2 (Cell drains the unwary)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    bioweapons = sum(1 for o in state.objects.values()
-                     if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                     and o.characteristics
-                     and ('Bio-Weapon' in (o.characteristics.subtypes or set())
-                          or 'Android' in (o.characteristics.subtypes or set())))
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': bioweapons, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_vanish(targets, state):
-    """Vanish: surveil 2 + each opp -2 (a foe wiped from sight)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    bf = state.zones.get('battlefield')
-    opp_creatures = 0
-    if bf:
-        for oid in bf.objects:
-            o = state.objects.get(oid)
-            if o and o.controller != caster and o.characteristics \
-                    and CardType.CREATURE in (o.characteristics.types or set()):
-                opp_creatures += 1
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(2, opp_creatures),
-                                         'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_majin_curse(targets, state):
-    """Majin Curse: surveil 1 + each opp -2 (the Majin sigil burns)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    majins = sum(1 for o in state.objects.values()
-                 if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                 and o.characteristics and 'Majin' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(2, majins + 1),
-                                         'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_planet_destruction(targets, state):
-    """Planet Destruction: surveil 2 + each opp -3 (an entire world ends)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    bf = state.zones.get('battlefield')
-    total_creatures = 0
-    if bf:
-        for oid in bf.objects:
-            o = state.objects.get(oid)
-            if o and o.characteristics and CardType.CREATURE in (o.characteristics.types or set()):
-                total_creatures += 1
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(3, total_creatures),
-                                         'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_genocide_attack(targets, state):
-    """Genocide Attack: surveil 2 + each opp -3 + each opp discards 1 (the slaughter)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    demons = sum(1 for o in state.objects.values()
-                 if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                 and o.characteristics and 'Demon' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(3, demons + 2),
-                                         'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_raise_saibamen(targets, state):
-    """Raise Saibamen: surveil 1 + each opp -2 (a swarm bursts up)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    plants = sum(1 for o in state.objects.values()
-                 if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                 and o.characteristics and 'Plant' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(2, plants + 1),
-                                         'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_resurrection(targets, state):
-    """Resurrection: surveil 2 + each opp -2 (a fallen rises)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    gy = state.zones.get(f'graveyard_{caster}')
-    gy_n = len(gy.objects) if gy else 0
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': gy_n, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-# Red spell resolves -- varied by Saiyan / Warrior counts and zone reads.
-
-def _dbz_resolve_final_flash(targets, state):
-    """Final Flash: scry 1 + each opp 5 damage (Vegeta's signature)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    nobles = sum(1 for o in state.objects.values()
-                 if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                 and o.characteristics and 'Noble' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(5, nobles + 4),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_galick_gun(targets, state):
-    """Galick Gun: scry 1 + each opp 3 damage (Vegeta's other classic)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    saiyans = sum(1 for o in state.objects.values()
-                  if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                  and o.characteristics and 'Saiyan' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(3, saiyans + 2),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_big_bang_attack(targets, state):
-    """Big Bang Attack: scry 1 + each opp 4 damage (cosmic-scale blast)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    warriors = sum(1 for o in state.objects.values()
-                   if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                   and o.characteristics and 'Warrior' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(4, warriors + 3),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_burning_attack(targets, state):
-    """Burning Attack: scry 1 + each opp 3 damage (Trunks's heat-strike)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    zfighters = sum(1 for o in state.objects.values()
-                    if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                    and o.characteristics and 'Z-Fighter' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(3, zfighters + 2),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_explosive_wave(targets, state):
-    """Explosive Wave: scry 1 + each opp 2 damage (an outward burst)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    bf = state.zones.get('battlefield')
-    total_creatures = 0
-    if bf:
-        for oid in bf.objects:
-            o = state.objects.get(oid)
-            if o and o.characteristics and CardType.CREATURE in (o.characteristics.types or set()):
-                total_creatures += 1
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(2, total_creatures // 2 + 1),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_saiyan_rage(targets, state):
-    """Saiyan Rage: scry 1 + gain 1 + each opp 2 damage (Saiyan fury)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    berserkers = sum(1 for o in state.objects.values()
-                     if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                     and o.characteristics and 'Berserker' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(2, berserkers + 1),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_ki_explosion(targets, state):
-    """Ki Explosion: scry 1 + each opp 2 damage (a focused burst)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    monks = sum(1 for o in state.objects.values()
-                if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                and o.characteristics and 'Monk' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(2, monks + 1),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_power_ball(targets, state):
-    """Power Ball: scry 1 + each opp 3 damage (a Saiyan moon-sphere)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    apes = sum(1 for o in state.objects.values()
-               if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-               and o.characteristics and 'Ape' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(3, apes + 2),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_saiyan_invasion(targets, state):
-    """Saiyan Invasion: scry 1 + each opp 3 damage (a raiding party arrives)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    pilots = sum(1 for o in state.objects.values()
-                 if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                 and o.characteristics and 'Pilot' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(3, pilots + 2),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_oozaru_rampage(targets, state):
-    """Oozaru Rampage: scry 1 + each opp 4 damage (the moon transforms it)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    bf = state.zones.get('battlefield')
-    big = 0
-    if bf:
-        for oid in bf.objects:
-            o = state.objects.get(oid)
-            if o and o.controller == caster and o.characteristics \
-                    and get_power(o, state) >= 4:
-                big += 1
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(4, big + 3),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_zenkai_boost(targets, state):
-    """Zenkai Boost: scry 1 + gain 2 + each opp -1 (Saiyan recovery surge)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    gy = state.zones.get(f'graveyard_{caster}')
-    gy_n = len(gy.objects) if gy else 0
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2 + gy_n // 2,
-                             'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-# Green spell resolves -- varied by Namekian / Dragon counts.
-
-def _dbz_resolve_special_beam_cannon(targets, state):
-    """Special Beam Cannon: scry 1 + each opp 5 damage (Piccolo's signature)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    nameks = sum(1 for o in state.objects.values()
-                 if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                 and o.characteristics and 'Namekian' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(5, nameks + 4),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_namek_regen(targets, state):
-    """Namekian Regeneration: scry 1 + gain 4 + each opp -1 (cellular regrowth)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    nameks = sum(1 for o in state.objects.values()
-                 if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                 and o.characteristics and 'Namekian' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 4 + nameks, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_hellzone_grenade(targets, state):
-    """Hellzone Grenade: scry 1 + each opp 4 damage (Piccolo's energy burst)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    elders = sum(1 for o in state.objects.values()
-                 if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                 and o.characteristics and 'Elder' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(4, elders + 3),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_masenko(targets, state):
-    """Masenko: scry 1 + each opp 3 damage (Gohan's classic blast)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    scholars = sum(1 for o in state.objects.values()
-                   if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                   and o.characteristics and 'Scholar' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(3, scholars + 2),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_fuse(targets, state):
-    """Fuse: scry 1 + gain 2 + each opp -1 (a new shape emerges)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    fusions = sum(1 for o in state.objects.values()
-                  if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                  and o.characteristics and 'Fusion' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2 + fusions, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_nature_barrier(targets, state):
-    """Nature's Barrier: scry 1 + gain 3 + each opp -1 (Namek's defense)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    treefolk = sum(1 for o in state.objects.values()
-                   if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                   and o.characteristics
-                   and ('Treefolk' in (o.characteristics.subtypes or set())
-                        or 'Plant' in (o.characteristics.subtypes or set())))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 3 + treefolk, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_namekian_fusion(targets, state):
-    """Namekian Fusion: scry 2 + gain 3 + each opp -1 (two souls become one)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    gy = state.zones.get(f'graveyard_{caster}')
-    gy_n = len(gy.objects) if gy else 0
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 3 + gy_n // 2,
-                             'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_regrowth(targets, state):
-    """Regrowth: scry 2 + gain 2 + each opp -1 (returned from the grave)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    gy = state.zones.get(f'graveyard_{caster}')
-    gy_n = len(gy.objects) if gy else 0
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2 + gy_n, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_dragon_ball_summon(targets, state):
-    """Dragon Ball Summon: scry 2 + gain 5 + each opp -1 (the Eternal Dragon answers)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    dragons = sum(1 for o in state.objects.values()
-                  if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                  and o.characteristics and 'Dragon' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 5 + dragons * 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_planet_namek(targets, state):
-    """Planet Namek's Blessing: scry 1 + gain 3 + each opp -1 (the world's gift)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    bf = state.zones.get('battlefield')
-    lands = 0
-    if bf:
-        for oid in bf.objects:
-            o = state.objects.get(oid)
-            if o and o.controller == caster and o.characteristics \
-                    and CardType.LAND in (o.characteristics.types or set()):
-                lands += 1
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 3 + lands // 2,
-                             'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-# Multicolor / Mythic spell resolves -- each unique payload + zone read.
-
-def _dbz_resolve_kamehameha(targets, state):
-    """Kamehameha: scry 1 + each opp 5 damage (THE iconic Goku move)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    zf = sum(1 for o in state.objects.values()
-             if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-             and o.characteristics and 'Z-Fighter' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(5, zf + 4),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_spirit_bomb(targets, state):
-    """Spirit Bomb: scry 2 + gain 3 + each opp 4 damage (Earth's collected energy)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    bf = state.zones.get('battlefield')
-    total_power = 0
-    if bf:
-        for oid in bf.objects:
-            o = state.objects.get(oid)
-            if o and o.controller == caster and o.characteristics \
-                    and CardType.CREATURE in (o.characteristics.types or set()):
-                total_power += get_power(o, state)
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(4, total_power),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_destructo_disc(targets, state):
-    """Destructo Disc: scry 1 + each opp 4 damage (Krillin's spinning blade)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    humans = sum(1 for o in state.objects.values()
-                 if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                 and o.characteristics and 'Human' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(4, humans + 3),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_death_ball(targets, state):
-    """Death Ball: surveil 1 + each opp 6 damage (Frieza's planet-killer)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    tyrants = sum(1 for o in state.objects.values()
-                  if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                  and o.characteristics and 'Tyrant' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(6, tyrants * 2 + 4),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_candy_beam(targets, state):
-    """Candy Beam: surveil 1 + each opp discards 1 + each opp -1 (Buu's curse)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    majins = sum(1 for o in state.objects.values()
-                 if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                 and o.characteristics and 'Majin' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
-                                source=None))
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, majins),
-                                         'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_human_extinction(targets, state):
-    """Human Extinction Attack: surveil 2 + each opp -4 (the genocidal strike)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    bf = state.zones.get('battlefield')
-    opp_humans = 0
-    if bf:
-        for oid in bf.objects:
-            o = state.objects.get(oid)
-            if o and o.controller != caster and o.characteristics \
-                    and 'Human' in (o.characteristics.subtypes or set()):
-                opp_humans += 1
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(4, opp_humans * 2),
-                                         'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_solar_kamehameha(targets, state):
-    """Solar Kamehameha: scry 1 + each opp 6 damage + gain 3 (combined Cell-tier move)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    fighters = sum(1 for o in state.objects.values()
-                   if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                   and o.characteristics
-                   and ('Z-Fighter' in (o.characteristics.subtypes or set())
-                        or 'Saiyan' in (o.characteristics.subtypes or set())))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(6, fighters + 5),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_final_explosion(targets, state):
-    """Final Explosion: scry 1 + each opp 5 damage (Vegeta's last stand)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    gy = state.zones.get(f'graveyard_{caster}')
-    gy_n = len(gy.objects) if gy else 0
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(5, gy_n + 3),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_omega_blaster(targets, state):
-    """Omega Blaster: scry 1 + each opp 5 damage (Broly's finisher)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    berserkers = sum(1 for o in state.objects.values()
-                     if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                     and o.characteristics and 'Berserker' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(5, berserkers + 4),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _dbz_resolve_eraser_cannon(targets, state):
-    """Eraser Cannon: scry 1 + each opp 4 damage (Broly's standby blast)."""
-    caster = _dbz_s14_active_caster(state)
-    if caster is None:
-        return []
-    saiyans = sum(1 for o in state.objects.values()
-                  if o.controller == caster and o.zone == ZoneType.BATTLEFIELD
-                  and o.characteristics and 'Saiyan' in (o.characteristics.subtypes or set()))
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(4, saiyans + 3),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
 # =============================================================================
 # WHITE CARDS - EARTH'S DEFENDERS, HOPE, REVIVAL
 # =============================================================================
@@ -3288,41 +373,12 @@ KING_KAI = make_creature(
 )
 
 
-def yamcha_z_fighter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Wolf Fang Fist — on attack, scry 1 (foresight); reveal opponent's top card."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # Read graveyard count for "Wolf Fang" memory.
-        gy = state.zones.get('graveyard')
-        my_gy = 0
-        if gy:
-            for oid in gy.objects:
-                o = state.objects.get(oid)
-                if o and o.controller == obj.controller:
-                    my_gy += 1
-        events = [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 1},
-            source=obj.id,
-            controller=obj.controller,
-        )]
-        for opp_id in ih.all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': opp_id, 'amount': -1},
-                source=obj.id,
-                controller=obj.controller,
-            ))
-        return events
-    return [ih.make_attack_trigger(obj, effect_fn)]
-
 YAMCHA_Z_FIGHTER = make_creature(
     name="Yamcha, Z-Fighter",
     power=2, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Z-Fighter", "Warrior"},
-    text="Whenever Yamcha attacks, it gets +1/+0 until end of turn.",
-    setup_interceptors=yamcha_z_fighter_setup,
+    subtypes={"Human", "Z-Fighter", "Warrior"}
 )
 
 
@@ -3340,71 +396,15 @@ TIEN_TRICLOPS = make_creature(
 )
 
 
-def chiaotzu_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Psychic foresight — scry 1 + surveil 1 on ETB."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        # Look at battlefield to see board state.
-        bf = state.zones.get('battlefield')
-        threat_count = 0
-        if bf:
-            for oid in bf.objects:
-                o = state.objects.get(oid)
-                if o and o.controller != obj.controller:
-                    threat_count += 1
-        events = [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 1},
-            source=obj.id,
-            controller=obj.controller,
-        )]
-        # Surveil 1 if we see a threat (psychic discernment).
-        if threat_count > 0:
-            events.append(Event(
-                type=EventType.SURVEIL,
-                payload={'player': obj.controller, 'amount': 1},
-                source=obj.id,
-                controller=obj.controller,
-            ))
-        return events
-    return [ih.make_etb_trigger(obj, effect_fn)]
-
 CHIAOTZU = make_creature(
     name="Chiaotzu, Psychic Fighter",
     power=1, toughness=2,
     mana_cost="{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Z-Fighter"},
-    supertypes={"Legendary"},
-    text="When Chiaotzu enters, scry 1.",
-    setup_interceptors=chiaotzu_setup,
+    supertypes={"Legendary"}
 )
 
-
-def kami_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Guardian's foresight — scry 2 + gain life equal to creatures you control."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        bf = state.zones.get('battlefield')
-        my_creatures = 0
-        if bf:
-            for oid in bf.objects:
-                o = state.objects.get(oid)
-                if o and o.controller == obj.controller:
-                    my_creatures += 1
-        return [
-            Event(
-                type=EventType.SCRY,
-                payload={'player': obj.controller, 'amount': 2},
-                source=obj.id,
-                controller=obj.controller,
-            ),
-            Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': obj.controller, 'amount': max(1, my_creatures)},
-                source=obj.id,
-                controller=obj.controller,
-            ),
-        ]
-    return [ih.make_etb_trigger(obj, effect_fn)]
 
 KAMI = make_creature(
     name="Kami, Guardian of Earth",
@@ -3412,123 +412,34 @@ KAMI = make_creature(
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     subtypes={"Namekian", "God"},
-    supertypes={"Legendary"},
-    text="When Kami enters, you gain 2 life.",
-    setup_interceptors=kami_setup,
+    supertypes={"Legendary"}
 )
 
-
-def mr_popo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Eternal servant — scry 1 + gain 1 life per artifact you control."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        bf = state.zones.get('battlefield')
-        n_arts = 0
-        if bf:
-            for oid in bf.objects:
-                o = state.objects.get(oid)
-                if (o and o.controller == obj.controller
-                        and CardType.ARTIFACT in (o.characteristics.types or set())):
-                    n_arts += 1
-        return [
-            Event(
-                type=EventType.SCRY,
-                payload={'player': obj.controller, 'amount': 1},
-                source=obj.id,
-                controller=obj.controller,
-            ),
-            Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': obj.controller, 'amount': max(1, n_arts)},
-                source=obj.id,
-                controller=obj.controller,
-            ),
-        ]
-    return [ih.make_etb_trigger(obj, effect_fn)]
 
 MR_POPO = make_creature(
     name="Mr. Popo, Eternal Servant",
     power=1, toughness=4,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    subtypes={"Genie"},
-    text="When Mr. Popo enters, you gain 1 life.",
-    setup_interceptors=mr_popo_setup,
+    subtypes={"Genie"}
 )
 
-
-def earthling_fighter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Earth's training — on attack, scry 1 + each opp loses 1 life."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        bf = state.zones.get('battlefield')
-        my_warriors = 0
-        if bf:
-            for oid in bf.objects:
-                o = state.objects.get(oid)
-                if (o and o.controller == obj.controller
-                        and 'Warrior' in (o.characteristics.subtypes or set())):
-                    my_warriors += 1
-        events = [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 1},
-            source=obj.id,
-            controller=obj.controller,
-        )]
-        for opp_id in ih.all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': opp_id, 'amount': -1},
-                source=obj.id,
-                controller=obj.controller,
-            ))
-        return events
-    return [ih.make_attack_trigger(obj, effect_fn)]
 
 EARTHLING_FIGHTER = make_creature(
     name="Earthling Fighter",
     power=2, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Warrior"},
-    text="Whenever Earthling Fighter attacks, it gets +1/+0 until end of turn.",
-    setup_interceptors=earthling_fighter_setup,
+    subtypes={"Human", "Warrior"}
 )
 
-
-def capsule_corp_soldier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Capsule Corp morale — scry 1 + gain 1 life per Soldier you control."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        bf = state.zones.get('battlefield')
-        n_soldiers = 0
-        if bf:
-            for oid in bf.objects:
-                o = state.objects.get(oid)
-                if (o and o.controller == obj.controller
-                        and 'Soldier' in (o.characteristics.subtypes or set())):
-                    n_soldiers += 1
-        return [
-            Event(
-                type=EventType.SCRY,
-                payload={'player': obj.controller, 'amount': 1},
-                source=obj.id,
-                controller=obj.controller,
-            ),
-            Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': obj.controller, 'amount': max(1, n_soldiers)},
-                source=obj.id,
-                controller=obj.controller,
-            ),
-        ]
-    return [ih.make_etb_trigger(obj, effect_fn)]
 
 CAPSULE_CORP_SOLDIER = make_creature(
     name="Capsule Corp Soldier",
     power=2, toughness=1,
     mana_cost="{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Soldier"},
-    text="When Capsule Corp Soldier enters, you gain 1 life.",
-    setup_interceptors=capsule_corp_soldier_setup,
+    subtypes={"Human", "Soldier"}
 )
 
 
@@ -3537,46 +448,16 @@ WORLD_CHAMPION = make_creature(
     power=3, toughness=3,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Warrior"},
-    setup_interceptors=_dbz_world_champion_setup,
+    subtypes={"Human", "Warrior"}
 )
 
-
-def martial_artist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Trained focus — on attack, scry 1 + each opp loses 1 life."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        bf = state.zones.get('battlefield')
-        my_monks = 0
-        if bf:
-            for oid in bf.objects:
-                o = state.objects.get(oid)
-                if (o and o.controller == obj.controller
-                        and 'Monk' in (o.characteristics.subtypes or set())):
-                    my_monks += 1
-        events = [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 1},
-            source=obj.id,
-            controller=obj.controller,
-        )]
-        for opp_id in ih.all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': opp_id, 'amount': -1},
-                source=obj.id,
-                controller=obj.controller,
-            ))
-        return events
-    return [ih.make_attack_trigger(obj, effect_fn)]
 
 MARTIAL_ARTIST = make_creature(
     name="Martial Artist",
     power=2, toughness=2,
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Monk"},
-    text="Whenever Martial Artist attacks, it gets +1/+0 until end of turn.",
-    setup_interceptors=martial_artist_setup,
+    subtypes={"Human", "Monk"}
 )
 
 
@@ -3585,48 +466,16 @@ OTHERWORLD_FIGHTER = make_creature(
     power=3, toughness=2,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    subtypes={"Spirit", "Warrior"},
-    setup_interceptors=_dbz_otherworld_fighter_setup,
+    subtypes={"Spirit", "Warrior"}
 )
 
-
-def guardian_angel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Divine protection — scry 1 + gain 1 life per Angel/Human ally."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        bf = state.zones.get('battlefield')
-        n_allies = 0
-        if bf:
-            for oid in bf.objects:
-                o = state.objects.get(oid)
-                if not o or o.controller != obj.controller:
-                    continue
-                subs = o.characteristics.subtypes or set()
-                if 'Angel' in subs or 'Human' in subs:
-                    n_allies += 1
-        return [
-            Event(
-                type=EventType.SCRY,
-                payload={'player': obj.controller, 'amount': 1},
-                source=obj.id,
-                controller=obj.controller,
-            ),
-            Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': obj.controller, 'amount': max(2, n_allies)},
-                source=obj.id,
-                controller=obj.controller,
-            ),
-        ]
-    return [ih.make_etb_trigger(obj, effect_fn)]
 
 GUARDIAN_ANGEL = make_creature(
     name="Guardian Angel",
     power=2, toughness=3,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    subtypes={"Angel"},
-    text="When Guardian Angel enters, you gain 2 life.",
-    setup_interceptors=guardian_angel_setup,
+    subtypes={"Angel"}
 )
 
 
@@ -3635,8 +484,7 @@ TURTLE_SCHOOL_STUDENT = make_creature(
     power=1, toughness=2,
     mana_cost="{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Monk"},
-    setup_interceptors=_dbz_turtle_student_setup,
+    subtypes={"Human", "Monk"}
 )
 
 
@@ -3645,8 +493,7 @@ CRANE_SCHOOL_STUDENT = make_creature(
     power=2, toughness=1,
     mana_cost="{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Monk"},
-    setup_interceptors=_dbz_crane_student_setup,
+    subtypes={"Human", "Monk"}
 )
 
 
@@ -3656,8 +503,7 @@ SENZU_HEAL = make_instant(
     name="Senzu Heal",
     mana_cost="{W}",
     colors={Color.WHITE},
-    text="Scry 1; you gain 5 life; each opponent loses 1 life. (A healing bean restores all.)",
-    resolve=_dbz_resolve_senzu_heal,
+    text="You gain 4 life. If you control a Z-Fighter, you gain 6 life instead."
 )
 
 
@@ -3665,8 +511,7 @@ DIVINE_PROTECTION = make_instant(
     name="Divine Protection",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Scry 1; you gain 3 life; each opponent loses 1 life. (Kami shields the Earth.)",
-    resolve=_dbz_resolve_divine_protection,
+    text="Target creature gains indestructible until end of turn. If it's a Saiyan, put a +1/+1 counter on it."
 )
 
 
@@ -3674,8 +519,7 @@ INSTANT_TRANSMISSION_WHITE = make_instant(
     name="Heroic Rescue",
     mana_cost="{W}",
     colors={Color.WHITE},
-    text="Scry 2; you gain 2 life; each opponent loses 1 life. (A Goku-step rescue.)",
-    resolve=_dbz_resolve_instant_transmission,
+    text="Exile target creature you control, then return it to the battlefield under your control. You gain 2 life."
 )
 
 
@@ -3683,8 +527,7 @@ ENERGY_BARRIER = make_instant(
     name="Energy Barrier",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Scry 1; you gain 2 life; each opponent loses 1 life. (A wall of ki.)",
-    resolve=_dbz_resolve_energy_barrier,
+    text="Prevent all damage that would be dealt to creatures you control this turn."
 )
 
 
@@ -3692,8 +535,7 @@ KIAI_SHOUT = make_instant(
     name="Kiai Shout",
     mana_cost="{W}",
     colors={Color.WHITE},
-    text="Scry 1; you gain 1 life; each opponent loses 2 life. (A martial shout.)",
-    resolve=_dbz_resolve_kiai_shout,
+    text="Tap target creature. It doesn't untap during its controller's next untap step."
 )
 
 
@@ -3701,8 +543,7 @@ HOPE_OF_EARTH = make_instant(
     name="Hope of Earth",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    text="Scry 2; you gain 3 life; each opponent loses 1 life. (Earth's collective hope.)",
-    resolve=_dbz_resolve_hope_of_earth,
+    text="Create two 1/1 white Human Warrior creature tokens. You gain 1 life for each creature you control."
 )
 
 
@@ -3712,8 +553,7 @@ REVIVAL = make_sorcery(
     name="Revival",
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
-    text="Scry 1; you gain 5 life; each opponent loses 2 life. (Returned from death.)",
-    resolve=_dbz_resolve_revival,
+    text="Return target creature card from your graveyard to the battlefield. You gain life equal to its toughness."
 )
 
 
@@ -3721,8 +561,7 @@ DRAGON_BALL_WISH = make_sorcery(
     name="Dragon Ball Wish",
     mana_cost="{5}{W}{W}",
     colors={Color.WHITE},
-    text="Scry 2; you gain 6 life; each opponent loses 2 life. (The wish is granted.)",
-    resolve=_dbz_resolve_dragon_ball_wish,
+    text="Choose one: Return all creature cards from your graveyard to your hand; or destroy all creatures with power 4 or greater; or you gain 8 life."
 )
 
 
@@ -3730,8 +569,7 @@ TRAINING_COMPLETE = make_sorcery(
     name="Training Complete",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Scry 1; you gain 2 life; each opponent loses 1 life. (The master signs off.)",
-    resolve=_dbz_resolve_training_complete,
+    text="Put two +1/+1 counters on target creature you control. It gains vigilance until end of turn."
 )
 
 
@@ -3739,8 +577,7 @@ WORLD_TOURNAMENT = make_sorcery(
     name="World Tournament",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    text="Scry 1; you gain 3 life; each opponent loses 1 life. (The bell rings.)",
-    resolve=_dbz_resolve_world_tournament,
+    text="Each player chooses a creature they control. Those creatures fight each other. You gain 3 life."
 )
 
 
@@ -3763,8 +600,7 @@ OTHERWORLD = make_enchantment(
     name="Otherworld",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    text="When Otherworld enters, scry 1 and gain X life per Spirit you control. (Otherworld reaches in.)",
-    setup_interceptors=_dbz_otherworld_ench_setup,
+    text="Whenever a creature you control dies, you may pay {1}. If you do, return it to the battlefield at the beginning of the next end step."
 )
 
 
@@ -3772,8 +608,7 @@ KAIS_BLESSING = make_enchantment(
     name="Kai's Blessing",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="When Kai's Blessing enters, scry 1 and gain X life per creature you control. (Kai's grace.)",
-    setup_interceptors=_dbz_kais_blessing_setup,
+    text="Creatures you control have lifelink. {2}{W}: Put a +1/+1 counter on target creature you control."
 )
 
 
@@ -3908,8 +743,7 @@ ANDROID_19 = make_creature(
     power=3, toughness=3,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    subtypes={"Android"},
-    setup_interceptors=_dbz_android_19_setup,
+    subtypes={"Android"}
 )
 
 
@@ -3919,8 +753,7 @@ ANDROID_20 = make_creature(
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Android", "Scientist"},
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_android_20_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -3929,8 +762,7 @@ CAPSULE_CORP_DRONE = make_creature(
     power=1, toughness=1,
     mana_cost="{1}",
     colors=set(),
-    subtypes={"Construct"},
-    setup_interceptors=_dbz_capsule_drone_setup,
+    subtypes={"Construct"}
 )
 
 
@@ -3939,8 +771,7 @@ REPAIR_BOT = make_creature(
     power=0, toughness=2,
     mana_cost="{U}",
     colors={Color.BLUE},
-    subtypes={"Construct"},
-    setup_interceptors=_dbz_repair_bot_setup,
+    subtypes={"Construct"}
 )
 
 
@@ -3949,8 +780,7 @@ ANALYSIS_DRONE = make_creature(
     power=1, toughness=2,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    subtypes={"Construct"},
-    setup_interceptors=_dbz_analysis_drone_setup,
+    subtypes={"Construct"}
 )
 
 
@@ -3959,8 +789,7 @@ SCIENTIST = make_creature(
     power=1, toughness=2,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    subtypes={"Human", "Scientist"},
-    setup_interceptors=_dbz_scientist_setup,
+    subtypes={"Human", "Scientist"}
 )
 
 
@@ -3969,89 +798,25 @@ RED_RIBBON_SCOUT = make_creature(
     power=2, toughness=1,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    subtypes={"Human", "Soldier", "Scout"},
-    setup_interceptors=_dbz_red_ribbon_scout_setup,
+    subtypes={"Human", "Soldier", "Scout"}
 )
 
-
-def android_prototype_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Surveillance subsystems — scry 1 + surveil 1 on ETB."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        bf = state.zones.get('battlefield')
-        n_arts = 0
-        if bf:
-            for oid in bf.objects:
-                o = state.objects.get(oid)
-                if (o and o.controller == obj.controller
-                        and CardType.ARTIFACT in (o.characteristics.types or set())):
-                    n_arts += 1
-        events = [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 1},
-            source=obj.id,
-            controller=obj.controller,
-        )]
-        # Surveil 1 if any opponent has creatures (target acquisition).
-        any_threat = any(o.controller != obj.controller
-                         and CardType.CREATURE in (o.characteristics.types or set())
-                         for o in state.objects.values()
-                         if o.zone == ZoneType.BATTLEFIELD)
-        if any_threat:
-            events.append(Event(
-                type=EventType.SURVEIL,
-                payload={'player': obj.controller, 'amount': 1},
-                source=obj.id,
-                controller=obj.controller,
-            ))
-        return events
-    return [ih.make_etb_trigger(obj, effect_fn)]
 
 ANDROID_PROTOTYPE = make_creature(
     name="Android Prototype",
     power=2, toughness=2,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    subtypes={"Android"},
-    text="When Android Prototype enters, scry 1.",
-    setup_interceptors=android_prototype_setup,
+    subtypes={"Android"}
 )
 
-
-def battle_android_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Targeting subsystem — scry 1 + deal 1 damage to each opponent on ETB."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        bf = state.zones.get('battlefield')
-        n_androids = 0
-        if bf:
-            for oid in bf.objects:
-                o = state.objects.get(oid)
-                if (o and o.controller == obj.controller
-                        and 'Android' in (o.characteristics.subtypes or set())):
-                    n_androids += 1
-        events = [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 1},
-            source=obj.id,
-            controller=obj.controller,
-        )]
-        for opp_id in ih.all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.DAMAGE,
-                payload={'target': opp_id, 'amount': 1, 'source': obj.id},
-                source=obj.id,
-                controller=obj.controller,
-            ))
-        return events
-    return [ih.make_etb_trigger(obj, effect_fn)]
 
 BATTLE_ANDROID = make_creature(
     name="Battle Android",
     power=3, toughness=2,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    subtypes={"Android", "Soldier"},
-    text="When Battle Android enters, it deals 1 damage to each opponent.",
-    setup_interceptors=battle_android_setup,
+    subtypes={"Android", "Soldier"}
 )
 
 
@@ -4060,8 +825,7 @@ ENERGY_ABSORBER = make_creature(
     power=2, toughness=4,
     mana_cost="{3}{U}",
     colors={Color.BLUE},
-    subtypes={"Android"},
-    setup_interceptors=_dbz_energy_absorber_setup,
+    subtypes={"Android"}
 )
 
 
@@ -4071,8 +835,7 @@ KI_SENSE = make_instant(
     name="Ki Sense",
     mana_cost="{U}",
     colors={Color.BLUE},
-    text="Scry 3; each opponent loses 1 life. (Reads every power level.)",
-    resolve=_dbz_resolve_ki_sense,
+    text="Scry 3. If you control an Android, draw a card."
 )
 
 
@@ -4080,8 +843,7 @@ ENERGY_DRAIN = make_instant(
     name="Energy Drain",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Surveil 1; each opponent loses 2 life. (Saps the spark.)",
-    resolve=_dbz_resolve_energy_drain,
+    text="Counter target activated ability. Draw a card."
 )
 
 
@@ -4089,8 +851,7 @@ AFTERIMAGE = make_instant(
     name="Afterimage",
     mana_cost="{U}",
     colors={Color.BLUE},
-    text="Scry 1; you gain 1 life; each opponent loses 1 life. (An illusion of motion.)",
-    resolve=_dbz_resolve_afterimage,
+    text="Target creature you control gains hexproof until end of turn. Untap it."
 )
 
 
@@ -4098,8 +859,7 @@ INSTANT_TRANSMISSION_BLUE = make_instant(
     name="Instant Transmission",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Scry 2; each opponent loses 1 life. (A heartbeat away.)",
-    resolve=_dbz_resolve_instant_transmission_blue,
+    text="Return target creature to its owner's hand. If it was an Android, you may draw a card."
 )
 
 
@@ -4107,8 +867,7 @@ PHOTON_WAVE = make_instant(
     name="Photon Wave",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="Surveil 1; each opponent loses 1 life. (Energy ripples.)",
-    resolve=_dbz_resolve_photon_wave,
+    text="Tap all creatures target opponent controls. Those creatures don't untap during their controller's next untap step."
 )
 
 
@@ -4116,8 +875,7 @@ SOLAR_FLARE_TECHNIQUE = make_instant(
     name="Solar Flare",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Scry 2; each opponent loses 1 life. (Everyone blinks.)",
-    resolve=_dbz_resolve_solar_flare,
+    text="Tap up to two target creatures. They don't untap during their controllers' next untap steps. Draw a card."
 )
 
 
@@ -4127,8 +885,7 @@ ANDROID_CONSTRUCTION = make_sorcery(
     name="Android Construction",
     mana_cost="{3}{U}{U}",
     colors={Color.BLUE},
-    text="Surveil 2; each opponent loses 2 life. (A new threat assembles.)",
-    resolve=_dbz_resolve_android_construction,
+    text="Create two 3/3 blue Android artifact creature tokens."
 )
 
 
@@ -4136,8 +893,7 @@ TECHNOLOGY_ADVANCEMENT = make_sorcery(
     name="Technology Advancement",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="Surveil 2; each opponent loses 1 life. (Research closes in.)",
-    resolve=_dbz_resolve_tech_advancement,
+    text="Draw three cards, then discard a card. If you control an artifact, discard a card instead of two."
 )
 
 
@@ -4145,8 +901,7 @@ ENERGY_ANALYSIS = make_sorcery(
     name="Energy Analysis",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="Scry 2; you gain 2 life; each opponent loses 1 life. (Decoded signal.)",
-    resolve=_dbz_resolve_energy_analysis,
+    text="Scry 2, then draw two cards."
 )
 
 
@@ -4154,8 +909,7 @@ RED_RIBBON_RESEARCH = make_sorcery(
     name="Red Ribbon Research",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="Surveil 2; each opponent loses 1 life. (Covert tech surfaces.)",
-    resolve=_dbz_resolve_red_ribbon_research,
+    text="Search your library for an Android or artifact card, reveal it, put it into your hand, then shuffle."
 )
 
 
@@ -4165,8 +919,7 @@ INFINITE_ENERGY = make_enchantment(
     name="Infinite Energy",
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    text="When Infinite Energy enters, surveil 1 and each opponent mills X per Android. (Boundless reactor.)",
-    setup_interceptors=_dbz_infinite_energy_ench_setup,
+    text="Androids you control have '{T}: Add {U}.' At the beginning of your upkeep, untap each Android you control."
 )
 
 
@@ -4174,8 +927,7 @@ CAPSULE_TECHNOLOGY = make_enchantment(
     name="Capsule Technology",
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    text="When Capsule Technology enters, surveil 1 and each opponent mills X per artifact. (R&D stockpile.)",
-    setup_interceptors=_dbz_capsule_tech_ench_setup,
+    text="Artifacts you control have hexproof. {2}{U}: Create a Treasure token."
 )
 
 
@@ -4183,8 +935,7 @@ ENERGY_FIELD = make_enchantment(
     name="Energy Field",
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
-    text="When Energy Field enters, surveil 2 and each opponent mills 1. (Binding field hums.)",
-    setup_interceptors=_dbz_energy_field_ench_setup,
+    text="Creatures your opponents control enter tapped. {U}: Target creature doesn't untap during its controller's next untap step."
 )
 
 
@@ -4282,8 +1033,7 @@ MAJIN_BUU = make_creature(
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Demon", "Majin"},
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_majin_buu_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -4294,8 +1044,7 @@ SUPER_BUU = make_creature(
     colors={Color.BLACK},
     subtypes={"Demon", "Majin"},
     supertypes={"Legendary"},
-    text="When Super Buu enters, surveil 1 and each opponent discards 1 per Demon/Majin you control.",
-    setup_interceptors=_dbz_super_buu_setup,
+    text="Whenever Super Buu, Absorber attacks, target opponent sacrifices a creature.",
 )
 
 
@@ -4305,8 +1054,7 @@ ZARBON = make_creature(
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Alien", "Soldier"},
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_zarbon_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -4316,8 +1064,7 @@ DODORIA = make_creature(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     subtypes={"Alien", "Soldier"},
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_dodoria_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -4327,8 +1074,7 @@ GINYU = make_creature(
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Alien", "Soldier"},
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_ginyu_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -4337,46 +1083,16 @@ RECOOME = make_creature(
     power=5, toughness=5,
     mana_cost="{4}{B}",
     colors={Color.BLACK},
-    subtypes={"Alien", "Soldier", "Ginyu Force"},
-    setup_interceptors=_dbz_recoome_setup,
+    subtypes={"Alien", "Soldier", "Ginyu Force"}
 )
 
-
-def burter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Blue Hurricane — on attack, scry 1 + each opp loses 1 life."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        bf = state.zones.get('battlefield')
-        n_ginyu = 0
-        if bf:
-            for oid in bf.objects:
-                o = state.objects.get(oid)
-                if (o and o.controller == obj.controller
-                        and 'Ginyu Force' in (o.characteristics.subtypes or set())):
-                    n_ginyu += 1
-        events = [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 1},
-            source=obj.id,
-            controller=obj.controller,
-        )]
-        for opp_id in ih.all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': opp_id, 'amount': -1},
-                source=obj.id,
-                controller=obj.controller,
-            ))
-        return events
-    return [ih.make_attack_trigger(obj, effect_fn)]
 
 BURTER = make_creature(
     name="Burter",
     power=3, toughness=3,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    subtypes={"Alien", "Soldier", "Ginyu Force"},
-    text="Whenever Burter attacks, each opponent loses 1 life.",
-    setup_interceptors=burter_setup,
+    subtypes={"Alien", "Soldier", "Ginyu Force"}
 )
 
 
@@ -4385,45 +1101,16 @@ JEICE = make_creature(
     power=3, toughness=2,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    subtypes={"Alien", "Soldier", "Ginyu Force"},
-    setup_interceptors=_dbz_jeice_setup,
+    subtypes={"Alien", "Soldier", "Ginyu Force"}
 )
 
-
-def guldo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Time-stop — scry 2 + reveal each opp's hand on ETB."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        bf = state.zones.get('battlefield')
-        n_threats = 0
-        if bf:
-            for oid in bf.objects:
-                o = state.objects.get(oid)
-                if o and o.controller != obj.controller:
-                    n_threats += 1
-        events = [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 2},
-            source=obj.id,
-            controller=obj.controller,
-        )]
-        for opp_id in ih.all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.REVEAL_HAND,
-                payload={'player': opp_id},
-                source=obj.id,
-                controller=obj.controller,
-            ))
-        return events
-    return [ih.make_etb_trigger(obj, effect_fn)]
 
 GULDO = make_creature(
     name="Guldo",
     power=1, toughness=2,
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    subtypes={"Alien", "Soldier", "Ginyu Force"},
-    text="When Guldo enters, scry 1.",
-    setup_interceptors=guldo_setup,
+    subtypes={"Alien", "Soldier", "Ginyu Force"}
 )
 
 
@@ -4432,46 +1119,16 @@ FRIEZA_SOLDIER = make_creature(
     power=2, toughness=2,
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    subtypes={"Alien", "Soldier"},
-    setup_interceptors=_dbz_frieza_soldier_setup,
+    subtypes={"Alien", "Soldier"}
 )
 
-
-def appule_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Frieza's scout — scry 1 + each opp loses 1 life on ETB."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        bf = state.zones.get('battlefield')
-        n_aliens = 0
-        if bf:
-            for oid in bf.objects:
-                o = state.objects.get(oid)
-                if (o and o.controller == obj.controller
-                        and 'Alien' in (o.characteristics.subtypes or set())):
-                    n_aliens += 1
-        events = [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 1},
-            source=obj.id,
-            controller=obj.controller,
-        )]
-        for opp_id in ih.all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': opp_id, 'amount': -1},
-                source=obj.id,
-                controller=obj.controller,
-            ))
-        return events
-    return [ih.make_etb_trigger(obj, effect_fn)]
 
 APPULE = make_creature(
     name="Appule",
     power=2, toughness=1,
     mana_cost="{B}",
     colors={Color.BLACK},
-    subtypes={"Alien", "Soldier"},
-    text="When Appule enters, each opponent loses 1 life.",
-    setup_interceptors=appule_setup,
+    subtypes={"Alien", "Soldier"}
 )
 
 
@@ -4480,8 +1137,7 @@ SAIBAMAN = make_creature(
     power=2, toughness=1,
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    subtypes={"Plant", "Warrior"},
-    setup_interceptors=_dbz_saibaman_setup,
+    subtypes={"Plant", "Warrior"}
 )
 
 
@@ -4490,8 +1146,7 @@ CELL_JUNIOR = make_creature(
     power=2, toughness=2,
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    subtypes={"Android", "Bio-Weapon"},
-    setup_interceptors=_dbz_cell_junior_setup,
+    subtypes={"Android", "Bio-Weapon"}
 )
 
 
@@ -4500,8 +1155,7 @@ MAJIN_MINION = make_creature(
     power=3, toughness=2,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    subtypes={"Demon"},
-    setup_interceptors=_dbz_majin_minion_setup,
+    subtypes={"Demon"}
 )
 
 
@@ -4511,38 +1165,9 @@ DABURA = make_creature(
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Demon", "Noble"},
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_dabura_setup,
+    supertypes={"Legendary"}
 )
 
-
-def babidi_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Dark sorcery — each opp discards 1 + each opp loses 1 life on ETB."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        bf = state.zones.get('battlefield')
-        n_demons = 0
-        if bf:
-            for oid in bf.objects:
-                o = state.objects.get(oid)
-                if (o and o.controller == obj.controller
-                        and 'Demon' in (o.characteristics.subtypes or set())):
-                    n_demons += 1
-        events = []
-        for opp_id in ih.all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.DISCARD,
-                payload={'player': opp_id, 'count': 1},
-                source=obj.id,
-                controller=obj.controller,
-            ))
-            events.append(Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': opp_id, 'amount': -1},
-                source=obj.id,
-                controller=obj.controller,
-            ))
-        return events
-    return [ih.make_etb_trigger(obj, effect_fn)]
 
 BABIDI = make_creature(
     name="Babidi, Dark Wizard",
@@ -4550,9 +1175,7 @@ BABIDI = make_creature(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     subtypes={"Wizard"},
-    supertypes={"Legendary"},
-    text="When Babidi enters, each opponent loses 2 life.",
-    setup_interceptors=babidi_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -4562,8 +1185,8 @@ DEATH_BEAM = make_instant(
     name="Death Beam",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="Surveil 1; each opponent loses 3 life. (Frieza's signature kill-shot.)",
-    resolve=_dbz_resolve_death_beam,
+    text="Destroy target creature with toughness 3 or less. If you control Frieza, destroy target creature instead.",
+    resolve=create_destroy_spell(target_creature())
 )
 
 
@@ -4571,8 +1194,8 @@ SUPERNOVA = make_instant(
     name="Supernova",
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
-    text="Surveil 2; each opponent loses 3 life. (A planet-busting ball.)",
-    resolve=_dbz_resolve_supernova,
+    text="Destroy target creature. Its controller loses life equal to that creature's power.",
+    resolve=create_destroy_spell(target_creature())
 )
 
 
@@ -4580,8 +1203,7 @@ FINGER_BEAM = make_instant(
     name="Finger Beam",
     mana_cost="{B}",
     colors={Color.BLACK},
-    text="Surveil 1; each opponent loses 2 life. (A casual kill flick.)",
-    resolve=_dbz_resolve_finger_beam,
+    text="Target creature gets -2/-2 until end of turn."
 )
 
 
@@ -4589,8 +1211,8 @@ ABSORPTION = make_instant(
     name="Absorption",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="Surveil 1; each opponent loses 2 life. (Cell drains the unwary.)",
-    resolve=_dbz_resolve_absorption,
+    text="Destroy target creature. If Cell destroyed it, put two +1/+1 counters on Cell.",
+    resolve=create_destroy_spell(target_creature())
 )
 
 
@@ -4598,8 +1220,7 @@ VANISH = make_instant(
     name="Vanish",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="Surveil 2; each opponent loses 2 life. (A foe wiped from sight.)",
-    resolve=_dbz_resolve_vanish,
+    text="Exile target creature. Its controller loses 2 life."
 )
 
 
@@ -4607,8 +1228,7 @@ MAJIN_CURSE = make_instant(
     name="Majin Curse",
     mana_cost="{B}{B}",
     colors={Color.BLACK},
-    text="Surveil 1; each opponent loses 2 life. (The Majin sigil burns.)",
-    resolve=_dbz_resolve_majin_curse,
+    text="Target creature gets -3/-3 until end of turn. If it would die this turn, exile it instead."
 )
 
 
@@ -4618,8 +1238,7 @@ PLANET_DESTRUCTION = make_sorcery(
     name="Planet Destruction",
     mana_cost="{4}{B}{B}",
     colors={Color.BLACK},
-    text="Surveil 2; each opponent loses 3 life. (An entire world ends.)",
-    resolve=_dbz_resolve_planet_destruction,
+    text="Destroy all creatures. Each player loses 2 life for each creature they controlled that was destroyed this way."
 )
 
 
@@ -4627,8 +1246,7 @@ GENOCIDE_ATTACK = make_sorcery(
     name="Genocide Attack",
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
-    text="Surveil 2; each opponent loses 3 life and discards 1. (The slaughter.)",
-    resolve=_dbz_resolve_genocide_attack,
+    text="Each opponent sacrifices a creature. You gain 2 life for each creature sacrificed this way."
 )
 
 
@@ -4636,8 +1254,7 @@ RAISE_SAIBAMEN = make_sorcery(
     name="Raise Saibamen",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="Surveil 1; each opponent loses 2 life. (A swarm bursts up.)",
-    resolve=_dbz_resolve_raise_saibamen,
+    text="Create two 2/1 black Plant Warrior creature tokens with 'When this creature dies, it deals 2 damage to the creature that killed it.'"
 )
 
 
@@ -4645,8 +1262,7 @@ RESURRECTION_F = make_sorcery(
     name="Resurrection",
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
-    text="Surveil 2; each opponent loses 2 life. (A fallen rises.)",
-    resolve=_dbz_resolve_resurrection,
+    text="Return target creature card from a graveyard to the battlefield under your control. That creature is a Zombie in addition to its other types."
 )
 
 
@@ -4699,8 +1315,7 @@ DARK_ENERGY = make_enchantment(
     name="Dark Energy",
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
-    text="When Dark Energy enters, surveil 1 and each opponent loses 1 life per graveyard card. (Dark seep.)",
-    setup_interceptors=_dbz_dark_energy_ench_setup,
+    text="Whenever a creature dies, each opponent loses 1 life and you gain 1 life."
 )
 
 
@@ -4750,8 +1365,7 @@ FUTURE_TRUNKS = make_creature(
     subtypes={"Saiyan", "Z-Fighter", "Warrior"},
     supertypes={"Legendary"},
     abilities=[{'keyword': 'haste'}],
-    text="Haste. When Future Trunks enters, scry 1 + draw if Saiyan >= 2 + each opp 2 damage.",
-    setup_interceptors=_dbz_future_trunks_warrior_setup,
+    text="Haste."
 )
 
 
@@ -4787,33 +1401,6 @@ GOTEN = make_creature(
 )
 
 
-def nappa_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Saibamen detonation — scry 1 + deal 1 damage to each opponent on ETB."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        bf = state.zones.get('battlefield')
-        n_saiyans = 0
-        if bf:
-            for oid in bf.objects:
-                o = state.objects.get(oid)
-                if (o and o.controller == obj.controller
-                        and 'Saiyan' in (o.characteristics.subtypes or set())):
-                    n_saiyans += 1
-        events = [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 1},
-            source=obj.id,
-            controller=obj.controller,
-        )]
-        for opp_id in ih.all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.DAMAGE,
-                payload={'target': opp_id, 'amount': 1, 'source': obj.id},
-                source=obj.id,
-                controller=obj.controller,
-            ))
-        return events
-    return [ih.make_etb_trigger(obj, effect_fn)]
-
 NAPPA = make_creature(
     name="Nappa, Saiyan Elite",
     power=5, toughness=4,
@@ -4822,43 +1409,9 @@ NAPPA = make_creature(
     subtypes={"Saiyan", "Warrior"},
     supertypes={"Legendary"},
     abilities=[{'keyword': 'menace'}],
-    text="Menace. When Nappa enters, it deals 1 damage to each opponent.",
-    setup_interceptors=nappa_setup,
+    text="Menace."
 )
 
-
-def raditz_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Scouter intel — scry 1 + each opp reveals hand + each opp loses 1 life."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        bf = state.zones.get('battlefield')
-        n_saiyans = 0
-        if bf:
-            for oid in bf.objects:
-                o = state.objects.get(oid)
-                if (o and o.controller == obj.controller
-                        and 'Saiyan' in (o.characteristics.subtypes or set())):
-                    n_saiyans += 1
-        events = [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 1},
-            source=obj.id,
-            controller=obj.controller,
-        )]
-        for opp_id in ih.all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.REVEAL_HAND,
-                payload={'player': opp_id},
-                source=obj.id,
-                controller=obj.controller,
-            ))
-            events.append(Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': opp_id, 'amount': -1},
-                source=obj.id,
-                controller=obj.controller,
-            ))
-        return events
-    return [ih.make_etb_trigger(obj, effect_fn)]
 
 RADITZ = make_creature(
     name="Raditz, Saiyan Warrior",
@@ -4868,8 +1421,7 @@ RADITZ = make_creature(
     subtypes={"Saiyan", "Warrior"},
     supertypes={"Legendary"},
     abilities=[{'keyword': 'menace'}],
-    text="Menace. When Raditz enters, each opponent loses 1 life.",
-    setup_interceptors=raditz_setup,
+    text="Menace."
 )
 
 
@@ -4881,8 +1433,7 @@ BARDOCK = make_creature(
     subtypes={"Saiyan", "Warrior"},
     supertypes={"Legendary"},
     abilities=[{'keyword': 'haste'}],
-    text="Haste. ETB: scry 1 + draw if Saiyan >= 1 + each opp -1.",
-    setup_interceptors=_dbz_bardock_setup,
+    text="Haste."
 )
 
 
@@ -4902,41 +1453,12 @@ KING_VEGETA = make_creature(
 )
 
 
-def saiyan_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Battle frenzy — scry 1 + deal 1 damage to each opp on attack."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        bf = state.zones.get('battlefield')
-        n_saiyans = 0
-        if bf:
-            for oid in bf.objects:
-                o = state.objects.get(oid)
-                if (o and o.controller == obj.controller
-                        and 'Saiyan' in (o.characteristics.subtypes or set())):
-                    n_saiyans += 1
-        events = [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 1},
-            source=obj.id,
-            controller=obj.controller,
-        )]
-        for opp_id in ih.all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.DAMAGE,
-                payload={'target': opp_id, 'amount': 1, 'source': obj.id},
-                source=obj.id,
-                controller=obj.controller,
-            ))
-        return events
-    return [ih.make_attack_trigger(obj, effect_fn)]
-
 SAIYAN_WARRIOR = make_creature(
     name="Saiyan Warrior",
     power=3, toughness=2,
     mana_cost="{1}{R}",
     colors={Color.RED},
-    subtypes={"Saiyan", "Warrior"},
-    text="Whenever Saiyan Warrior attacks, it deals 1 damage to each opponent.",
-    setup_interceptors=saiyan_warrior_setup,
+    subtypes={"Saiyan", "Warrior"}
 )
 
 
@@ -4945,8 +1467,7 @@ SAIYAN_ELITE = make_creature(
     power=4, toughness=3,
     mana_cost="{1}{R}{R}",
     colors={Color.RED},
-    subtypes={"Saiyan", "Warrior"},
-    setup_interceptors=_dbz_saiyan_elite_setup,
+    subtypes={"Saiyan", "Warrior"}
 )
 
 
@@ -4955,8 +1476,7 @@ GREAT_APE = make_creature(
     power=8, toughness=8,
     mana_cost="{5}{R}{R}",
     colors={Color.RED},
-    subtypes={"Saiyan", "Ape"},
-    setup_interceptors=_dbz_great_ape_setup,
+    subtypes={"Saiyan", "Ape"}
 )
 
 
@@ -4965,8 +1485,7 @@ RAGING_SAIYAN = make_creature(
     power=4, toughness=2,
     mana_cost="{1}{R}",
     colors={Color.RED},
-    subtypes={"Saiyan", "Berserker"},
-    setup_interceptors=_dbz_raging_saiyan_setup,
+    subtypes={"Saiyan", "Berserker"}
 )
 
 
@@ -4975,8 +1494,7 @@ SAIYAN_CHILD = make_creature(
     power=2, toughness=2,
     mana_cost="{R}",
     colors={Color.RED},
-    subtypes={"Saiyan"},
-    setup_interceptors=_dbz_saiyan_child_setup,
+    subtypes={"Saiyan"}
 )
 
 
@@ -4985,8 +1503,7 @@ SAIYAN_POD_PILOT = make_creature(
     power=2, toughness=2,
     mana_cost="{1}{R}",
     colors={Color.RED},
-    subtypes={"Saiyan", "Pilot"},
-    setup_interceptors=_dbz_saiyan_pod_pilot_setup,
+    subtypes={"Saiyan", "Pilot"}
 )
 
 
@@ -5000,8 +1517,8 @@ FINAL_FLASH = make_instant(
     name="Final Flash",
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
-    text="Scry 1; each opponent takes 5 damage. (Vegeta's signature.)",
-    resolve=_dbz_resolve_final_flash,
+    text="Final Flash deals 5 damage to any target. If you control Vegeta, it deals 7 damage instead.",
+    resolve=create_damage_spell(5, target_any())
 )
 
 
@@ -5009,8 +1526,8 @@ GALICK_GUN = make_instant(
     name="Galick Gun",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    text="Scry 1; each opponent takes 3 damage. (Vegeta's other classic.)",
-    resolve=_dbz_resolve_galick_gun,
+    text="Galick Gun deals 3 damage to any target. If that target is a creature, it can't block this turn.",
+    resolve=create_damage_spell(3, target_any())
 )
 
 
@@ -5018,8 +1535,8 @@ BIG_BANG_ATTACK = make_instant(
     name="Big Bang Attack",
     mana_cost="{1}{R}{R}",
     colors={Color.RED},
-    text="Scry 1; each opponent takes 4 damage. (Cosmic-scale blast.)",
-    resolve=_dbz_resolve_big_bang_attack,
+    text="Big Bang Attack deals 4 damage to target creature.",
+    resolve=create_damage_spell(4, target_creature())
 )
 
 
@@ -5027,8 +1544,8 @@ BURNING_ATTACK = make_instant(
     name="Burning Attack",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    text="Scry 1; each opponent takes 3 damage. (Trunks's heat-strike.)",
-    resolve=_dbz_resolve_burning_attack,
+    text="Burning Attack deals 3 damage to any target. If you control a Saiyan, it deals 4 damage instead.",
+    resolve=create_damage_spell(3, target_any())
 )
 
 
@@ -5036,8 +1553,7 @@ EXPLOSIVE_WAVE = make_instant(
     name="Explosive Wave",
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
-    text="Scry 1; each opponent takes 2 damage. (An outward burst.)",
-    resolve=_dbz_resolve_explosive_wave,
+    text="Explosive Wave deals 2 damage to each creature and each opponent."
 )
 
 
@@ -5045,8 +1561,7 @@ SAIYAN_RAGE = make_instant(
     name="Saiyan Rage",
     mana_cost="{R}",
     colors={Color.RED},
-    text="Scry 1; you gain 1 life; each opponent takes 2 damage. (Saiyan fury.)",
-    resolve=_dbz_resolve_saiyan_rage,
+    text="Target Saiyan creature gets +3/+0 and gains trample until end of turn."
 )
 
 
@@ -5054,8 +1569,8 @@ KI_EXPLOSION = make_instant(
     name="Ki Explosion",
     mana_cost="{R}",
     colors={Color.RED},
-    text="Scry 1; each opponent takes 2 damage. (A focused burst.)",
-    resolve=_dbz_resolve_ki_explosion,
+    text="Ki Explosion deals 2 damage to any target.",
+    resolve=create_damage_spell(2, target_any())
 )
 
 
@@ -5065,8 +1580,7 @@ POWER_BALL = make_sorcery(
     name="Power Ball",
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
-    text="Scry 1; each opponent takes 3 damage. (A Saiyan moon-sphere.)",
-    resolve=_dbz_resolve_power_ball,
+    text="Transform all Saiyan creatures you control. They get +4/+4 and gain trample until end of turn."
 )
 
 
@@ -5074,8 +1588,7 @@ SAIYAN_INVASION = make_sorcery(
     name="Saiyan Invasion",
     mana_cost="{4}{R}{R}",
     colors={Color.RED},
-    text="Scry 1; each opponent takes 3 damage. (A raiding party arrives.)",
-    resolve=_dbz_resolve_saiyan_invasion,
+    text="Create three 2/2 red Saiyan Warrior creature tokens with haste."
 )
 
 
@@ -5083,8 +1596,7 @@ OOZARU_RAMPAGE = make_sorcery(
     name="Oozaru Rampage",
     mana_cost="{5}{R}{R}",
     colors={Color.RED},
-    text="Scry 1; each opponent takes 4 damage. (The moon transforms it.)",
-    resolve=_dbz_resolve_oozaru_rampage,
+    text="Create an 8/8 red Saiyan Ape creature token with trample. It must attack each combat if able."
 )
 
 
@@ -5092,8 +1604,7 @@ ZENKAI_BOOST = make_sorcery(
     name="Zenkai Boost",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Scry 1; you gain 2 life; each opponent loses 1 life. (Saiyan recovery surge.)",
-    resolve=_dbz_resolve_zenkai_boost,
+    text="Put two +1/+1 counters on target Saiyan creature you control. If that creature has 4 or more +1/+1 counters, it gains haste until end of turn."
 )
 
 
@@ -5149,8 +1660,7 @@ BATTLE_RAGE = make_enchantment(
     name="Battle Rage",
     mana_cost="{R}",
     colors={Color.RED},
-    text="When Battle Rage enters, scry 1 and each opponent takes 1 damage per Warrior you control. (Combat fury.)",
-    setup_interceptors=_dbz_battle_rage_ench_setup,
+    text="Whenever a creature you control attacks alone, it gets +2/+0 until end of turn."
 )
 
 
@@ -5260,8 +1770,7 @@ NAMEKIAN_WARRIOR = make_creature(
     power=3, toughness=3,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    subtypes={"Namekian", "Warrior"},
-    setup_interceptors=_dbz_namekian_warrior_setup,
+    subtypes={"Namekian", "Warrior"}
 )
 
 
@@ -5270,8 +1779,7 @@ NAMEKIAN_HEALER = make_creature(
     power=1, toughness=3,
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    subtypes={"Namekian", "Cleric"},
-    setup_interceptors=_dbz_namekian_healer_setup,
+    subtypes={"Namekian", "Cleric"}
 )
 
 
@@ -5280,8 +1788,7 @@ NAMEKIAN_ELDER = make_creature(
     power=2, toughness=4,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    subtypes={"Namekian", "Elder"},
-    setup_interceptors=_dbz_namekian_elder_setup,
+    subtypes={"Namekian", "Elder"}
 )
 
 
@@ -5305,8 +1812,7 @@ GIANT_NAMEKIAN = make_creature(
     power=6, toughness=6,
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
-    subtypes={"Namekian", "Giant"},
-    setup_interceptors=_dbz_giant_namekian_setup,
+    subtypes={"Namekian", "Giant"}
 )
 
 
@@ -5316,8 +1822,7 @@ PORUNGA = make_creature(
     mana_cost="{5}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Dragon", "God"},
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_porunga_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -5326,8 +1831,7 @@ AJISA_TREE = make_creature(
     power=0, toughness=5,
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    subtypes={"Plant", "Treefolk"},
-    setup_interceptors=_dbz_ajisa_tree_setup,
+    subtypes={"Plant", "Treefolk"}
 )
 
 
@@ -5366,8 +1870,7 @@ NAMEK_FISH = make_creature(
     power=4, toughness=4,
     mana_cost="{3}{G}",
     colors={Color.GREEN},
-    subtypes={"Fish"},
-    setup_interceptors=_dbz_namek_fish_setup,
+    subtypes={"Fish"}
 )
 
 
@@ -5377,8 +1880,8 @@ SPECIAL_BEAM_CANNON = make_instant(
     name="Special Beam Cannon",
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
-    text="Scry 1; each opponent takes 5 damage. (Piccolo's signature drill-beam.)",
-    resolve=_dbz_resolve_special_beam_cannon,
+    text="Special Beam Cannon deals 5 damage to target creature. If you control Piccolo, it deals 7 damage instead.",
+    resolve=create_damage_spell(5, target_creature())
 )
 
 
@@ -5386,8 +1889,7 @@ NAMEKIAN_REGENERATION = make_instant(
     name="Namekian Regeneration",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Scry 1; you gain 4 life; each opponent loses 1 life. (Cellular regrowth.)",
-    resolve=_dbz_resolve_namek_regen,
+    text="Regenerate target creature. Put a +1/+1 counter on it."
 )
 
 
@@ -5395,8 +1897,7 @@ HELLZONE_GRENADE = make_instant(
     name="Hellzone Grenade",
     mana_cost="{3}{G}",
     colors={Color.GREEN},
-    text="Scry 1; each opponent takes 4 damage. (Piccolo's energy burst.)",
-    resolve=_dbz_resolve_hellzone_grenade,
+    text="Hellzone Grenade deals 4 damage divided as you choose among any number of target creatures."
 )
 
 
@@ -5404,8 +1905,8 @@ MASENKO = make_instant(
     name="Masenko",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Scry 1; each opponent takes 3 damage. (Gohan's classic blast.)",
-    resolve=_dbz_resolve_masenko,
+    text="Masenko deals 3 damage to target creature or planeswalker.",
+    resolve=create_damage_spell(3, target_creature())
 )
 
 
@@ -5413,8 +1914,7 @@ FUSE = make_instant(
     name="Fuse",
     mana_cost="{G}{G}",
     colors={Color.GREEN},
-    text="Scry 1; you gain 2 life; each opponent loses 1 life. (A new shape emerges.)",
-    resolve=_dbz_resolve_fuse,
+    text="Exile two target creatures you control, then create a creature token that's a copy of one of them except it has the combined power and toughness of both."
 )
 
 
@@ -5422,8 +1922,7 @@ NATURE_BARRIER = make_instant(
     name="Nature's Barrier",
     mana_cost="{G}",
     colors={Color.GREEN},
-    text="Scry 1; you gain 3 life; each opponent loses 1 life. (Namek's defense.)",
-    resolve=_dbz_resolve_nature_barrier,
+    text="Target creature gains hexproof and indestructible until end of turn. Untap it."
 )
 
 
@@ -5433,8 +1932,7 @@ NAMEKIAN_FUSION = make_sorcery(
     name="Namekian Fusion",
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
-    text="Scry 2; you gain 3 life; each opponent loses 1 life. (Two souls become one.)",
-    resolve=_dbz_resolve_namekian_fusion,
+    text="As an additional cost, exile two Namekian creatures you control. Create a Namekian creature token with power and toughness each equal to the total power and toughness of the exiled creatures. It has all abilities of the exiled creatures."
 )
 
 
@@ -5442,8 +1940,7 @@ REGROWTH = make_sorcery(
     name="Regrowth",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Scry 2; you gain 2 life; each opponent loses 1 life. (Returned from the grave.)",
-    resolve=_dbz_resolve_regrowth,
+    text="Return target card from your graveyard to your hand."
 )
 
 
@@ -5451,8 +1948,7 @@ DRAGON_BALL_SUMMON = make_sorcery(
     name="Dragon Ball Summon",
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
-    text="Scry 2; you gain 5 life; each opponent loses 1 life. (The Eternal Dragon answers.)",
-    resolve=_dbz_resolve_dragon_ball_summon,
+    text="Search your library for a Dragon creature card, put it onto the battlefield, then shuffle. You gain 5 life."
 )
 
 
@@ -5460,8 +1956,7 @@ PLANET_NAMEK = make_sorcery(
     name="Planet Namek's Blessing",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="Scry 1; you gain 3 life; each opponent loses 1 life. (The world's gift.)",
-    resolve=_dbz_resolve_planet_namek,
+    text="Search your library for a basic land card, put it onto the battlefield, then shuffle. You gain 3 life."
 )
 
 
@@ -5484,8 +1979,7 @@ HEALING_AURA = make_enchantment(
     name="Healing Aura",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="When Healing Aura enters, scry 1 and gain X life per Cleric you control. (The aura settles in.)",
-    setup_interceptors=_dbz_healing_aura_ench_setup,
+    text="At the beginning of your upkeep, you gain 2 life. Whenever you gain life, you may put a +1/+1 counter on target creature you control."
 )
 
 
@@ -5493,8 +1987,7 @@ NAMEK_WILDS = make_enchantment(
     name="Namek Wilds",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="When Namek Wilds enters, scry 1 and gain X life per Namekian you control. (The wilds renew.)",
-    setup_interceptors=_dbz_namek_wilds_ench_setup,
+    text="Whenever a creature enters under your control, you gain 1 life. {2}{G}: Create a 2/2 green Namekian Warrior creature token."
 )
 
 
@@ -5558,8 +2051,7 @@ GOKU_SUPER_SAIYAN = make_creature(
     subtypes={"Saiyan", "Z-Fighter"},
     supertypes={"Legendary"},
     abilities=[{'keyword': 'haste'}, {'keyword': 'trample'}],
-    text="Haste, trample. ETB: scry 1 + draw if graveyard >= 3 + each opp 2 damage.",
-    setup_interceptors=_dbz_goku_ssj_setup,
+    text="Haste, trample."
 )
 
 
@@ -5569,8 +2061,7 @@ GOKU_ULTRA_INSTINCT = make_creature(
     mana_cost="{4}{W}{W}{U}",
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Saiyan", "Z-Fighter"},
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_goku_ui_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -5582,8 +2073,7 @@ VEGETA_SUPER_SAIYAN = make_creature(
     subtypes={"Saiyan", "Noble", "Warrior"},
     supertypes={"Legendary"},
     abilities=[{'keyword': 'haste'}, {'keyword': 'menace'}],
-    text="Haste, menace. ETB: surveil 2 + draw if Saiyan >= 2 + each opp 2 damage.",
-    setup_interceptors=_dbz_vegeta_ssj_setup,
+    text="Haste, menace."
 )
 
 
@@ -5593,8 +2083,7 @@ GOHAN_SSJ2 = make_creature(
     mana_cost="{3}{W}{W}{R}",
     colors={Color.WHITE, Color.RED},
     subtypes={"Saiyan", "Z-Fighter", "Scholar"},
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_gohan_ssj2_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -5629,8 +2118,7 @@ WHIS = make_creature(
     mana_cost="{3}{W}{U}",
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Angel"},
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_whis_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -5662,8 +2150,7 @@ JIREN = make_creature(
     mana_cost="{5}{W}{W}{R}",
     colors={Color.WHITE, Color.RED},
     subtypes={"Alien", "Warrior"},
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_jiren_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -5673,8 +2160,7 @@ GOLDEN_FRIEZA = make_creature(
     mana_cost="{4}{B}{B}{R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Alien", "Tyrant"},
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_golden_frieza_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -5684,8 +2170,7 @@ MAJIN_VEGETA = make_creature(
     mana_cost="{2}{R}{R}{B}",
     colors={Color.RED, Color.BLACK},
     subtypes={"Saiyan", "Noble", "Warrior"},
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_majin_vegeta_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -5695,8 +2180,7 @@ ANDROID_21 = make_creature(
     mana_cost="{2}{U}{B}{R}",
     colors={Color.BLUE, Color.BLACK, Color.RED},
     subtypes={"Android", "Majin"},
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_android_21_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -5706,8 +2190,7 @@ KEFLA = make_creature(
     mana_cost="{2}{R}{G}{W}",
     colors={Color.RED, Color.GREEN, Color.WHITE},
     subtypes={"Saiyan", "Fusion"},
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_kefla_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -5717,8 +2200,7 @@ GOKU_BLACK = make_creature(
     mana_cost="{3}{B}{B}{R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Saiyan", "God"},
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_goku_black_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -5728,8 +2210,7 @@ ZAMASU = make_creature(
     mana_cost="{2}{W}{B}{G}",
     colors={Color.WHITE, Color.BLACK, Color.GREEN},
     subtypes={"Kai", "God"},
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_zamasu_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -5739,8 +2220,7 @@ SHENRON = make_creature(
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Dragon", "God"},
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_shenron_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -5751,50 +2231,43 @@ SHENRON = make_creature(
 DRAGON_BALL_ONE = make_artifact(
     name="One-Star Dragon Ball",
     mana_cost="{1}",
-    text="When this enters, scry 1 and each opponent loses 1 life per artifact you control. (Wish pool.)",
-    setup_interceptors=_dbz_dragon_ball_setup,
+    text="{T}: Add {C}. If you control all seven Dragon Balls, you may sacrifice them all and pay {7}: You win the game."
 )
 
 DRAGON_BALL_TWO = make_artifact(
     name="Two-Star Dragon Ball",
     mana_cost="{1}",
-    text="When this enters, scry 1 and each opponent loses 1 life per artifact you control. (Wish pool.)",
-    setup_interceptors=_dbz_dragon_ball_setup,
+    text="{T}: Add {C}. {2}, {T}: Scry 1."
 )
 
 DRAGON_BALL_THREE = make_artifact(
     name="Three-Star Dragon Ball",
     mana_cost="{1}",
-    text="When this enters, scry 1 and each opponent loses 1 life per artifact you control. (Wish pool.)",
-    setup_interceptors=_dbz_dragon_ball_setup,
+    text="{T}: Add {C}. {2}, {T}: You gain 2 life."
 )
 
 DRAGON_BALL_FOUR = make_artifact(
     name="Four-Star Dragon Ball",
     mana_cost="{1}",
-    text="When this enters, scry 1 and each opponent loses 1 life per artifact you control. (Wish pool.)",
-    setup_interceptors=_dbz_dragon_ball_setup,
+    text="{T}: Add {C}. {2}, {T}: Target creature gets +1/+1 until end of turn."
 )
 
 DRAGON_BALL_FIVE = make_artifact(
     name="Five-Star Dragon Ball",
     mana_cost="{1}",
-    text="When this enters, scry 1 and each opponent loses 1 life per artifact you control. (Wish pool.)",
-    setup_interceptors=_dbz_dragon_ball_setup,
+    text="{T}: Add {C}. {2}, {T}: Draw a card, then discard a card."
 )
 
 DRAGON_BALL_SIX = make_artifact(
     name="Six-Star Dragon Ball",
     mana_cost="{1}",
-    text="When this enters, scry 1 and each opponent loses 1 life per artifact you control. (Wish pool.)",
-    setup_interceptors=_dbz_dragon_ball_setup,
+    text="{T}: Add {C}. {2}, {T}: Target creature can't block this turn."
 )
 
 DRAGON_BALL_SEVEN = make_artifact(
     name="Seven-Star Dragon Ball",
     mana_cost="{1}",
-    text="When this enters, scry 1 and each opponent loses 1 life per artifact you control. (Wish pool.)",
-    setup_interceptors=_dbz_dragon_ball_setup,
+    text="{T}: Add {C}. {2}, {T}: Untap target permanent."
 )
 
 
@@ -5824,8 +2297,7 @@ def senzu_bean_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 SENZU_BEAN = make_artifact(
     name="Senzu Bean",
     mana_cost="{1}",
-    text="When Senzu Bean enters, scry 1 and gain X life per Z-Fighter you control. (A healing bean is enough.)",
-    setup_interceptors=_dbz_senzu_bean_setup,
+    text="{T}, Sacrifice Senzu Bean: You gain 5 life and put two +1/+1 counters on target creature you control."
 )
 
 
@@ -5833,48 +2305,42 @@ SCOUTER = make_equipment(
     name="Scouter",
     mana_cost="{2}",
     equip_cost="{1}",
-    text="When Scouter enters, scry 1 and each opponent reveals their hand. (Power-level read.)",
-    setup_interceptors=_dbz_scouter_setup,
+    text="Equipped creature gets +1/+0. Whenever equipped creature attacks, scry 1."
 )
 
 
 POTARA_EARRINGS = make_artifact(
     name="Potara Earrings",
     mana_cost="{3}",
-    text="When Potara Earrings enters, scry 1 and gain X life per Fusion you control. (Potara's union.)",
-    setup_interceptors=_dbz_potara_setup,
+    text="{3}, {T}, Sacrifice Potara Earrings and two creatures you control: Create a creature token that's a copy of one of those creatures except it has base power and toughness equal to the total power and total toughness of both creatures. It has all abilities of both creatures."
 )
 
 
 FUSION_EARRINGS = make_artifact(
     name="Fusion Earrings",
     mana_cost="{2}",
-    text="When Fusion Earrings enters, scry 1 and gain X life per Saiyan you control. (Twin earrings sync.)",
-    setup_interceptors=_dbz_fusion_earrings_setup,
+    text="{4}, Exile Fusion Earrings and two Saiyan creatures you control: Search your library for a Fusion creature card, put it onto the battlefield, then shuffle."
 )
 
 
 GRAVITY_CHAMBER = make_artifact(
     name="Gravity Chamber",
     mana_cost="{3}",
-    text="When Gravity Chamber enters, scry 1 and each opponent loses life per Warrior you control. (Training crunch.)",
-    setup_interceptors=_dbz_gravity_chamber_setup,
+    text="At the beginning of your upkeep, put a +1/+1 counter on target creature you control. That creature can't attack this turn."
 )
 
 
 TIME_MACHINE = make_artifact(
     name="Time Machine",
     mana_cost="{4}",
-    text="When Time Machine enters, surveil 1 + draw if graveyard >= 2 + each opp -1. (A timeline branches.)",
-    setup_interceptors=_dbz_time_machine_setup,
+    text="{2}, {T}: Exile target creature you control. Return it to the battlefield at the beginning of the next end step with two +1/+1 counters on it."
 )
 
 
 CAPSULE = make_artifact(
     name="Capsule",
     mana_cost="{1}",
-    text="When Capsule enters, scry 1 and each opponent loses life per artifact you control. (A capsule pops.)",
-    setup_interceptors=_dbz_capsule_setup,
+    text="{2}, {T}, Sacrifice Capsule: Search your library for an artifact card with mana value 3 or less, put it onto the battlefield, then shuffle."
 )
 
 
@@ -5882,8 +2348,7 @@ SPACE_POD = make_artifact(
     name="Saiyan Space Pod",
     mana_cost="{2}",
     subtypes={"Vehicle"},
-    text="When Space Pod enters, scry 1 and each opponent takes damage per Saiyan you control. (Pod orbital strike.)",
-    setup_interceptors=_dbz_space_pod_setup,
+    text="Flying. Crew 1. When Saiyan Space Pod enters, scry 1."
 )
 
 
@@ -5891,16 +2356,14 @@ NIMBUS_CLOUD = make_artifact(
     name="Nimbus Cloud",
     mana_cost="{2}",
     subtypes={"Vehicle"},
-    text="When Nimbus Cloud enters, scry 1 and gain X life per Z-Fighter you control. (Pure-hearted ride.)",
-    setup_interceptors=_dbz_nimbus_setup,
+    text="Flying. Crew 1. Nimbus Cloud can only be crewed by creatures with no -1/-1 counters."
 )
 
 
 DRAGON_RADAR = make_artifact(
     name="Dragon Radar",
     mana_cost="{2}",
-    text="When Dragon Radar enters, scry 2 + draw if artifact >= 2 + each opp -1. (Signal pulse locks in.)",
-    setup_interceptors=_dbz_dragon_radar_setup,
+    text="{1}, {T}: Look at the top five cards of your library. You may reveal an artifact card from among them and put it into your hand. Put the rest on the bottom of your library in any order."
 )
 
 
@@ -5908,8 +2371,7 @@ Z_SWORD = make_equipment(
     name="Z-Sword",
     mana_cost="{3}",
     equip_cost="{2}",
-    text="When Z-Sword enters, scry 1 and each opponent takes damage per Saiyan you control. (Legendary blade.)",
-    setup_interceptors=_dbz_z_sword_setup,
+    text="Equipped creature gets +3/+3 and has vigilance. If equipped creature is a Saiyan, it also has first strike."
 )
 
 
@@ -5917,8 +2379,7 @@ POWER_POLE = make_equipment(
     name="Power Pole",
     mana_cost="{1}",
     equip_cost="{1}",
-    text="When Power Pole enters, scry 1 and each opponent takes damage per Monk you control. (Goku's heirloom.)",
-    setup_interceptors=_dbz_power_pole_setup,
+    text="Equipped creature gets +1/+1 and has reach."
 )
 
 
@@ -5926,8 +2387,7 @@ TURTLE_SHELL = make_equipment(
     name="Turtle Shell",
     mana_cost="{2}",
     equip_cost="{2}",
-    text="When Turtle Shell enters, scry 1 and gain X life per Monk you control. (Master Roshi's shell.)",
-    setup_interceptors=_dbz_turtle_shell_setup,
+    text="Equipped creature gets +0/+3. At the beginning of your upkeep, put a +1/+1 counter on equipped creature."
 )
 
 
@@ -5935,8 +2395,7 @@ WEIGHTED_CLOTHING = make_equipment(
     name="Weighted Clothing",
     mana_cost="{1}",
     equip_cost="{1}",
-    text="When Weighted Clothing enters, scry 1 and gain X life per Warrior you control. (The weight builds strength.)",
-    setup_interceptors=_dbz_weighted_clothing_setup,
+    text="Equipped creature gets -1/-0. When Weighted Clothing becomes unattached, put two +1/+1 counters on the creature it was attached to."
 )
 
 
@@ -5946,116 +2405,101 @@ WEIGHTED_CLOTHING = make_equipment(
 
 KAME_HOUSE = make_land(
     name="Kame House",
-    text="When Kame House enters, scry 1 and gain X life per Z-Fighter you control. (The master's refuge.)",
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_kame_house_setup,
+    text="{T}: Add {C}. {T}: Add {W} or {U}. Activate only if you control a Z-Fighter.",
+    supertypes={"Legendary"}
 )
 
 
 CAPSULE_CORP = make_land(
     name="Capsule Corporation",
-    text="When Capsule Corporation enters, surveil 1 and each opponent mills 1. (Bulma's HQ logs them.)",
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_capsule_corp_land_setup,
+    text="{T}: Add {C}. {2}, {T}: Create a Treasure token.",
+    supertypes={"Legendary"}
 )
 
 
 HYPERBOLIC_TIME_CHAMBER = make_land(
     name="Hyperbolic Time Chamber",
-    text="When this enters, scry 2 + draw if Z-Fighter >= 1 + each opp -1. (A year in a day.)",
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_hyperbolic_chamber_land_setup,
+    text="{T}: Add {C}. {3}, {T}: Put a +1/+1 counter on target creature you control. You can't activate this ability more than once each turn.",
+    supertypes={"Legendary"}
 )
 
 
 PLANET_NAMEK_LAND = make_land(
     name="Planet Namek",
-    text="When Planet Namek enters, scry 1 and gain X life per Namekian you control. (Namek's life essence.)",
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_planet_namek_land_setup,
+    text="{T}: Add {G}. Namekian creatures you control have '{G}: Regenerate this creature.'",
+    supertypes={"Legendary"}
 )
 
 
 PLANET_VEGETA = make_land(
     name="Planet Vegeta",
-    text="When Planet Vegeta enters, scry 1 and each opponent takes damage per Saiyan you control. (Homeworld memory.)",
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_planet_vegeta_setup,
+    text="{T}: Add {R}. Saiyan creatures you control get +0/+1.",
+    supertypes={"Legendary"}
 )
 
 
 LOOKOUT = make_land(
     name="The Lookout",
-    text="When the Lookout enters, scry 2 and gain X life per Z-Fighter you control. (Kami's high vantage.)",
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_lookout_setup,
+    text="{T}: Add {W}. {2}{W}, {T}: Scry 2.",
+    supertypes={"Legendary"}
 )
 
 
 WORLD_TOURNAMENT_ARENA = make_land(
     name="World Tournament Arena",
-    text="When the Arena enters, scry 1 and each opponent takes damage per Warrior you control. (The crowd roars.)",
-    setup_interceptors=_dbz_tournament_arena_setup,
+    text="{T}: Add {C}. {4}, {T}: Target creature you control fights target creature you don't control."
 )
 
 
 KORIN_TOWER = make_land(
     name="Korin Tower",
-    text="When Korin Tower enters, scry 1 and gain X life per Cleric you control. (Sacred bean cache.)",
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_korin_tower_setup,
+    text="{T}: Add {W}. {2}, {T}: You gain 2 life.",
+    supertypes={"Legendary"}
 )
 
 
 FRIEZA_SPACESHIP = make_land(
     name="Frieza's Spaceship",
-    text="When Frieza's Spaceship enters, surveil 1 and each opponent loses life per Alien you control. (Command deck.)",
-    setup_interceptors=_dbz_frieza_spaceship_setup,
+    text="{T}: Add {B}. {2}{B}, {T}: Target creature gets -1/-1 until end of turn."
 )
 
 
 CELL_GAMES_ARENA = make_land(
     name="Cell Games Arena",
-    text="When the Arena enters, surveil 2 and each opponent takes 1 damage. (Cell's tournament invitation.)",
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_cell_games_arena_setup,
+    text="{T}: Add {C}. Creatures can't have hexproof or shroud. (Perfect battlefield.)",
+    supertypes={"Legendary"}
 )
 
 
 KING_KAIS_PLANET = make_land(
     name="King Kai's Planet",
-    text="When the Planet enters, scry 2 and gain X life per Z-Fighter you control. (King Kai's training.)",
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_king_kai_planet_setup,
+    text="{T}: Add {W} or {U}. Creatures you control have 'At the beginning of your upkeep, scry 1.'",
+    supertypes={"Legendary"}
 )
 
 
 SERPENT_ROAD = make_land(
     name="Snake Way",
-    text="When Snake Way enters, scry 1 and each opponent loses 1 life. (The long road to Otherworld.)",
-    setup_interceptors=_dbz_serpent_road_setup,
+    text="{T}: Add {C}. {1}, {T}: Target creature gains haste until end of turn."
 )
 
 
 MAJIN_BUU_HOUSE = make_land(
     name="Majin Buu's House",
-    text="When the House enters, surveil 1 and each opponent loses life per Majin you control. (Buu's candy castle.)",
-    setup_interceptors=_dbz_majin_buu_house_setup,
+    text="{T}: Add {B} or {R}. Majin creatures you control get +1/+0."
 )
 
 
 RED_RIBBON_HQ = make_land(
     name="Red Ribbon Army HQ",
-    text="When the HQ enters, surveil 1 and each opponent mills X per Android you control. (Manufactory hum.)",
-    supertypes={"Legendary"},
-    setup_interceptors=_dbz_red_ribbon_hq_setup,
+    text="{T}: Add {U}. Android creatures you control have '{T}: Add {U}.'",
+    supertypes={"Legendary"}
 )
 
 
 OTHERWORLD_ARENA = make_land(
     name="Otherworld Tournament Arena",
-    text="When the Arena enters, scry 1 and gain X life per Spirit you control. (Otherworld tourney.)",
-    setup_interceptors=_dbz_otherworld_arena_setup,
+    text="{T}: Add {W}. Spirit creatures you control get +1/+1."
 )
 
 
@@ -6104,8 +2548,8 @@ KAMEHAMEHA = make_instant(
     name="Kamehameha",
     mana_cost="{3}{W}{R}",
     colors={Color.WHITE, Color.RED},
-    text="Scry 1; each opponent takes 5 damage. (THE iconic Goku move.)",
-    resolve=_dbz_resolve_kamehameha,
+    text="Kamehameha deals 5 damage to any target. If you control Goku, it deals 7 damage instead and you gain 3 life.",
+    resolve=create_damage_spell(5, target_any())
 )
 
 
@@ -6113,8 +2557,7 @@ SPIRIT_BOMB = make_sorcery(
     name="Spirit Bomb",
     mana_cost="{4}{W}{W}{R}",
     colors={Color.WHITE, Color.RED},
-    text="Scry 2; you gain 3 life; each opponent takes 4 damage. (Earth's collected energy.)",
-    resolve=_dbz_resolve_spirit_bomb,
+    text="Spirit Bomb deals damage to target creature equal to the total power of creatures you control. If that creature would die this turn, exile it instead."
 )
 
 
@@ -6122,8 +2565,8 @@ DESTRUCTO_DISC = make_instant(
     name="Destructo Disc",
     mana_cost="{1}{W}{W}",
     colors={Color.WHITE},
-    text="Scry 1; each opponent takes 4 damage. (Krillin's spinning blade.)",
-    resolve=_dbz_resolve_destructo_disc,
+    text="Destroy target creature with power 4 or less. If you control Krillin, destroy target creature instead.",
+    resolve=create_destroy_spell(target_creature())
 )
 
 
@@ -6131,8 +2574,8 @@ DEATH_BALL = make_instant(
     name="Death Ball",
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
-    text="Surveil 1; each opponent takes 6 damage. (Frieza's planet-killer.)",
-    resolve=_dbz_resolve_death_ball,
+    text="Death Ball deals 6 damage to any target. If that target is a creature and it dies this turn, exile it.",
+    resolve=create_damage_spell(6, target_any())
 )
 
 
@@ -6140,8 +2583,7 @@ CANDY_BEAM = make_instant(
     name="Candy Beam",
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    text="Surveil 1; each opponent discards 1 and loses 1 life. (Buu's curse.)",
-    resolve=_dbz_resolve_candy_beam,
+    text="Turn target creature into a 0/1 colorless Candy artifact creature token until end of turn. (It loses all abilities.)"
 )
 
 
@@ -6149,8 +2591,7 @@ HUMAN_EXTINCTION_ATTACK = make_sorcery(
     name="Human Extinction Attack",
     mana_cost="{4}{B}{B}",
     colors={Color.BLACK},
-    text="Surveil 2; each opponent loses 4 life. (The genocidal strike.)",
-    resolve=_dbz_resolve_human_extinction,
+    text="Destroy all creatures with toughness 3 or less. Each opponent loses 2 life for each creature they controlled that was destroyed this way."
 )
 
 
@@ -6158,8 +2599,8 @@ SOLAR_KAMEHAMEHA = make_instant(
     name="Solar Kamehameha",
     mana_cost="{3}{W}{W}{R}",
     colors={Color.WHITE, Color.RED},
-    text="Scry 1; you gain 3 life; each opponent takes 6 damage. (Cell-tier combined move.)",
-    resolve=_dbz_resolve_solar_kamehameha,
+    text="Solar Kamehameha deals 6 damage to any target. You gain 3 life.",
+    resolve=create_damage_spell(6, target_any())
 )
 
 
@@ -6167,8 +2608,7 @@ FINAL_EXPLOSION = make_sorcery(
     name="Final Explosion",
     mana_cost="{4}{R}{R}",
     colors={Color.RED},
-    text="Scry 1; each opponent takes 5 damage. (Vegeta's last stand.)",
-    resolve=_dbz_resolve_final_explosion,
+    text="As an additional cost to cast this spell, sacrifice a creature. Final Explosion deals damage equal to that creature's power to each creature and each opponent."
 )
 
 
@@ -6176,8 +2616,8 @@ OMEGA_BLASTER = make_instant(
     name="Omega Blaster",
     mana_cost="{2}{R}{R}",
     colors={Color.RED},
-    text="Scry 1; each opponent takes 5 damage. (Broly's finisher.)",
-    resolve=_dbz_resolve_omega_blaster,
+    text="Omega Blaster deals 5 damage to target creature. If it would die this turn, exile it instead.",
+    resolve=create_damage_spell(5, target_creature())
 )
 
 
@@ -6185,8 +2625,8 @@ ERASER_CANNON = make_instant(
     name="Eraser Cannon",
     mana_cost="{1}{R}{R}",
     colors={Color.RED},
-    text="Scry 1; each opponent takes 4 damage. (Broly's standby blast.)",
-    resolve=_dbz_resolve_eraser_cannon,
+    text="Eraser Cannon deals 4 damage to target creature. That creature can't regenerate this turn.",
+    resolve=create_damage_spell(4, target_creature())
 )
 
 
