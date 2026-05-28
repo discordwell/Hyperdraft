@@ -18,7 +18,82 @@ from src.engine.yugioh_helpers import (
     make_ygo_summon_trigger, make_ygo_destroy_trigger, make_ygo_flip_trigger,
     make_ygo_standby_trigger, make_ygo_battle_damage_trigger,
     emit_lp_change,
+    make_ygo_summon_trigger, make_ygo_destroy_trigger,
+    make_ygo_send_to_gy_trigger, make_ygo_ignition_effect,
 )
+
+
+# =============================================================================
+# Helpers for YGO_DESTROY / YGO_SEND_TO_GY effect-family wiring
+# =============================================================================
+
+def _opp_monster_ids(state, controller: str) -> list[str]:
+    """All opponent monster object IDs (skips empty slots)."""
+    ids = []
+    for pid in state.players:
+        if pid == controller:
+            continue
+        zone = state.zones.get(f"monster_zone_{pid}")
+        if not zone:
+            continue
+        for oid in zone.objects:
+            if oid is not None:
+                ids.append(oid)
+    return ids
+
+
+def _opp_spell_trap_ids(state, controller: str) -> list[str]:
+    """All opponent spell/trap object IDs (skips empty slots, includes field spell)."""
+    ids = []
+    for pid in state.players:
+        if pid == controller:
+            continue
+        for key in (f"spell_trap_zone_{pid}", f"field_spell_zone_{pid}"):
+            zone = state.zones.get(key)
+            if not zone:
+                continue
+            for oid in zone.objects:
+                if oid is not None:
+                    ids.append(oid)
+    return ids
+
+
+def _all_field_monsters(state) -> list[str]:
+    ids = []
+    for pid in state.players:
+        zone = state.zones.get(f"monster_zone_{pid}")
+        if not zone:
+            continue
+        for oid in zone.objects:
+            if oid is not None:
+                ids.append(oid)
+    return ids
+
+
+def _all_field_spell_traps(state) -> list[str]:
+    ids = []
+    for pid in state.players:
+        for key in (f"spell_trap_zone_{pid}", f"field_spell_zone_{pid}"):
+            zone = state.zones.get(key)
+            if not zone:
+                continue
+            for oid in zone.objects:
+                if oid is not None:
+                    ids.append(oid)
+    return ids
+
+
+def _discard_random_from_hand(state, controller: str, reason: str = "cost") -> tuple[str | None, list[Event]]:
+    """Send the top card of controller's hand to the GY via the pipeline event.
+    Returns (discarded_card_id, [YGO_SEND_TO_GY event])."""
+    hand = state.zones.get(f"hand_{controller}")
+    if not hand or not hand.objects:
+        return None, []
+    cid = hand.objects[0]
+    return cid, [Event(
+        type=EventType.YGO_SEND_TO_GY,
+        payload={'card_id': cid, 'from_zone': f"hand_{controller}", 'reason': reason},
+    )]
 
 
 # =============================================================================
@@ -146,41 +221,17 @@ GRACEFUL_CHARITY = make_ygo_spell(
 )
 
 def _heavy_storm_resolve(event, state):
-    """Destroy all Spell/Trap Cards on the field."""
-    events = []
-    for pid in state.players:
-        zone = state.zones.get(f"spell_trap_zone_{pid}")
-        if not zone:
-            continue
-        for i, obj_id in enumerate(zone.objects):
-            if obj_id is None:
-                continue
-            obj = state.objects.get(obj_id)
-            if obj:
-                zone.objects[i] = None
-                gy = state.zones.get(f"graveyard_{obj.owner}")
-                if gy:
-                    gy.objects.append(obj_id)
-                obj.zone = ZoneType.GRAVEYARD
-                obj.state.face_down = False
-                events.append(Event(type=EventType.YGO_DESTROY,
-                                    payload={'card_id': obj_id, 'card_name': obj.name}))
-        # Also check field spell zone
-        field_zone = state.zones.get(f"field_spell_zone_{pid}")
-        if field_zone:
-            for i, obj_id in enumerate(field_zone.objects):
-                if obj_id is None:
-                    continue
-                obj = state.objects.get(obj_id)
-                if obj:
-                    field_zone.objects[i] = None
-                    gy = state.zones.get(f"graveyard_{obj.owner}")
-                    if gy:
-                        gy.objects.append(obj_id)
-                    obj.zone = ZoneType.GRAVEYARD
-                    events.append(Event(type=EventType.YGO_DESTROY,
-                                        payload={'card_id': obj_id, 'card_name': obj.name}))
-    return events
+    """Destroy all Spell/Trap Cards on the field (event-API)."""
+    targets = _all_field_spell_traps(state)
+    # Heavy Storm itself is mid-resolution and lives outside the field, so the
+    # source_id is the card id from the event payload (already resolving).
+    if not targets:
+        return []
+    return [Event(
+        type=EventType.YGO_DESTROY,
+        payload={'target_ids': targets, 'source_id': event.payload.get('card_id'),
+                 'reason': 'effect'},
+    )]
 
 HEAVY_STORM = make_ygo_spell(
     "Heavy Storm", ygo_spell_type="Normal",
@@ -190,32 +241,18 @@ HEAVY_STORM = make_ygo_spell(
 )
 
 def _raigeki_resolve(event, state):
-    """Destroy all monsters your opponent controls."""
-    events = []
+    """Destroy all monsters your opponent controls (event-API)."""
     pid = event.payload.get('player')
     if not pid:
-        return events
-    for opp_id in state.players:
-        if opp_id == pid:
-            continue
-        zone = state.zones.get(f"monster_zone_{opp_id}")
-        if not zone:
-            continue
-        for i, obj_id in enumerate(zone.objects):
-            if obj_id is None:
-                continue
-            obj = state.objects.get(obj_id)
-            if obj:
-                zone.objects[i] = None
-                gy = state.zones.get(f"graveyard_{obj.owner}")
-                if gy:
-                    gy.objects.append(obj_id)
-                obj.zone = ZoneType.GRAVEYARD
-                obj.state.face_down = False
-                obj.state.ygo_position = None
-                events.append(Event(type=EventType.YGO_DESTROY,
-                                    payload={'card_id': obj_id, 'card_name': obj.name}))
-    return events
+        return []
+    targets = _opp_monster_ids(state, pid)
+    if not targets:
+        return []
+    return [Event(
+        type=EventType.YGO_DESTROY,
+        payload={'target_ids': targets, 'source_id': event.payload.get('card_id'),
+                 'reason': 'effect'},
+    )]
 
 RAIGEKI = make_ygo_spell(
     "Raigeki", ygo_spell_type="Normal",
@@ -436,11 +473,56 @@ AIRKNIGHT_PARSHATH = make_ygo_monster(
     image_url="https://images.ygoprodeck.com/images/cards_cropped/18036057.jpg",
 )
 
+def _tribe_infecting_virus_setup(obj, state):
+    """Ignition Effect: Discard 1 card; declare a Type; destroy all face-up monsters of that Type.
+
+    Simplification: declared type = most populous subtype on the opponent's
+    face-up monsters (greedy pick that maximises board clear).
+    """
+    def effect_fn(o, st):
+        events: list[Event] = []
+        # Pay cost: send the first card in hand to GY via the pipeline event.
+        cid, cost_evts = _discard_random_from_hand(st, o.controller, reason='cost')
+        if cid is None:
+            return []  # No card to discard — effect fizzles
+        events.extend(cost_evts)
+        # Pick declared Type = most common subtype among opponent's face-up monsters.
+        counts: dict[str, int] = {}
+        opp_monsters = _opp_monster_ids(st, o.controller)
+        for mid in opp_monsters:
+            mobj = st.objects.get(mid)
+            if not mobj or mobj.state.face_down or not mobj.card_def:
+                continue
+            for sub in (mobj.card_def.characteristics.subtypes or set()):
+                counts[sub] = counts.get(sub, 0) + 1
+        if not counts:
+            return events
+        declared = max(counts.items(), key=lambda kv: kv[1])[0]
+        # Destroy all face-up monsters (both sides) of that Type.
+        targets: list[str] = []
+        for mid in _all_field_monsters(st):
+            mobj = st.objects.get(mid)
+            if not mobj or mobj.state.face_down or not mobj.card_def:
+                continue
+            if declared in (mobj.card_def.characteristics.subtypes or set()):
+                targets.append(mid)
+        if targets:
+            events.append(Event(
+                type=EventType.YGO_DESTROY,
+                payload={'target_ids': targets, 'source_id': o.id,
+                         'reason': 'effect', 'declared_type': declared},
+            ))
+        return events
+
+    return [make_ygo_ignition_effect(obj, effect_fn)]
+
+
 TRIBE_INFECTING_VIRUS = make_ygo_monster(
     "Tribe-Infecting Virus", atk=1600, def_val=1000, level=4,
     attribute="WATER", ygo_monster_type="Effect",
     subtypes={"Aqua"},
     text="Discard 1 card, declare a Type: Destroy all face-up monsters of that Type.",
+    setup_interceptors=_tribe_infecting_virus_setup,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/33184167.jpg",
 )
 
@@ -460,19 +542,225 @@ DD_WARRIOR_LADY = make_ygo_monster(
     image_url="https://images.ygoprodeck.com/images/cards_cropped/7572887.jpg",
 )
 
+def _search_atk_at_most(state, controller: str, atk_threshold: int) -> list[Event]:
+    """Search the controller's library for a monster with ATK <= threshold, add to hand."""
+    library = state.zones.get(f"library_{controller}")
+    hand = state.zones.get(f"hand_{controller}")
+    if not library or not hand:
+        return []
+    for cid in list(library.objects):
+        obj = state.objects.get(cid)
+        if not obj or not obj.card_def:
+            continue
+        if CardType.YGO_MONSTER not in obj.card_def.characteristics.types:
+            continue
+        if (getattr(obj.card_def, 'atk', 0) or 0) <= atk_threshold:
+            library.objects.remove(cid)
+            hand.objects.append(cid)
+            obj.zone = ZoneType.HAND
+            return [Event(type=EventType.YGO_DRAW,
+                          payload={'player': controller, 'card_id': cid,
+                                   'card_name': obj.name, 'source': 'search'})]
+    return []
+
+
+def _sangan_setup(obj, state):
+    """When sent from the field to the GY: search a monster with ATK <= 1500."""
+    def effect_fn(o, st):
+        # Only fire when send-from-field; the trigger filter below restricts to
+        # YGO_SENT_TO_GY events whose ``from_zone`` is the monster zone.
+        return _search_atk_at_most(st, o.controller, 1500)
+
+    def _filter(event, state):
+        if event.type not in (EventType.YGO_SENT_TO_GY, EventType.YGO_SEND_TO_GY,
+                              EventType.YGO_DESTROYED, EventType.YGO_DESTROY):
+            return False
+        # Must be this card going to GY
+        target_ids = event.payload.get('target_ids') or []
+        if target_ids and obj.id not in target_ids:
+            return False
+        if not target_ids and event.payload.get('card_id') != obj.id:
+            return False
+        # Must have come from the field (monster zone / spell trap zone)
+        from_zone = event.payload.get('from_zone') or ''
+        return 'monster_zone_' in from_zone or 'spell_trap_zone_' in from_zone or not from_zone
+
+    from src.engine.types import (
+        Interceptor, InterceptorPriority, InterceptorAction,
+        InterceptorResult, new_id,
+    )
+
+    def _handler(event, state):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=effect_fn(obj, state),
+        )
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT, filter=_filter, handler=_handler,
+        duration='forever', uses_remaining=1,
+    )]
+
+
 SANGAN = make_ygo_monster(
     "Sangan", atk=1000, def_val=600, level=3,
     attribute="DARK", ygo_monster_type="Effect",
     subtypes={"Fiend"},
     text="If this card is sent from the field to the GY: Add 1 monster with 1500 or less ATK from your Deck to your hand.",
+    setup_interceptors=_sangan_setup,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/26202165.jpg",
 )
+
+def _ss_attribute_from_deck(state, controller: str, attribute: str, atk_threshold: int,
+                            subtype: str | None = None) -> list[Event]:
+    """SS the first matching monster from controller's library (face-up ATK)."""
+    library = state.zones.get(f"library_{controller}")
+    if not library:
+        return []
+    target_cid = None
+    for cid in list(library.objects):
+        obj = state.objects.get(cid)
+        if not obj or not obj.card_def:
+            continue
+        if CardType.YGO_MONSTER not in obj.card_def.characteristics.types:
+            continue
+        cd = obj.card_def
+        if getattr(cd, 'attribute', None) != attribute:
+            continue
+        if (getattr(cd, 'atk', 0) or 0) > atk_threshold:
+            continue
+        if subtype is not None and subtype not in (cd.characteristics.subtypes or set()):
+            continue
+        target_cid = cid
+        break
+    if target_cid is None:
+        return []
+    # Find empty monster slot
+    zone = state.zones.get(f"monster_zone_{controller}")
+    if not zone:
+        return []
+    slot = None
+    for i in range(5):
+        if i >= len(zone.objects) or zone.objects[i] is None:
+            slot = i
+            break
+    if slot is None and len(zone.objects) < 5:
+        slot = len(zone.objects)
+    if slot is None:
+        return []
+    # Remove from library and place
+    library.objects.remove(target_cid)
+    while len(zone.objects) <= slot:
+        zone.objects.append(None)
+    zone.objects[slot] = target_cid
+    obj = state.objects.get(target_cid)
+    if obj is not None:
+        obj.zone = ZoneType.MONSTER_ZONE
+        obj.controller = controller
+        obj.state.ygo_position = 'face_up_atk'
+        obj.state.face_down = False
+    return [Event(type=EventType.YGO_SPECIAL_SUMMON,
+                  payload={'player': controller, 'card_id': target_cid,
+                           'card_name': obj.name if obj else '',
+                           'summon_type': 'recruiter'})]
+
+
+def _ss_subtype_from_deck(state, controller: str, subtype: str, atk_threshold: int) -> list[Event]:
+    """SS the first matching subtype from controller's library."""
+    library = state.zones.get(f"library_{controller}")
+    if not library:
+        return []
+    target_cid = None
+    for cid in list(library.objects):
+        obj = state.objects.get(cid)
+        if not obj or not obj.card_def:
+            continue
+        if CardType.YGO_MONSTER not in obj.card_def.characteristics.types:
+            continue
+        cd = obj.card_def
+        if subtype not in (cd.characteristics.subtypes or set()):
+            continue
+        if (getattr(cd, 'atk', 0) or 0) > atk_threshold:
+            continue
+        target_cid = cid
+        break
+    if target_cid is None:
+        return []
+    zone = state.zones.get(f"monster_zone_{controller}")
+    if not zone:
+        return []
+    slot = None
+    for i in range(5):
+        if i >= len(zone.objects) or zone.objects[i] is None:
+            slot = i
+            break
+    if slot is None and len(zone.objects) < 5:
+        slot = len(zone.objects)
+    if slot is None:
+        return []
+    library.objects.remove(target_cid)
+    while len(zone.objects) <= slot:
+        zone.objects.append(None)
+    zone.objects[slot] = target_cid
+    obj = state.objects.get(target_cid)
+    if obj is not None:
+        obj.zone = ZoneType.MONSTER_ZONE
+        obj.controller = controller
+        obj.state.ygo_position = 'face_up_atk'
+        obj.state.face_down = False
+    return [Event(type=EventType.YGO_SPECIAL_SUMMON,
+                  payload={'player': controller, 'card_id': target_cid,
+                           'card_name': obj.name if obj else '',
+                           'summon_type': 'recruiter'})]
+
+
+def _battle_destroyed_filter(obj, event, state):
+    """Match if obj was destroyed by battle in this event."""
+    if event.type not in (EventType.YGO_DESTROY, EventType.YGO_DESTROYED):
+        return False
+    target_ids = event.payload.get('target_ids') or []
+    if target_ids and obj.id not in target_ids:
+        return False
+    if not target_ids and event.payload.get('card_id') != obj.id:
+        return False
+    # Battle destruction is signaled by reason='battle'. Legacy emits without
+    # reason; we accept the missing case to preserve back-compat with the
+    # inline combat resolver until it's updated.
+    reason = event.payload.get('reason', 'battle')
+    return reason in ('battle', '')
+
+
+def _mystic_tomato_setup(obj, state):
+    """When destroyed by battle: SS 1 DARK monster with 1500 or less ATK from Deck."""
+    def effect_fn(o, st):
+        return _ss_attribute_from_deck(st, o.controller, 'DARK', 1500)
+
+    from src.engine.types import (
+        Interceptor, InterceptorPriority, InterceptorAction,
+        InterceptorResult, new_id,
+    )
+
+    def _handler(event, state):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=effect_fn(obj, state),
+        )
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=lambda e, s: _battle_destroyed_filter(obj, e, s),
+        handler=_handler, duration='forever', uses_remaining=1,
+    )]
+
 
 MYSTIC_TOMATO = make_ygo_monster(
     "Mystic Tomato", atk=1400, def_val=1100, level=4,
     attribute="DARK", ygo_monster_type="Effect",
     subtypes={"Plant"},
     text="When destroyed by battle: Special Summon 1 DARK monster with 1500 or less ATK from your Deck.",
+    setup_interceptors=_mystic_tomato_setup,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/83011278.jpg",
 )
 
@@ -528,6 +816,44 @@ def _spirit_reaper_setup(obj, state):
                                      'player': defender, 'source': 'Spirit Reaper'}))
         return events
     return [make_ygo_battle_damage_trigger(obj, effect_fn)]
+def _battle_indestructible_setup(obj, state):
+    """Prevent YGO_DESTROY events targeting this monster with reason='battle'.
+
+    Used by Spirit Reaper, Marshmallon, etc.
+    """
+    from src.engine.types import (
+        Interceptor, InterceptorPriority, InterceptorAction,
+        InterceptorResult, new_id,
+    )
+
+    def _filter(event, state):
+        if event.type != EventType.YGO_DESTROY:
+            return False
+        if event.payload.get('reason') != 'battle':
+            return False
+        target_ids = event.payload.get('target_ids') or []
+        if target_ids and obj.id in target_ids:
+            return True
+        return not target_ids and event.payload.get('card_id') == obj.id
+
+    def _handler(event, state):
+        # Filter this card out of the target list (TRANSFORM). If it was the
+        # sole target, PREVENT the destroy.
+        target_ids = event.payload.get('target_ids') or []
+        if target_ids:
+            new_targets = [t for t in target_ids if t != obj.id]
+            if not new_targets:
+                return InterceptorResult(action=InterceptorAction.PREVENT)
+            event.payload['target_ids'] = new_targets
+            return InterceptorResult(action=InterceptorAction.TRANSFORM,
+                                     transformed_event=event)
+        return InterceptorResult(action=InterceptorAction.PREVENT)
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.PREVENT, filter=_filter, handler=_handler,
+        duration='until_leaves',
+    )]
 
 
 SPIRIT_REAPER = make_ygo_monster(
@@ -536,6 +862,7 @@ SPIRIT_REAPER = make_ygo_monster(
     subtypes={"Zombie"},
     text="Cannot be destroyed by battle. When this card inflicts battle damage: Opponent discards 1 random card.",
     setup_interceptors=_spirit_reaper_setup,
+    setup_interceptors=_battle_indestructible_setup,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/23205979.jpg",
 )
 
@@ -634,11 +961,48 @@ GOAT_CONTROL_STRATEGY = {
 # DECK 2: Monarch Control
 # =============================================================================
 
+def _mobius_setup(obj, state):
+    """When Tribute Summoned: Destroy up to 2 Spell/Trap Cards on the field."""
+    def effect_fn(o, st):
+        # Prefer opponent's S/T; fall back to ours if none.
+        targets = _opp_spell_trap_ids(st, o.controller)[:2]
+        if not targets:
+            targets = [tid for tid in _all_field_spell_traps(st)
+                       if tid != o.id][:2]
+        if not targets:
+            return []
+        return [Event(type=EventType.YGO_DESTROY,
+                      payload={'target_ids': targets, 'source_id': o.id,
+                               'reason': 'effect'})]
+
+    def _filter(event, state):
+        return (event.type == EventType.YGO_TRIBUTE_SUMMON
+                and event.payload.get('card_id') == obj.id)
+
+    from src.engine.types import (
+        Interceptor, InterceptorPriority, InterceptorAction,
+        InterceptorResult, new_id,
+    )
+
+    def _handler(event, state):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=effect_fn(obj, state),
+        )
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT, filter=_filter, handler=_handler,
+        duration='until_leaves',
+    )]
+
+
 MOBIUS_THE_FROST_MONARCH = make_ygo_monster(
     "Mobius the Frost Monarch", atk=2400, def_val=1000, level=6,
     attribute="WATER", ygo_monster_type="Effect",
     subtypes={"Aqua"},
     text="When Tribute Summoned: Destroy up to 2 Spell/Trap Cards on the field.",
+    setup_interceptors=_mobius_setup,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/4929256.jpg",
 )
 
@@ -688,11 +1052,49 @@ THESTALOS_THE_FIRESTORM_MONARCH = make_ygo_monster(
     image_url="https://images.ygoprodeck.com/images/cards_cropped/26205777.jpg",
 )
 
+def _zaborg_setup(obj, state):
+    """When Tribute Summoned: Destroy 1 monster on the field (prefer opponent's highest ATK)."""
+    def effect_fn(o, st):
+        candidates = _opp_monster_ids(st, o.controller)
+        # Highest-ATK opponent monster first
+        def _atk(cid):
+            mo = st.objects.get(cid)
+            return getattr(mo.card_def, 'atk', 0) if mo and mo.card_def else 0
+        candidates.sort(key=_atk, reverse=True)
+        if not candidates:
+            return []
+        return [Event(type=EventType.YGO_DESTROY,
+                      payload={'target_ids': candidates[:1], 'source_id': o.id,
+                               'reason': 'effect'})]
+
+    def _filter(event, state):
+        return (event.type == EventType.YGO_TRIBUTE_SUMMON
+                and event.payload.get('card_id') == obj.id)
+
+    from src.engine.types import (
+        Interceptor, InterceptorPriority, InterceptorAction,
+        InterceptorResult, new_id,
+    )
+
+    def _handler(event, state):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=effect_fn(obj, state),
+        )
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT, filter=_filter, handler=_handler,
+        duration='until_leaves',
+    )]
+
+
 ZABORG_THE_THUNDER_MONARCH = make_ygo_monster(
     "Zaborg the Thunder Monarch", atk=2400, def_val=1000, level=5,
     attribute="LIGHT", ygo_monster_type="Effect",
     subtypes={"Thunder"},
     text="When Tribute Summoned: Destroy 1 monster on the field.",
+    setup_interceptors=_zaborg_setup,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/51945556.jpg",
 )
 
@@ -1020,6 +1422,7 @@ MARSHMALLON = make_ygo_monster(
     subtypes={"Fairy"},
     text="Cannot be destroyed by battle. When flipped face-up by attack: Inflict 1000 damage to opponent.",
     flip_effect=_marshmallon_flip,
+    setup_interceptors=_battle_indestructible_setup,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/31305911.jpg",
 )
 
@@ -1033,6 +1436,76 @@ def _giant_germ_setup(obj, state):
                 events.extend(emit_lp_change(pid, -500, "Giant Germ"))
         return events
     return [make_ygo_destroy_trigger(obj, effect_fn)]
+    """When destroyed by battle: 500 damage to opponent + SS up to 2 'Giant Germ' from Deck."""
+    def effect_fn(o, st):
+        events: list[Event] = []
+        # 500 damage to opponent
+        for opp in st.players:
+            if opp == o.controller:
+                continue
+            opp_player = st.players.get(opp)
+            if opp_player:
+                opp_player.lp = max(0, opp_player.lp - 500)
+                events.append(Event(
+                    type=EventType.YGO_LP_CHANGE,
+                    payload={'player': opp, 'amount': -500, 'source': 'Giant Germ'},
+                ))
+                if opp_player.lp <= 0:
+                    opp_player.has_lost = True
+        # SS up to 2 'Giant Germ' from Deck (by name match)
+        library = st.zones.get(f"library_{o.controller}")
+        zone = st.zones.get(f"monster_zone_{o.controller}")
+        if not library or not zone:
+            return events
+        count = 0
+        for cid in list(library.objects):
+            if count >= 2:
+                break
+            cobj = st.objects.get(cid)
+            if not cobj or cobj.name != 'Giant Germ':
+                continue
+            slot = None
+            for i in range(5):
+                if i >= len(zone.objects) or zone.objects[i] is None:
+                    slot = i
+                    break
+            if slot is None and len(zone.objects) < 5:
+                slot = len(zone.objects)
+            if slot is None:
+                break
+            library.objects.remove(cid)
+            while len(zone.objects) <= slot:
+                zone.objects.append(None)
+            zone.objects[slot] = cid
+            cobj.zone = ZoneType.MONSTER_ZONE
+            cobj.controller = o.controller
+            cobj.state.ygo_position = 'face_up_atk'
+            cobj.state.face_down = False
+            events.append(Event(
+                type=EventType.YGO_SPECIAL_SUMMON,
+                payload={'player': o.controller, 'card_id': cid,
+                         'card_name': cobj.name, 'summon_type': 'self-replicate'},
+            ))
+            count += 1
+        return events
+
+    from src.engine.types import (
+        Interceptor, InterceptorPriority, InterceptorAction,
+        InterceptorResult, new_id,
+    )
+
+    def _handler(event, state):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=effect_fn(obj, state),
+        )
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=lambda e, s: _battle_destroyed_filter(obj, e, s),
+        handler=_handler, duration='forever', uses_remaining=1,
+    )]
 
 
 GIANT_GERM = make_ygo_monster(
@@ -1266,27 +1739,130 @@ RED_EYES_BLACK_DRAGON = make_ygo_monster(
 
 from src.cards.yugioh.ygo_classic import BLUE_EYES_WHITE_DRAGON
 
+def _first_monster_in_hand(state, controller: str) -> tuple[str | None, int]:
+    """Find the first YGO_MONSTER in controller's hand. Returns (card_id, atk) or (None, 0)."""
+    hand = state.zones.get(f"hand_{controller}")
+    if not hand:
+        return (None, 0)
+    for cid in hand.objects:
+        cobj = state.objects.get(cid)
+        if not cobj or not cobj.card_def:
+            continue
+        if CardType.YGO_MONSTER in cobj.card_def.characteristics.types:
+            return (cid, getattr(cobj.card_def, 'atk', 0) or 0)
+    return (None, 0)
+
+
+def _armed_dragon_lv5_setup(obj, state):
+    """Ignition: Discard 1 monster; destroy 1 face-up opp monster with ATK <= discarded ATK."""
+    def effect_fn(o, st):
+        cid, discarded_atk = _first_monster_in_hand(st, o.controller)
+        if cid is None:
+            return []
+        events: list[Event] = [Event(
+            type=EventType.YGO_SEND_TO_GY,
+            payload={'card_id': cid, 'from_zone': f"hand_{o.controller}", 'reason': 'cost'},
+        )]
+        # Find best target: opponent's face-up monster with ATK <= discarded_atk
+        best_target: str | None = None
+        best_atk = -1
+        for mid in _opp_monster_ids(st, o.controller):
+            mobj = st.objects.get(mid)
+            if not mobj or mobj.state.face_down or not mobj.card_def:
+                continue
+            target_atk = getattr(mobj.card_def, 'atk', 0) or 0
+            if target_atk <= discarded_atk and target_atk > best_atk:
+                best_target = mid
+                best_atk = target_atk
+        if best_target is not None:
+            events.append(Event(
+                type=EventType.YGO_DESTROY,
+                payload={'target_ids': [best_target], 'source_id': o.id,
+                         'reason': 'effect'},
+            ))
+        return events
+
+    return [make_ygo_ignition_effect(obj, effect_fn)]
+
+
 ARMED_DRAGON_LV5 = make_ygo_monster(
     "Armed Dragon LV5", atk=2400, def_val=1700, level=5,
     attribute="WIND", ygo_monster_type="Effect",
     subtypes={"Dragon"},
     text="Discard 1 monster; destroy 1 face-up monster with ATK <= discarded monster's ATK.",
+    setup_interceptors=_armed_dragon_lv5_setup,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/46384672.jpg",
 )
+
+
+def _armed_dragon_lv7_setup(obj, state):
+    """Ignition: Discard 1 monster; destroy ALL face-up opp monsters with ATK <= discarded ATK."""
+    def effect_fn(o, st):
+        cid, discarded_atk = _first_monster_in_hand(st, o.controller)
+        if cid is None:
+            return []
+        events: list[Event] = [Event(
+            type=EventType.YGO_SEND_TO_GY,
+            payload={'card_id': cid, 'from_zone': f"hand_{o.controller}", 'reason': 'cost'},
+        )]
+        targets: list[str] = []
+        for mid in _opp_monster_ids(st, o.controller):
+            mobj = st.objects.get(mid)
+            if not mobj or mobj.state.face_down or not mobj.card_def:
+                continue
+            target_atk = getattr(mobj.card_def, 'atk', 0) or 0
+            if target_atk <= discarded_atk:
+                targets.append(mid)
+        if targets:
+            events.append(Event(
+                type=EventType.YGO_DESTROY,
+                payload={'target_ids': targets, 'source_id': o.id,
+                         'reason': 'effect'},
+            ))
+        return events
+
+    return [make_ygo_ignition_effect(obj, effect_fn)]
+
 
 ARMED_DRAGON_LV7 = make_ygo_monster(
     "Armed Dragon LV7", atk=2800, def_val=1000, level=7,
     attribute="WIND", ygo_monster_type="Effect",
     subtypes={"Dragon"},
     text="Discard 1 monster; destroy all face-up monsters with ATK <= discarded monster's ATK.",
+    setup_interceptors=_armed_dragon_lv7_setup,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/73879377.jpg",
 )
+
+def _masked_dragon_setup(obj, state):
+    """When destroyed by battle: SS 1 Dragon with 1500 or less ATK from Deck."""
+    def effect_fn(o, st):
+        return _ss_subtype_from_deck(st, o.controller, 'Dragon', 1500)
+
+    from src.engine.types import (
+        Interceptor, InterceptorPriority, InterceptorAction,
+        InterceptorResult, new_id,
+    )
+
+    def _handler(event, state):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=effect_fn(obj, state),
+        )
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT,
+        filter=lambda e, s: _battle_destroyed_filter(obj, e, s),
+        handler=_handler, duration='forever', uses_remaining=1,
+    )]
+
 
 MASKED_DRAGON = make_ygo_monster(
     "Masked Dragon", atk=1400, def_val=1100, level=3,
     attribute="FIRE", ygo_monster_type="Effect",
     subtypes={"Dragon"},
     text="When destroyed by battle: Special Summon 1 Dragon with 1500 or less ATK from your Deck.",
+    setup_interceptors=_masked_dragon_setup,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/39191307.jpg",
 )
 

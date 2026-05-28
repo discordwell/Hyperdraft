@@ -13,10 +13,16 @@ Two 40-card decks: WARRIOR_DECK and SPELLCASTER_DECK
 """
 
 from src.engine.game import make_ygo_monster, make_ygo_spell, make_ygo_trap
-from src.engine.types import Event, EventType, GameState, ZoneType
+from src.engine.types import (
+    Event, EventType, GameState, ZoneType, CardType,
+    Interceptor, InterceptorPriority, InterceptorAction,
+    InterceptorResult, new_id,
+)
 from src.engine.yugioh_helpers import (
     destroy_all_monsters, destroy_attacking_monsters,
     revive_from_graveyard, destroy_spell_trap,
+    make_ygo_summon_trigger, make_ygo_destroy_trigger,
+    make_ygo_send_to_gy_trigger, make_ygo_ignition_effect,
 )
 
 
@@ -172,11 +178,59 @@ SPEAR_DRAGON = make_ygo_monster(
     image_url="https://images.ygoprodeck.com/images/cards_cropped/31553716.jpg",
 )
 
+def _breaker_setup(obj, state):
+    """On Normal Summon: gain a Spell Counter. Ignition: remove the counter, destroy 1 S/T."""
+    def _on_summon(o, st):
+        # Place a spell counter; tracked via obj.state.spell_counters.
+        o.state.spell_counters = getattr(o.state, 'spell_counters', 0) + 1
+        # +300 ATK while it has a Spell Counter — modeled as a flat atk_bonus_eot
+        # so that legality-check ATK reads still see the boost. This is a layer
+        # simplification; full layer support lives outside this scope.
+        o.state.atk_bonus = getattr(o.state, 'atk_bonus', 0) + 300
+        return []
+
+    def _ignition(o, st):
+        if getattr(o.state, 'spell_counters', 0) <= 0:
+            return []
+        # Pick the first opponent face-up S/T card.
+        target = None
+        for pid in st.players:
+            if pid == o.controller:
+                continue
+            zone = st.zones.get(f"spell_trap_zone_{pid}")
+            if not zone:
+                continue
+            for tid in zone.objects:
+                if tid is None:
+                    continue
+                tobj = st.objects.get(tid)
+                if tobj and not tobj.state.face_down:
+                    target = tid
+                    break
+            if target:
+                break
+        if target is None:
+            return []
+        # Consume the counter and the +300 bonus.
+        o.state.spell_counters -= 1
+        o.state.atk_bonus = max(0, getattr(o.state, 'atk_bonus', 0) - 300)
+        return [Event(
+            type=EventType.YGO_DESTROY,
+            payload={'target_ids': [target], 'source_id': o.id, 'reason': 'effect'},
+        )]
+
+    return [
+        make_ygo_summon_trigger(obj, _on_summon),
+        make_ygo_ignition_effect(obj, _ignition),
+    ]
+
+
 BREAKER_THE_MAGICAL_WARRIOR = make_ygo_monster(
     "Breaker the Magical Warrior", atk=1600, def_val=1000, level=4,
     attribute="DARK", ygo_monster_type="Effect",
     subtypes={"Spellcaster", "Warrior"},
     text="Gains 300 ATK on summon. Remove counter to destroy 1 S/T.",
+    setup_interceptors=_breaker_setup,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/71413901.jpg",
 )
 
@@ -188,11 +242,60 @@ EFFECT_VEILER = make_ygo_monster(
     image_url="https://images.ygoprodeck.com/images/cards_cropped/97268402.jpg",
 )
 
+def _witch_setup(obj, state):
+    """When sent from the field to the GY: search a monster with DEF <= 1500."""
+    def effect_fn(o, st):
+        library = st.zones.get(f"library_{o.controller}")
+        hand = st.zones.get(f"hand_{o.controller}")
+        if not library or not hand:
+            return []
+        for cid in list(library.objects):
+            cobj = st.objects.get(cid)
+            if not cobj or not cobj.card_def:
+                continue
+            if CardType.YGO_MONSTER not in cobj.card_def.characteristics.types:
+                continue
+            if (getattr(cobj.card_def, 'def_val', 0) or 0) <= 1500:
+                library.objects.remove(cid)
+                hand.objects.append(cid)
+                cobj.zone = ZoneType.HAND
+                return [Event(type=EventType.YGO_DRAW,
+                              payload={'player': o.controller, 'card_id': cid,
+                                       'card_name': cobj.name, 'source': 'search'})]
+        return []
+
+    def _filter(event, state):
+        if event.type not in (EventType.YGO_SENT_TO_GY, EventType.YGO_SEND_TO_GY,
+                              EventType.YGO_DESTROYED, EventType.YGO_DESTROY):
+            return False
+        target_ids = event.payload.get('target_ids') or []
+        if target_ids and obj.id not in target_ids:
+            return False
+        if not target_ids and event.payload.get('card_id') != obj.id:
+            return False
+        from_zone = event.payload.get('from_zone') or ''
+        # "Sent from the field" — accept monster zone, spell/trap zone moves
+        return 'monster_zone_' in from_zone or 'spell_trap_zone_' in from_zone or not from_zone
+
+    def _handler(event, state):
+        return InterceptorResult(
+            action=InterceptorAction.REACT,
+            new_events=effect_fn(obj, state),
+        )
+
+    return [Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT, filter=_filter, handler=_handler,
+        duration='forever', uses_remaining=1,
+    )]
+
+
 WITCH_OF_THE_BLACK_FOREST = make_ygo_monster(
     "Witch of the Black Forest", atk=1100, def_val=1200, level=4,
     attribute="DARK", ygo_monster_type="Effect",
     subtypes={"Spellcaster"},
     text="If sent from field to GY: Add 1 monster with 1500 or less DEF from Deck to hand.",
+    setup_interceptors=_witch_setup,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/78010363.jpg",
 )
 

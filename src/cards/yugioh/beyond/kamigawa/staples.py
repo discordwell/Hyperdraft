@@ -851,8 +851,19 @@ def _karma_setup(obj, state):
     def _filter(event, state):
         if obj.zone != ZoneType.SPELL_TRAP_ZONE or obj.state.face_down:
             return False
-        if event.type not in (EventType.YGO_DESTROY, EventType.YGO_SEND_TO_GY):
+        # Listen for both the pre-pipeline action events and the post-pipeline
+        # notifications — covers cards that emit legacy YGO_DESTROY directly as
+        # well as the new YGO_DESTROYED / YGO_SENT_TO_GY family.
+        if event.type not in (
+            EventType.YGO_DESTROY, EventType.YGO_DESTROYED,
+            EventType.YGO_SEND_TO_GY, EventType.YGO_SENT_TO_GY,
+        ):
             return False
+        # YGO_DESTROY effect-family with target_ids — react once per target.
+        target_ids = event.payload.get('target_ids') or []
+        if target_ids:
+            # Only consider monsters among the targets.
+            return any(_is_ygo_monster(state.objects.get(tid)) for tid in target_ids)
         cid = event.payload.get('card_id')
         moved = state.objects.get(cid) if cid else None
         return _is_ygo_monster(moved)

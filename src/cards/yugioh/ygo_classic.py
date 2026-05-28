@@ -464,9 +464,70 @@ RING_OF_DESTRUCTION = make_ygo_trap(
     image_url="https://images.ygoprodeck.com/images/cards_cropped/83555666.jpg",
 )
 
+def _crush_card_resolve(event, state):
+    """Tribute cost is paid via TARGET selection (cost-card_id), then destroy all opp 1500+ ATK monsters.
+
+    Resolution simplification: if a target list contains a DARK monster with
+    <=1000 ATK we control, send it to GY as the cost, then emit a single
+    YGO_DESTROY targeting every opponent monster with ATK >= 1500.
+    """
+    from src.engine.types import CardType
+    events: list[Event] = []
+    controller = event.payload.get('player')
+    if not controller:
+        return events
+    # Find cost: first DARK monster we control with ATK <= 1000
+    cost_id: str | None = None
+    zone = state.zones.get(f"monster_zone_{controller}")
+    if zone:
+        for oid in zone.objects:
+            if oid is None:
+                continue
+            o = state.objects.get(oid)
+            if not o or not o.card_def:
+                continue
+            if CardType.YGO_MONSTER not in o.card_def.characteristics.types:
+                continue
+            if getattr(o.card_def, 'attribute', None) == 'DARK' and (getattr(o.card_def, 'atk', 0) or 0) <= 1000:
+                cost_id = oid
+                break
+    if cost_id is None:
+        return events  # Cost cannot be paid — effect fizzles
+    # Pay cost via the pipeline.
+    events.append(Event(
+        type=EventType.YGO_SEND_TO_GY,
+        payload={'card_id': cost_id, 'from_zone': f"monster_zone_{controller}",
+                 'reason': 'cost'},
+    ))
+    # Find all opponent monsters with ATK >= 1500.
+    targets: list[str] = []
+    for pid in state.players:
+        if pid == controller:
+            continue
+        opp_zone = state.zones.get(f"monster_zone_{pid}")
+        if not opp_zone:
+            continue
+        for oid in opp_zone.objects:
+            if oid is None:
+                continue
+            o = state.objects.get(oid)
+            if not o or not o.card_def:
+                continue
+            if (getattr(o.card_def, 'atk', 0) or 0) >= 1500:
+                targets.append(oid)
+    if targets:
+        events.append(Event(
+            type=EventType.YGO_DESTROY,
+            payload={'target_ids': targets, 'source_id': event.source,
+                     'reason': 'effect'},
+        ))
+    return events
+
+
 CRUSH_CARD_VIRUS = make_ygo_trap(
     "Crush Card Virus", ygo_trap_type="Normal",
     text="Tribute 1 DARK monster with 1000 or less ATK: Opponent destroys all 1500+ ATK monsters.",
+    resolve=_crush_card_resolve,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/57728570.jpg",
 )
 

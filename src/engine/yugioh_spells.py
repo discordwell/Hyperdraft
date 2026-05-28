@@ -99,7 +99,12 @@ class YugiohSpellTrapManager:
 
     def activate_spell(self, card_id: str, player_id: str,
                        targets: list = None) -> list[Event]:
-        """Activate a spell card — resolve effect, handle lifecycle."""
+        """Activate a spell card — resolve effect, handle lifecycle.
+
+        Effect-events emitted by ``card_def.resolve`` (e.g. YGO_DESTROY,
+        YGO_SEND_TO_GY) are routed through the pipeline so their handlers run
+        and downstream triggers fire.
+        """
         events = []
         obj = self.state.objects.get(card_id)
         if not obj or not obj.card_def:
@@ -124,7 +129,9 @@ class YugiohSpellTrapManager:
             controller=player_id,
         ))
 
-        # Resolve effect
+        # Resolve effect — route emitted events through the pipeline so any
+        # pipeline-routed event family (YGO_DESTROY / YGO_SEND_TO_GY / etc.)
+        # gets its handler run rather than just being appended to the log.
         if card_def.resolve:
             resolve_event = Event(
                 type=EventType.YGO_ACTIVATE_SPELL,
@@ -132,8 +139,13 @@ class YugiohSpellTrapManager:
                 source=card_id, controller=player_id
             )
             result = card_def.resolve(resolve_event, self.state)
+            pipeline = getattr(self.state, '_pipeline', None) or getattr(self.state, 'pipeline', None)
             if result:
-                events.extend(result)
+                for evt in result:
+                    if pipeline is not None:
+                        events.extend(pipeline.emit(evt))
+                    else:
+                        events.append(evt)
 
         # Handle lifecycle based on spell type
         if spell_type in (None, "Normal", "Ritual", "Quick-Play"):
@@ -177,7 +189,7 @@ class YugiohSpellTrapManager:
             controller=player_id,
         ))
 
-        # Resolve effect
+        # Resolve effect — pipe through pipeline like spell activation.
         if card_def.resolve:
             resolve_event = Event(
                 type=EventType.YGO_ACTIVATE_TRAP,
@@ -185,8 +197,13 @@ class YugiohSpellTrapManager:
                 source=card_id, controller=player_id
             )
             result = card_def.resolve(resolve_event, self.state)
+            pipeline = getattr(self.state, '_pipeline', None) or getattr(self.state, 'pipeline', None)
             if result:
-                events.extend(result)
+                for evt in result:
+                    if pipeline is not None:
+                        events.extend(pipeline.emit(evt))
+                    else:
+                        events.append(evt)
 
         # Handle lifecycle
         if trap_type in (None, "Normal"):

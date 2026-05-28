@@ -296,8 +296,19 @@ class EventType(Enum):
     YGO_BATTLE_DAMAGE = auto()        # Battle damage dealt
     YGO_FLIP = auto()                 # Monster flipped face-up
     YGO_POSITION_CHANGE = auto()      # Monster position changed
-    YGO_DESTROY = auto()              # Card destroyed
-    YGO_SEND_TO_GY = auto()           # Card sent to Graveyard
+    YGO_DESTROY = auto()              # Effect family: destroy target_ids (handler moves to GY)
+                                      # payload: {'target_ids': [str], 'source_id': str, 'reason': str (optional)}
+                                      # Also accepted (single-target legacy): {'card_id': str}
+    YGO_DESTROYED = auto()            # Notification: a card was just destroyed
+                                      # payload: {'card_id': str, 'card_name': str, 'owner': str,
+                                      #           'controller': str, 'from_zone': str, 'reason': str,
+                                      #           'source_id': str}
+    YGO_SEND_TO_GY = auto()           # Effect family: send card_id from any zone to GY
+                                      # payload: {'card_id': str, 'from_zone': str (optional),
+                                      #           'reason': str (e.g. 'tribute', 'discard', 'cost')}
+    YGO_SENT_TO_GY = auto()           # Notification: a card was just sent to GY (non-destroy path)
+                                      # payload: {'card_id': str, 'card_name': str, 'owner': str,
+                                      #           'controller': str, 'from_zone': str, 'reason': str}
     YGO_BANISH = auto()               # Card banished
     YGO_EQUIP = auto()                # Equip card to monster
     YGO_LP_CHANGE = auto()            # Life Points changed

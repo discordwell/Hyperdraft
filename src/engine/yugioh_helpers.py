@@ -34,10 +34,44 @@ def make_ygo_summon_trigger(obj: GameObject, effect_fn):
 
 
 def make_ygo_destroy_trigger(obj: GameObject, effect_fn):
-    """Create a trigger that fires when this card is destroyed."""
+    """Create a trigger that fires when this card is destroyed.
+
+    Listens for both the legacy ``YGO_DESTROY`` notification (single ``card_id``
+    payload, emitted by cards that perform their own zone manipulation) and the
+    new ``YGO_DESTROYED`` notification fanned out by the pipeline handler.
+    """
     def _filter(event: Event, state: GameState) -> bool:
-        return (event.type == EventType.YGO_DESTROY and
-                event.payload.get('card_id') == obj.id)
+        if event.type not in (EventType.YGO_DESTROY, EventType.YGO_DESTROYED):
+            return False
+        # YGO_DESTROY effect-family with target_ids — match if this obj is a target.
+        target_ids = event.payload.get('target_ids')
+        if target_ids:
+            return obj.id in target_ids
+        return event.payload.get('card_id') == obj.id
+
+    def _handler(event: Event, state: GameState) -> InterceptorResult:
+        events = effect_fn(obj, state)
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=events or [])
+
+    return Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT, filter=_filter, handler=_handler,
+        duration='forever', uses_remaining=1,
+    )
+
+
+def make_ygo_send_to_gy_trigger(obj: GameObject, effect_fn):
+    """Create a trigger that fires when this card is sent to the Graveyard
+    for any reason (tribute, discard, destruction, cost).
+
+    Listens for ``YGO_SENT_TO_GY`` (new pipeline notification). Also fires on
+    ``YGO_SEND_TO_GY`` for backward compatibility with any test or card that
+    pre-empts the pipeline by emitting the action event directly.
+    """
+    def _filter(event: Event, state: GameState) -> bool:
+        if event.type not in (EventType.YGO_SEND_TO_GY, EventType.YGO_SENT_TO_GY):
+            return False
+        return event.payload.get('card_id') == obj.id
 
     def _handler(event: Event, state: GameState) -> InterceptorResult:
         events = effect_fn(obj, state)

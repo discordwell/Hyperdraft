@@ -74,6 +74,7 @@ from ...face_down import _handle_turn_face_up, _handle_manifest_dread
 from ...attach import ATTACH_EVENT_HANDLERS
 from ...rooms import ROOMS_EVENT_HANDLERS
 from ...library_search import _handle_search_library_event
+from .yugioh_zone import _handle_ygo_destroy, _handle_ygo_send_to_gy
 
 
 EVENT_HANDLERS = {
@@ -141,6 +142,11 @@ EVENT_HANDLERS = {
     EventType.LIBRARY_SEARCH: _handle_search_library_event,
     EventType.GRANT_CREATURE_TYPE: _handle_grant_creature_type,
     EventType.EXHAUST_RESET: _handle_exhaust_reset,
+    # Yu-Gi-Oh! effect families. YGO_DESTROY and YGO_SEND_TO_GY are emitted by
+    # cards; the handler performs the zone manipulation and fans out
+    # YGO_DESTROYED / YGO_SENT_TO_GY notifications for downstream triggers.
+    EventType.YGO_DESTROY: _handle_ygo_destroy,
+    EventType.YGO_SEND_TO_GY: _handle_ygo_send_to_gy,
 }
 
 # Merge in saga handlers (defined in src/engine/saga.py).

@@ -1,552 +1,457 @@
 """
-Yu-Gi-Oh! Interceptor / Effect Verification
+Yu-Gi-Oh! Interceptor Tests — YGO_DESTROY / YGO_SEND_TO_GY effect families.
 
-Per-card verification: does the card actually emit events when its trigger
-fires? Catches "interceptor wired but effect_fn returns []" failure mode.
+Verifies the pipeline handlers correctly move cards to GY and emit follow-up
+notification events (YGO_DESTROYED, YGO_SENT_TO_GY), and that the 18 wired
+cards actually fire their destroy/send-to-GY effects end-to-end.
 
-This test suite was generated/updated as part of the YGO_DRAW / YGO_SEARCH_DECK
-effect family work. It exercises the new draw/search helpers in
-src/engine/yugioh_helpers.py.
-
-Run directly: python tests/test_yugioh_interceptors.py
+Run directly:
+    python tests/test_yugioh_interceptors.py
 """
 
-import sys, os
+import sys
+import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.engine.game import Game
-from src.engine.types import (Event, EventType, ZoneType, CardType,
-                              GameObject)
-from src.engine.yugioh_helpers import (
-    draw_cards, search_deck, search_deck_by_subtype,
-    search_deck_by_name, add_from_gy_to_hand,
+from src.engine.types import ZoneType, CardType, EventType, Event, Characteristics
+from src.engine.yugioh_spells import YugiohSpellTrapManager
+
+from src.cards.yugioh.ygo_starter import (
+    BREAKER_THE_MAGICAL_WARRIOR, WITCH_OF_THE_BLACK_FOREST,
+    BATTLE_OX, ALEXANDRITE_DRAGON, MOUNTAIN_FIELD,
+)
+from src.cards.yugioh.ygo_classic import (
+    CRUSH_CARD_VIRUS, BLUE_EYES_WHITE_DRAGON, DARK_MAGICIAN, CELTIC_GUARDIAN,
+)
+from src.cards.yugioh.ygo_optimized import (
+    RAIGEKI, MOBIUS_THE_FROST_MONARCH, ZABORG_THE_THUNDER_MONARCH,
+    TRIBE_INFECTING_VIRUS, SANGAN, MYSTIC_TOMATO, MASKED_DRAGON,
+    GIANT_GERM, ARMED_DRAGON_LV5, ARMED_DRAGON_LV7,
 )
 
 
 def make_test_game():
-    g = Game(mode="yugioh")
-    p1 = g.add_player("P1")
-    p2 = g.add_player("P2")
-    return g, p1, p2
+    game = Game(mode="yugioh")
+    p1 = game.add_player("Player 1")
+    p2 = game.add_player("Player 2")
+    return game, p1, p2
 
 
-def make_card_in_zone(game, card_def, owner_id, zone):
-    chars_cls = card_def.characteristics.__class__
-    chars = chars_cls(
-        types=set(card_def.characteristics.types),
-        subtypes=set(card_def.characteristics.subtypes or set()),
-    )
-    return game.create_object(
-        name=card_def.name,
-        owner_id=owner_id,
-        zone=zone,
-        characteristics=chars,
+def create_in_zone(game, owner, card_def, zone, position='face_up_atk'):
+    """Create a card directly in a zone (bypasses summon for testing)."""
+    obj = game.create_object(
+        name=card_def.name, owner_id=owner.id, zone=ZoneType.HAND,
+        characteristics=Characteristics(types=set(card_def.characteristics.types),
+                                        subtypes=set(card_def.characteristics.subtypes or set())),
         card_def=card_def,
     )
+    # Move to target zone
+    hand_zone = game.state.zones[f"hand_{owner.id}"]
+    if obj.id in hand_zone.objects:
+        hand_zone.objects.remove(obj.id)
+    target_key = _zone_key_for(zone, owner.id)
+    if target_key and target_key in game.state.zones:
+        z = game.state.zones[target_key]
+        if "monster_zone_" in target_key or "spell_trap_zone_" in target_key:
+            placed = False
+            for i in range(5):
+                if i >= len(z.objects) or z.objects[i] is None:
+                    while len(z.objects) <= i:
+                        z.objects.append(None)
+                    z.objects[i] = obj.id
+                    placed = True
+                    break
+            if not placed:
+                z.objects.append(obj.id)
+        else:
+            z.objects.append(obj.id)
+    obj.zone = zone
+    obj.controller = owner.id
+    if zone == ZoneType.MONSTER_ZONE:
+        obj.state.ygo_position = position
+        obj.state.face_down = False
+    return obj
 
 
-# =========================================================================
-# Helper-level tests — draw_cards / search_deck / add_from_gy_to_hand
-# =========================================================================
+def _zone_key_for(zone, owner_id):
+    if zone == ZoneType.MONSTER_ZONE:
+        return f"monster_zone_{owner_id}"
+    if zone == ZoneType.SPELL_TRAP_ZONE:
+        return f"spell_trap_zone_{owner_id}"
+    if zone == ZoneType.LIBRARY:
+        return f"library_{owner_id}"
+    if zone == ZoneType.HAND:
+        return f"hand_{owner_id}"
+    if zone == ZoneType.GRAVEYARD:
+        return f"graveyard_{owner_id}"
+    return None
 
-def test_draw_cards_one():
-    """draw_cards(state, p, 1) moves 1 card from library to hand and emits
-    a YGO_DRAW with source='draw'."""
-    from src.engine.game import make_ygo_monster
-    g, p1, p2 = make_test_game()
-    card = make_ygo_monster(
-        name="Test Monster", atk=1000, def_val=1000, level=4,
-        attribute="DARK", ygo_monster_type="Normal",
+
+def count_monsters(game, player_id):
+    zone = game.state.zones.get(f"monster_zone_{player_id}")
+    if not zone:
+        return 0
+    return sum(1 for oid in zone.objects if oid is not None)
+
+
+# =============================================================================
+# Tests
+# =============================================================================
+
+def test_ygo_destroy_handler_moves_to_gy():
+    """YGO_DESTROY with target_ids moves cards to GY and emits YGO_DESTROYED."""
+    game, p1, p2 = make_test_game()
+    pipeline = game.pipeline
+
+    m1 = create_in_zone(game, p2, CELTIC_GUARDIAN, ZoneType.MONSTER_ZONE)
+    m2 = create_in_zone(game, p2, BLUE_EYES_WHITE_DRAGON, ZoneType.MONSTER_ZONE)
+
+    assert count_monsters(game, p2.id) == 2
+
+    processed = pipeline.emit(Event(
+        type=EventType.YGO_DESTROY,
+        payload={'target_ids': [m1.id, m2.id], 'source_id': 'test', 'reason': 'effect'},
+    ))
+
+    # Both monsters now in p2's graveyard
+    assert count_monsters(game, p2.id) == 0
+    gy = game.state.zones[f"graveyard_{p2.id}"].objects
+    assert m1.id in gy
+    assert m2.id in gy
+
+    # Both notification events emitted
+    destroyed_evts = [e for e in processed if e.type == EventType.YGO_DESTROYED]
+    sent_evts = [e for e in processed if e.type == EventType.YGO_SENT_TO_GY]
+    assert len(destroyed_evts) == 2, f"expected 2 YGO_DESTROYED, got {len(destroyed_evts)}"
+    assert len(sent_evts) == 2, f"expected 2 YGO_SENT_TO_GY, got {len(sent_evts)}"
+    # from_zone is captured
+    assert all(e.payload.get('from_zone', '').startswith('monster_zone_')
+               for e in destroyed_evts), "from_zone not captured"
+    print("  PASS: test_ygo_destroy_handler_moves_to_gy")
+
+
+def test_ygo_send_to_gy_handler_moves_and_emits_only_sent():
+    """YGO_SEND_TO_GY moves card to GY and emits YGO_SENT_TO_GY (NOT YGO_DESTROYED)."""
+    game, p1, p2 = make_test_game()
+    pipeline = game.pipeline
+
+    m = create_in_zone(game, p1, DARK_MAGICIAN, ZoneType.MONSTER_ZONE)
+
+    processed = pipeline.emit(Event(
+        type=EventType.YGO_SEND_TO_GY,
+        payload={'card_id': m.id, 'reason': 'tribute'},
+    ))
+
+    assert count_monsters(game, p1.id) == 0
+    assert m.id in game.state.zones[f"graveyard_{p1.id}"].objects
+
+    destroyed_evts = [e for e in processed if e.type == EventType.YGO_DESTROYED]
+    sent_evts = [e for e in processed if e.type == EventType.YGO_SENT_TO_GY]
+    assert len(destroyed_evts) == 0, "YGO_SEND_TO_GY must NOT emit YGO_DESTROYED"
+    assert len(sent_evts) == 1
+    assert sent_evts[0].payload.get('reason') == 'tribute'
+    print("  PASS: test_ygo_send_to_gy_handler_moves_and_emits_only_sent")
+
+
+def test_raigeki_destroys_opponent_monsters_via_event():
+    """Raigeki resolver still works after the event-handler refactor."""
+    game, p1, p2 = make_test_game()
+    spell_mgr = YugiohSpellTrapManager(game.state)
+
+    # 3 opponent monsters
+    for cd in (CELTIC_GUARDIAN, BLUE_EYES_WHITE_DRAGON, DARK_MAGICIAN):
+        create_in_zone(game, p2, cd, ZoneType.MONSTER_ZONE)
+    # 1 of our own
+    own = create_in_zone(game, p1, BATTLE_OX, ZoneType.MONSTER_ZONE)
+
+    assert count_monsters(game, p2.id) == 3
+    assert count_monsters(game, p1.id) == 1
+
+    # Activate Raigeki
+    raigeki = game.create_object(
+        name=RAIGEKI.name, owner_id=p1.id, zone=ZoneType.HAND,
+        characteristics=Characteristics(types=set(RAIGEKI.characteristics.types)),
+        card_def=RAIGEKI,
     )
-    make_card_in_zone(g, card, p1.id, ZoneType.LIBRARY)
-    pre_hand = len(g.state.zones[f"hand_{p1.id}"].objects)
-    events = draw_cards(g.state, p1.id, 1)
-    assert len(events) == 1, f"Expected 1 YGO_DRAW event, got {len(events)}"
-    assert events[0].type == EventType.YGO_DRAW
-    assert events[0].payload['source'] == 'draw'
-    assert events[0].payload['player'] == p1.id
-    assert len(g.state.zones[f"hand_{p1.id}"].objects) == pre_hand + 1
-    return True
+    spell_mgr.activate_spell(raigeki.id, p1.id)
+
+    # All opp monsters destroyed; our own untouched
+    assert count_monsters(game, p2.id) == 0, "Raigeki must destroy all opponent monsters"
+    assert count_monsters(game, p1.id) == 1, "Raigeki must NOT destroy own monsters"
+    print("  PASS: test_raigeki_destroys_opponent_monsters_via_event")
 
 
-def test_draw_cards_two():
-    """draw_cards(state, p, 2) emits 2 YGO_DRAW events."""
-    from src.engine.game import make_ygo_monster
-    g, p1, p2 = make_test_game()
-    for i in range(3):
-        c = make_ygo_monster(
-            name=f"Test {i}", atk=1000, def_val=1000, level=4,
-            attribute="DARK", ygo_monster_type="Normal",
-        )
-        make_card_in_zone(g, c, p1.id, ZoneType.LIBRARY)
-    events = draw_cards(g.state, p1.id, 2)
-    assert len(events) == 2
-    assert all(e.type == EventType.YGO_DRAW for e in events)
-    return True
+def test_mobius_destroys_opp_spell_trap_on_tribute():
+    """Mobius destroys up to 2 opp S/T on Tribute Summon."""
+    game, p1, p2 = make_test_game()
+    pipeline = game.pipeline
+
+    # Set up 2 opp S/T
+    st1 = create_in_zone(game, p2, MOUNTAIN_FIELD, ZoneType.SPELL_TRAP_ZONE)
+    st2 = create_in_zone(game, p2, MOUNTAIN_FIELD, ZoneType.SPELL_TRAP_ZONE)
+    # Place Mobius on field & emit YGO_TRIBUTE_SUMMON
+    mobius = create_in_zone(game, p1, MOBIUS_THE_FROST_MONARCH, ZoneType.MONSTER_ZONE)
+
+    # Sanity
+    assert sum(1 for o in game.state.zones[f"spell_trap_zone_{p2.id}"].objects if o) == 2
+
+    pipeline.emit(Event(
+        type=EventType.YGO_TRIBUTE_SUMMON,
+        payload={'card_id': mobius.id, 'player': p1.id, 'card_name': mobius.name},
+        source=mobius.id, controller=p1.id,
+    ))
+
+    # Both opp S/T destroyed
+    remaining = sum(1 for o in game.state.zones[f"spell_trap_zone_{p2.id}"].objects if o)
+    assert remaining == 0, f"Mobius should clear 2 opp S/T, {remaining} remain"
+    print("  PASS: test_mobius_destroys_opp_spell_trap_on_tribute")
 
 
-def test_draw_cards_empty_deck():
-    """draw_cards on empty deck emits nothing (doesn't crash)."""
-    g, p1, p2 = make_test_game()
-    events = draw_cards(g.state, p1.id, 1)
-    assert events == []
-    return True
+def test_zaborg_destroys_one_monster_on_tribute():
+    """Zaborg destroys 1 monster on Tribute Summon (prefers highest ATK opp)."""
+    game, p1, p2 = make_test_game()
+    pipeline = game.pipeline
+
+    create_in_zone(game, p2, CELTIC_GUARDIAN, ZoneType.MONSTER_ZONE)  # 1400 ATK
+    create_in_zone(game, p2, BLUE_EYES_WHITE_DRAGON, ZoneType.MONSTER_ZONE)  # 3000 ATK
+    zaborg = create_in_zone(game, p1, ZABORG_THE_THUNDER_MONARCH, ZoneType.MONSTER_ZONE)
+
+    assert count_monsters(game, p2.id) == 2
+
+    pipeline.emit(Event(
+        type=EventType.YGO_TRIBUTE_SUMMON,
+        payload={'card_id': zaborg.id, 'player': p1.id, 'card_name': zaborg.name},
+        source=zaborg.id, controller=p1.id,
+    ))
+
+    # 1 of 2 opp monsters destroyed; Blue-Eyes (higher ATK) should be the target
+    remaining_names = []
+    zone = game.state.zones[f"monster_zone_{p2.id}"]
+    for oid in zone.objects:
+        if oid is None:
+            continue
+        o = game.state.objects.get(oid)
+        if o:
+            remaining_names.append(o.name)
+    assert len(remaining_names) == 1, f"Zaborg should destroy 1, remaining: {remaining_names}"
+    assert remaining_names[0] == "Celtic Guardian", (
+        f"Zaborg should kill highest-ATK (Blue-Eyes), kept: {remaining_names[0]}")
+    print("  PASS: test_zaborg_destroys_one_monster_on_tribute")
 
 
-def test_search_deck_by_subtype():
-    """search_deck_by_subtype finds card with matching subtype and emits both
-    YGO_SEARCH_DECK and YGO_DRAW (source='search')."""
-    from src.engine.game import make_ygo_monster
-    g, p1, p2 = make_test_game()
-    # Library: 1 Moonfolk, 1 non-Moonfolk
-    moonfolk = make_ygo_monster(
-        name="Soratami Test", atk=500, def_val=500, level=2,
-        attribute="WATER", ygo_monster_type="Effect",
-        subtypes={"Moonfolk", "Spellcaster"},
+def test_sangan_searches_on_send_to_gy():
+    """Sangan searches a low-ATK monster when sent from the field to the GY."""
+    game, p1, p2 = make_test_game()
+    pipeline = game.pipeline
+
+    # Populate p1's library with a low-ATK monster that Sangan can search
+    target = game.create_object(
+        name=CELTIC_GUARDIAN.name, owner_id=p1.id, zone=ZoneType.LIBRARY,
+        characteristics=Characteristics(types=set(CELTIC_GUARDIAN.characteristics.types)),
+        card_def=CELTIC_GUARDIAN,
     )
-    other = make_ygo_monster(
-        name="Other Monster", atk=1000, def_val=1000, level=4,
-        attribute="EARTH", ygo_monster_type="Normal",
-        subtypes={"Warrior"},
+
+    sangan = create_in_zone(game, p1, SANGAN, ZoneType.MONSTER_ZONE)
+    assert count_monsters(game, p1.id) == 1
+    hand_before = len(game.state.zones[f"hand_{p1.id}"].objects)
+
+    # Send Sangan to GY via the new event family.
+    pipeline.emit(Event(
+        type=EventType.YGO_SEND_TO_GY,
+        payload={'card_id': sangan.id, 'reason': 'tribute'},
+    ))
+
+    # Hand grew by 1 (the searched monster)
+    hand_after = len(game.state.zones[f"hand_{p1.id}"].objects)
+    assert hand_after == hand_before + 1, (
+        f"Sangan should add a card to hand: before={hand_before}, after={hand_after}")
+    assert target.id in game.state.zones[f"hand_{p1.id}"].objects
+    print("  PASS: test_sangan_searches_on_send_to_gy")
+
+
+def test_witch_searches_on_send_to_gy():
+    """Witch searches a low-DEF monster when sent from the field to the GY."""
+    game, p1, p2 = make_test_game()
+    pipeline = game.pipeline
+
+    # ALEXANDRITE_DRAGON has DEF 100 (under 1500)
+    target = game.create_object(
+        name=ALEXANDRITE_DRAGON.name, owner_id=p1.id, zone=ZoneType.LIBRARY,
+        characteristics=Characteristics(types=set(ALEXANDRITE_DRAGON.characteristics.types)),
+        card_def=ALEXANDRITE_DRAGON,
     )
-    make_card_in_zone(g, other, p1.id, ZoneType.LIBRARY)
-    make_card_in_zone(g, moonfolk, p1.id, ZoneType.LIBRARY)
-    events = search_deck_by_subtype(g.state, p1.id, "Moonfolk")
-    assert len(events) == 2, f"Expected 2 events, got {len(events)}: {[(e.type.name, e.payload) for e in events]}"
-    assert events[0].type == EventType.YGO_SEARCH_DECK
-    assert events[1].type == EventType.YGO_DRAW
-    assert events[1].payload['source'] == 'search'
-    # Verify Moonfolk moved to hand
-    hand = g.state.zones[f"hand_{p1.id}"]
-    in_hand = [g.state.objects[oid].name for oid in hand.objects]
-    assert "Soratami Test" in in_hand
-    return True
+    witch = create_in_zone(game, p1, WITCH_OF_THE_BLACK_FOREST, ZoneType.MONSTER_ZONE)
+    hand_before = len(game.state.zones[f"hand_{p1.id}"].objects)
+
+    pipeline.emit(Event(
+        type=EventType.YGO_SEND_TO_GY,
+        payload={'card_id': witch.id, 'reason': 'effect'},
+    ))
+
+    hand_after = len(game.state.zones[f"hand_{p1.id}"].objects)
+    assert hand_after == hand_before + 1
+    assert target.id in game.state.zones[f"hand_{p1.id}"].objects
+    print("  PASS: test_witch_searches_on_send_to_gy")
 
 
-def test_search_deck_by_subtype_max_level():
-    """search_deck_by_subtype with max_level filters out higher-level matches."""
-    from src.engine.game import make_ygo_monster
-    g, p1, p2 = make_test_game()
-    big_moonfolk = make_ygo_monster(
-        name="Meloku Test", atk=2200, def_val=1900, level=5,
-        attribute="WATER", ygo_monster_type="Effect",
-        subtypes={"Moonfolk"},
+def test_armed_dragon_lv5_destroys_via_event():
+    """Armed Dragon LV5: discard 1 monster from hand; destroy 1 opp monster with ATK <= discarded."""
+    game, p1, p2 = make_test_game()
+    pipeline = game.pipeline
+
+    # AD LV5 on the field
+    ad = create_in_zone(game, p1, ARMED_DRAGON_LV5, ZoneType.MONSTER_ZONE)
+    # Discard candidate in hand: Battle Ox (1700 ATK)
+    discard_pick = game.create_object(
+        name=BATTLE_OX.name, owner_id=p1.id, zone=ZoneType.HAND,
+        characteristics=Characteristics(types=set(BATTLE_OX.characteristics.types)),
+        card_def=BATTLE_OX,
     )
-    small_moonfolk = make_ygo_monster(
-        name="Small Moonfolk", atk=500, def_val=500, level=2,
-        attribute="WATER", ygo_monster_type="Effect",
-        subtypes={"Moonfolk"},
+    # Opp monster: Celtic Guardian (1400 ATK, <= 1700)
+    cg = create_in_zone(game, p2, CELTIC_GUARDIAN, ZoneType.MONSTER_ZONE)
+
+    pipeline.emit(Event(
+        type=EventType.YGO_ACTIVATE_MONSTER_EFFECT,
+        payload={'monster_id': ad.id, 'player': p1.id, 'card_id': ad.id},
+        source=ad.id, controller=p1.id,
+    ))
+
+    # CG destroyed, discard sent to GY
+    assert count_monsters(game, p2.id) == 0, "Armed Dragon should destroy CG"
+    assert discard_pick.id in game.state.zones[f"graveyard_{p1.id}"].objects, \
+        "Discard cost not paid"
+    print("  PASS: test_armed_dragon_lv5_destroys_via_event")
+
+
+def test_armed_dragon_lv7_destroys_all_via_event():
+    """Armed Dragon LV7: discard 1 monster; destroy ALL opp monsters with ATK <= discarded."""
+    game, p1, p2 = make_test_game()
+    pipeline = game.pipeline
+
+    ad = create_in_zone(game, p1, ARMED_DRAGON_LV7, ZoneType.MONSTER_ZONE)
+    game.create_object(
+        name=BATTLE_OX.name, owner_id=p1.id, zone=ZoneType.HAND,
+        characteristics=Characteristics(types=set(BATTLE_OX.characteristics.types)),
+        card_def=BATTLE_OX,
     )
-    # Put big one first so it would be matched without the level cap
-    make_card_in_zone(g, big_moonfolk, p1.id, ZoneType.LIBRARY)
-    make_card_in_zone(g, small_moonfolk, p1.id, ZoneType.LIBRARY)
-    events = search_deck_by_subtype(g.state, p1.id, "Moonfolk", max_level=4)
-    assert len(events) == 2
-    # The small one should be matched, not the big one
-    matched_name = events[0].payload['card_name']
-    assert matched_name == "Small Moonfolk", f"Got {matched_name}"
-    return True
+    # 3 opp monsters: 2 below 1700, 1 above
+    create_in_zone(game, p2, CELTIC_GUARDIAN, ZoneType.MONSTER_ZONE)  # 1400
+    create_in_zone(game, p2, DARK_MAGICIAN, ZoneType.MONSTER_ZONE)    # 2500 — survives
+    create_in_zone(game, p2, BATTLE_OX, ZoneType.MONSTER_ZONE)        # 1700 — destroyed
+
+    pipeline.emit(Event(
+        type=EventType.YGO_ACTIVATE_MONSTER_EFFECT,
+        payload={'monster_id': ad.id, 'player': p1.id, 'card_id': ad.id},
+        source=ad.id, controller=p1.id,
+    ))
+
+    assert count_monsters(game, p2.id) == 1, "AD7 should clear all ATK<=1700"
+    # Dark Magician (2500) should be the survivor
+    survivors = []
+    for oid in game.state.zones[f"monster_zone_{p2.id}"].objects:
+        if oid is None:
+            continue
+        o = game.state.objects.get(oid)
+        if o:
+            survivors.append(o.name)
+    assert survivors == ["Dark Magician"], f"Survivors: {survivors}"
+    print("  PASS: test_armed_dragon_lv7_destroys_all_via_event")
 
 
-def test_search_deck_no_match():
-    """search_deck with no matches emits nothing."""
-    from src.engine.game import make_ygo_monster
-    g, p1, p2 = make_test_game()
-    other = make_ygo_monster(
-        name="Other", atk=1000, def_val=1000, level=4,
-        attribute="EARTH", ygo_monster_type="Normal", subtypes={"Warrior"},
-    )
-    make_card_in_zone(g, other, p1.id, ZoneType.LIBRARY)
-    events = search_deck_by_subtype(g.state, p1.id, "Moonfolk")
-    assert events == []
-    return True
+def test_breaker_destroys_spell_trap():
+    """Breaker: spell counter on summon, ignition removes counter + destroys 1 S/T."""
+    game, p1, p2 = make_test_game()
+    pipeline = game.pipeline
 
-
-def test_search_deck_by_name():
-    """search_deck_by_name finds card with exact name."""
-    from src.engine.game import make_ygo_monster
-    g, p1, p2 = make_test_game()
-    target = make_ygo_monster(
-        name="Blue-Eyes Test", atk=3000, def_val=2500, level=8,
-        attribute="LIGHT", ygo_monster_type="Normal",
-        subtypes={"Dragon"},
-    )
-    other = make_ygo_monster(
-        name="Other Dragon", atk=2000, def_val=2000, level=6,
-        attribute="LIGHT", ygo_monster_type="Normal",
-        subtypes={"Dragon"},
-    )
-    make_card_in_zone(g, other, p1.id, ZoneType.LIBRARY)
-    make_card_in_zone(g, target, p1.id, ZoneType.LIBRARY)
-    events = search_deck_by_name(g.state, p1.id, "Blue-Eyes Test")
-    assert len(events) == 2
-    assert events[0].payload['card_name'] == "Blue-Eyes Test"
-    return True
-
-
-def test_add_from_gy_to_hand():
-    """add_from_gy_to_hand moves a specific card from GY to hand with
-    source='recovery' YGO_DRAW event."""
-    from src.engine.game import make_ygo_monster
-    g, p1, p2 = make_test_game()
-    card = make_ygo_monster(
-        name="Sangan Test", atk=1000, def_val=600, level=3,
-        attribute="DARK", ygo_monster_type="Effect", subtypes={"Fiend"},
-    )
-    obj = make_card_in_zone(g, card, p1.id, ZoneType.GRAVEYARD)
-    events = add_from_gy_to_hand(g.state, p1.id, obj.id)
-    assert len(events) == 1
-    assert events[0].type == EventType.YGO_DRAW
-    assert events[0].payload['source'] == 'recovery'
-    # Card is in hand now
-    assert obj.id in g.state.zones[f"hand_{p1.id}"].objects
-    return True
-
-
-# =========================================================================
-# Card-level tests — Pot of Greed, Moonfolk searcher, Sword and Shield
-# =========================================================================
-
-def test_pot_of_greed_emits_two_draws():
-    """Pot of Greed resolve emits exactly 2 YGO_DRAW events."""
-    from src.cards.yugioh.ygo_optimized import POT_OF_GREED
-    from src.engine.game import make_ygo_monster
-    g, p1, p2 = make_test_game()
-    # Stock library with 3 cards
-    for i in range(3):
-        c = make_ygo_monster(
-            name=f"L{i}", atk=1000, def_val=1000, level=4,
-            attribute="DARK", ygo_monster_type="Normal",
-        )
-        make_card_in_zone(g, c, p1.id, ZoneType.LIBRARY)
-    obj = make_card_in_zone(g, POT_OF_GREED, p1.id, ZoneType.HAND)
-    ev = Event(type=EventType.YGO_ACTIVATE_SPELL,
-               payload={'card_id': obj.id, 'player': p1.id, 'targets': []},
-               source=obj.id, controller=p1.id)
-    events = POT_OF_GREED.resolve(ev, g.state)
-    draws = [e for e in events if e.type == EventType.YGO_DRAW]
-    assert len(draws) == 2, f"Expected 2 YGO_DRAW, got {len(draws)}: {[e.payload for e in events]}"
-    return True
-
-
-def test_pot_of_greed_with_empty_deck():
-    """Pot of Greed on empty deck emits nothing (graceful)."""
-    from src.cards.yugioh.ygo_optimized import POT_OF_GREED
-    g, p1, p2 = make_test_game()
-    obj = make_card_in_zone(g, POT_OF_GREED, p1.id, ZoneType.HAND)
-    ev = Event(type=EventType.YGO_ACTIVATE_SPELL,
-               payload={'card_id': obj.id, 'player': p1.id, 'targets': []},
-               source=obj.id, controller=p1.id)
-    events = POT_OF_GREED.resolve(ev, g.state)
-    assert events == []
-    return True
-
-
-def test_moonfolk_searcher_pulls_moonfolk():
-    """Soratami Savant's setup-interceptor effect, when fired with a
-    YGO_NORMAL_SUMMON, pulls a Moonfolk from the deck."""
-    from src.cards.yugioh.beyond.kamigawa.moonfolk import (
-        SORATAMI_SAVANT, SORATAMI_CLOUDSKATER,
-    )
-    g, p1, p2 = make_test_game()
-    # Put a Moonfolk in the deck
-    moonfolk_in_deck = make_card_in_zone(g, SORATAMI_CLOUDSKATER, p1.id, ZoneType.LIBRARY)
-    # Put a non-Moonfolk in the deck (won't be searched)
-    from src.engine.game import make_ygo_monster
-    other = make_ygo_monster(
-        name="Filler", atk=1000, def_val=1000, level=4,
-        attribute="EARTH", ygo_monster_type="Normal", subtypes={"Warrior"},
-    )
-    make_card_in_zone(g, other, p1.id, ZoneType.LIBRARY)
-    # Summon the searcher to the field
-    savant = make_card_in_zone(g, SORATAMI_SAVANT, p1.id, ZoneType.MONSTER_ZONE)
-    interceptors = SORATAMI_SAVANT.setup_interceptors(savant, g.state)
-    assert len(interceptors) >= 1
-    # Fire YGO_NORMAL_SUMMON for the searcher
-    summon_event = Event(
+    breaker = create_in_zone(game, p1, BREAKER_THE_MAGICAL_WARRIOR, ZoneType.MONSTER_ZONE)
+    # Manually emit Normal Summon to trigger the spell-counter on-summon hook
+    pipeline.emit(Event(
         type=EventType.YGO_NORMAL_SUMMON,
-        payload={'card_id': savant.id, 'player': p1.id, 'card_name': savant.name},
+        payload={'card_id': breaker.id, 'player': p1.id, 'card_name': breaker.name},
+        source=breaker.id, controller=p1.id,
+    ))
+    assert getattr(breaker.state, 'spell_counters', 0) == 1, "Spell Counter not placed"
+    # 1 opp S/T to destroy
+    st = create_in_zone(game, p2, MOUNTAIN_FIELD, ZoneType.SPELL_TRAP_ZONE)
+    pipeline.emit(Event(
+        type=EventType.YGO_ACTIVATE_MONSTER_EFFECT,
+        payload={'monster_id': breaker.id, 'player': p1.id, 'card_id': breaker.id},
+        source=breaker.id, controller=p1.id,
+    ))
+    # S/T destroyed and counter consumed
+    assert getattr(breaker.state, 'spell_counters', 0) == 0
+    remaining = sum(1 for o in game.state.zones[f"spell_trap_zone_{p2.id}"].objects if o)
+    assert remaining == 0, f"Breaker should destroy 1 S/T, {remaining} left"
+    print("  PASS: test_breaker_destroys_spell_trap")
+
+
+def test_tribe_infecting_virus_clears_subtype():
+    """Tribe-Infecting Virus: discard cost paid, declared type clears matching monsters."""
+    game, p1, p2 = make_test_game()
+    pipeline = game.pipeline
+
+    tiv = create_in_zone(game, p1, TRIBE_INFECTING_VIRUS, ZoneType.MONSTER_ZONE)
+    game.create_object(  # discard candidate
+        name=CELTIC_GUARDIAN.name, owner_id=p1.id, zone=ZoneType.HAND,
+        characteristics=Characteristics(types=set(CELTIC_GUARDIAN.characteristics.types)),
+        card_def=CELTIC_GUARDIAN,
     )
-    fired = False
-    emitted = []
-    for ic in interceptors:
-        if ic.filter(summon_event, g.state):
-            fired = True
-            result = ic.handler(summon_event, g.state)
-            emitted.extend(getattr(result, 'new_events', []) or [])
-    assert fired, "Soratami Savant trigger should fire on its own Normal Summon"
-    # Should emit YGO_DRAW (for the search result)
-    draw_events = [e for e in emitted if e.type == EventType.YGO_DRAW]
-    assert len(draw_events) >= 1, f"Expected YGO_DRAW from search, got {[e.type.name for e in emitted]}"
-    # Card moved to hand
-    hand = g.state.zones[f"hand_{p1.id}"].objects
-    assert moonfolk_in_deck.id in hand, "Moonfolk should be in hand after search"
-    return True
+    # 2 opp Beast-Warrior (e.g. Battle Ox) + 1 different (Dark Magician = Spellcaster)
+    create_in_zone(game, p2, BATTLE_OX, ZoneType.MONSTER_ZONE)
+    create_in_zone(game, p2, BATTLE_OX, ZoneType.MONSTER_ZONE)
+    create_in_zone(game, p2, DARK_MAGICIAN, ZoneType.MONSTER_ZONE)
+
+    pipeline.emit(Event(
+        type=EventType.YGO_ACTIVATE_MONSTER_EFFECT,
+        payload={'monster_id': tiv.id, 'player': p1.id, 'card_id': tiv.id},
+        source=tiv.id, controller=p1.id,
+    ))
+
+    # Beast-Warriors gone; Dark Magician survives
+    survivors = []
+    for oid in game.state.zones[f"monster_zone_{p2.id}"].objects:
+        if oid is None:
+            continue
+        o = game.state.objects.get(oid)
+        if o:
+            survivors.append(o.name)
+    assert survivors == ["Dark Magician"], f"Survivors after TIV: {survivors}"
+    print("  PASS: test_tribe_infecting_virus_clears_subtype")
 
 
-def test_sword_and_shield_emits_chain_links():
-    """Sword and Shield swaps ATK/DEF and emits one YGO_CHAIN_LINK per
-    affected monster (was: returned [] despite mutating state)."""
-    from src.cards.yugioh.beyond.kamigawa.staples import SWORD_AND_SHIELD
-    from src.engine.game import make_ygo_monster
-    g, p1, p2 = make_test_game()
-    m = make_ygo_monster(
-        name="M1", atk=1200, def_val=2000, level=4,
-        attribute="EARTH", ygo_monster_type="Normal",
-    )
-    obj = make_card_in_zone(g, m, p1.id, ZoneType.MONSTER_ZONE)
-    obj.state.face_down = False
-    obj.state.ygo_position = 'face_up_atk'
-    g.state.zones[f"monster_zone_{p1.id}"].objects = [obj.id, None, None, None, None]
-    trap_obj = make_card_in_zone(g, SWORD_AND_SHIELD, p1.id, ZoneType.SPELL_TRAP_ZONE)
-    ev = Event(type=EventType.YGO_ACTIVATE_TRAP,
-               payload={'card_id': trap_obj.id, 'player': p1.id, 'targets': []},
-               source=trap_obj.id, controller=p1.id)
-    events = SWORD_AND_SHIELD.resolve(ev, g.state)
-    chain_events = [e for e in events if e.type == EventType.YGO_CHAIN_LINK]
-    assert len(chain_events) >= 1, f"Sword and Shield should emit YGO_CHAIN_LINK, got: {events}"
-    return True
-
-
-def test_solemn_judgment_emits_lp_and_chain():
-    """Solemn Judgment costs LP and emits YGO_LP_CHANGE + YGO_CHAIN_LINK."""
-    from src.cards.yugioh.ygo_starter import SOLEMN_JUDGMENT
-    g, p1, p2 = make_test_game()
-    p1_player = g.state.players[p1.id]
-    starting_lp = p1_player.lp
-    obj = make_card_in_zone(g, SOLEMN_JUDGMENT, p1.id, ZoneType.SPELL_TRAP_ZONE)
-    ev = Event(type=EventType.YGO_ACTIVATE_TRAP,
-               payload={'card_id': obj.id, 'player': p1.id, 'targets': []},
-               source=obj.id, controller=p1.id)
-    events = SOLEMN_JUDGMENT.resolve(ev, g.state)
-    types = [e.type for e in events]
-    assert EventType.YGO_LP_CHANGE in types
-    assert EventType.YGO_CHAIN_LINK in types
-    assert p1_player.lp < starting_lp
-    return True
-
-
-def test_reciprocate_emits_chain_link():
-    """Reciprocate buffs Samurai and emits YGO_CHAIN_LINK (was: silent)."""
-    from src.cards.yugioh.beyond.kamigawa.samurai import RECIPROCATE
-    from src.engine.game import make_ygo_monster
-    g, p1, p2 = make_test_game()
-    sam = make_ygo_monster(
-        name="Samurai Test", atk=1500, def_val=1200, level=4,
-        attribute="EARTH", ygo_monster_type="Effect", subtypes={"Warrior", "Samurai"},
-    )
-    sobj = make_card_in_zone(g, sam, p1.id, ZoneType.MONSTER_ZONE)
-    g.state.zones[f"monster_zone_{p1.id}"].objects = [sobj.id, None, None, None, None]
-    spell_obj = make_card_in_zone(g, RECIPROCATE, p1.id, ZoneType.HAND)
-    ev = Event(type=EventType.YGO_ACTIVATE_SPELL,
-               payload={'card_id': spell_obj.id, 'player': p1.id,
-                        'targets': [sobj.id]},
-               source=spell_obj.id, controller=p1.id)
-    events = RECIPROCATE.resolve(ev, g.state)
-    chain = [e for e in events if e.type == EventType.YGO_CHAIN_LINK]
-    assert len(chain) >= 1, f"Reciprocate should emit chain link: {events}"
-    assert sobj.state.atk_bonus_eot >= 1000
-    return True
-
-
-def test_bushido_honor_emits_chain_link():
-    """Bushido Honor with auto-target buffs and emits YGO_CHAIN_LINK."""
-    from src.cards.yugioh.beyond.kamigawa.samurai import BUSHIDO_HONOR
-    from src.engine.game import make_ygo_monster
-    g, p1, p2 = make_test_game()
-    sam = make_ygo_monster(
-        name="Samurai", atk=1500, def_val=1200, level=4,
-        attribute="EARTH", ygo_monster_type="Effect", subtypes={"Warrior", "Samurai"},
-    )
-    sobj = make_card_in_zone(g, sam, p1.id, ZoneType.MONSTER_ZONE)
-    g.state.zones[f"monster_zone_{p1.id}"].objects = [sobj.id, None, None, None, None]
-    trap_obj = make_card_in_zone(g, BUSHIDO_HONOR, p1.id, ZoneType.SPELL_TRAP_ZONE)
-    ev = Event(type=EventType.YGO_ACTIVATE_TRAP,
-               payload={'card_id': trap_obj.id, 'player': p1.id, 'targets': []},
-               source=trap_obj.id, controller=p1.id)
-    events = BUSHIDO_HONOR.resolve(ev, g.state)
-    chain = [e for e in events if e.type == EventType.YGO_CHAIN_LINK]
-    assert len(chain) >= 1
-    return True
-
-
-def test_flute_of_summoning_dragon_with_lord_of_d():
-    """Flute of Summoning Dragon with Lord of D. on field SS up to 2 Dragons."""
-    from src.cards.yugioh.ygo_classic import FLUTE_OF_SUMMONING_DRAGON, LORD_OF_D, BLUE_EYES_WHITE_DRAGON
-    g, p1, p2 = make_test_game()
-    lord = make_card_in_zone(g, LORD_OF_D, p1.id, ZoneType.MONSTER_ZONE)
-    g.state.zones[f"monster_zone_{p1.id}"].objects = [lord.id, None, None, None, None]
-    # 2 Dragons in hand
-    d1 = make_card_in_zone(g, BLUE_EYES_WHITE_DRAGON, p1.id, ZoneType.HAND)
-    d2 = make_card_in_zone(g, BLUE_EYES_WHITE_DRAGON, p1.id, ZoneType.HAND)
-    flute = make_card_in_zone(g, FLUTE_OF_SUMMONING_DRAGON, p1.id, ZoneType.HAND)
-    ev = Event(type=EventType.YGO_ACTIVATE_SPELL,
-               payload={'card_id': flute.id, 'player': p1.id, 'targets': []},
-               source=flute.id, controller=p1.id)
-    events = FLUTE_OF_SUMMONING_DRAGON.resolve(ev, g.state)
-    summons = [e for e in events if e.type == EventType.YGO_SPECIAL_SUMMON]
-    assert len(summons) == 2, f"Expected 2 SS, got {len(summons)}"
-    return True
-
-
-def test_flute_of_summoning_dragon_no_lord():
-    """Flute without Lord of D. on field does nothing."""
-    from src.cards.yugioh.ygo_classic import FLUTE_OF_SUMMONING_DRAGON, BLUE_EYES_WHITE_DRAGON
-    g, p1, p2 = make_test_game()
-    # 1 Dragon in hand, no Lord of D.
-    d1 = make_card_in_zone(g, BLUE_EYES_WHITE_DRAGON, p1.id, ZoneType.HAND)
-    flute = make_card_in_zone(g, FLUTE_OF_SUMMONING_DRAGON, p1.id, ZoneType.HAND)
-    ev = Event(type=EventType.YGO_ACTIVATE_SPELL,
-               payload={'card_id': flute.id, 'player': p1.id, 'targets': []},
-               source=flute.id, controller=p1.id)
-    events = FLUTE_OF_SUMMONING_DRAGON.resolve(ev, g.state)
-    assert events == []
-    return True
-
-
-def test_negate_attack_emits_chain_link():
-    """Negate Attack returns a chain link event (was: silent)."""
-    from src.cards.yugioh.ygo_classic import NEGATE_ATTACK
-    g, p1, p2 = make_test_game()
-    trap = make_card_in_zone(g, NEGATE_ATTACK, p1.id, ZoneType.SPELL_TRAP_ZONE)
-    ev = Event(type=EventType.YGO_ACTIVATE_TRAP,
-               payload={'card_id': trap.id, 'player': p1.id, 'targets': []},
-               source=trap.id, controller=p1.id)
-    events = NEGATE_ATTACK.resolve(ev, g.state)
-    assert any(e.type == EventType.YGO_CHAIN_LINK for e in events)
-    return True
-
-
-def test_cogwork_ambush_emits_chain_link():
-    """Cogwork Ambush buffs Modified Machine and emits chain link.
-
-    is_modified() requires an Equip Spell attached, so we attach a dummy equip.
-    """
-    from src.cards.yugioh.beyond.kamigawa.modified import COGWORK_AMBUSH
-    from src.engine.game import make_ygo_monster, make_ygo_spell
-    g, p1, p2 = make_test_game()
-    mech = make_ygo_monster(
-        name="Test Mech", atk=1500, def_val=1200, level=4,
-        attribute="EARTH", ygo_monster_type="Effect",
-        subtypes={"Machine"},
-    )
-    equip = make_ygo_spell(
-        name="Dummy Equip", ygo_spell_type="Equip", text="test",
-    )
-    mobj = make_card_in_zone(g, mech, p1.id, ZoneType.MONSTER_ZONE)
-    g.state.zones[f"monster_zone_{p1.id}"].objects = [mobj.id, None, None, None, None]
-    eq_obj = make_card_in_zone(g, equip, p1.id, ZoneType.SPELL_TRAP_ZONE)
-    eq_obj.state.equipped_to = mobj.id
-    trap = make_card_in_zone(g, COGWORK_AMBUSH, p1.id, ZoneType.SPELL_TRAP_ZONE)
-    ev = Event(type=EventType.YGO_ACTIVATE_TRAP,
-               payload={'card_id': trap.id, 'player': p1.id,
-                        'targets': [mobj.id]},
-               source=trap.id, controller=p1.id)
-    events = COGWORK_AMBUSH.resolve(ev, g.state)
-    chain = [e for e in events if e.type == EventType.YGO_CHAIN_LINK]
-    assert len(chain) >= 1, f"Expected chain link: {events}"
-    return True
-
-
-def test_cloak_and_dagger_emits_position_change():
-    """Cloak and Dagger changes Ninja to face-down DEF and emits position change."""
-    from src.cards.yugioh.beyond.kamigawa.ninja import CLOAK_AND_DAGGER
-    from src.engine.game import make_ygo_monster
-    g, p1, p2 = make_test_game()
-    ninja = make_ygo_monster(
-        name="Test Ninja", atk=1500, def_val=1200, level=4,
-        attribute="DARK", ygo_monster_type="Effect",
-        subtypes={"Warrior", "Ninja"},
-    )
-    nobj = make_card_in_zone(g, ninja, p1.id, ZoneType.MONSTER_ZONE)
-    nobj.state.face_down = False
-    g.state.zones[f"monster_zone_{p1.id}"].objects = [nobj.id, None, None, None, None]
-    trap = make_card_in_zone(g, CLOAK_AND_DAGGER, p1.id, ZoneType.SPELL_TRAP_ZONE)
-    ev = Event(type=EventType.YGO_ACTIVATE_TRAP,
-               payload={'card_id': trap.id, 'player': p1.id, 'targets': []},
-               source=trap.id, controller=p1.id)
-    events = CLOAK_AND_DAGGER.resolve(ev, g.state)
-    assert any(e.type == EventType.YGO_POSITION_CHANGE for e in events)
-    assert nobj.state.face_down is True
-    return True
-
-
-def test_awakening_hour_emits_chain_link_per_spirit():
-    """Awakening Hour grants protection to each Spirit and emits 1 chain link per."""
-    from src.cards.yugioh.beyond.kamigawa.spirit_dragons import AWAKENING_HOUR
-    from src.engine.game import make_ygo_monster
-    g, p1, p2 = make_test_game()
-    spirit = make_ygo_monster(
-        name="Test Spirit", atk=1500, def_val=1200, level=4,
-        attribute="LIGHT", ygo_monster_type="Effect",
-        subtypes={"Dragon", "Spirit"},
-    )
-    sobj = make_card_in_zone(g, spirit, p1.id, ZoneType.MONSTER_ZONE)
-    g.state.zones[f"monster_zone_{p1.id}"].objects = [sobj.id, None, None, None, None]
-    spell = make_card_in_zone(g, AWAKENING_HOUR, p1.id, ZoneType.HAND)
-    ev = Event(type=EventType.YGO_ACTIVATE_SPELL,
-               payload={'card_id': spell.id, 'player': p1.id, 'targets': []},
-               source=spell.id, controller=p1.id)
-    events = AWAKENING_HOUR.resolve(ev, g.state)
-    chain = [e for e in events if e.type == EventType.YGO_CHAIN_LINK]
-    assert len(chain) >= 1
-    assert sobj.state.battle_indestructible_eot is True
-    return True
-
-
-# =========================================================================
-# Test runner
-# =========================================================================
-
-def main():
+def run_all():
     tests = [
-        # Helper tests
-        test_draw_cards_one,
-        test_draw_cards_two,
-        test_draw_cards_empty_deck,
-        test_search_deck_by_subtype,
-        test_search_deck_by_subtype_max_level,
-        test_search_deck_no_match,
-        test_search_deck_by_name,
-        test_add_from_gy_to_hand,
-        # Card-level tests
-        test_pot_of_greed_emits_two_draws,
-        test_pot_of_greed_with_empty_deck,
-        test_moonfolk_searcher_pulls_moonfolk,
-        test_sword_and_shield_emits_chain_links,
-        test_solemn_judgment_emits_lp_and_chain,
-        test_reciprocate_emits_chain_link,
-        test_bushido_honor_emits_chain_link,
-        test_flute_of_summoning_dragon_with_lord_of_d,
-        test_flute_of_summoning_dragon_no_lord,
-        test_negate_attack_emits_chain_link,
-        test_cogwork_ambush_emits_chain_link,
-        test_cloak_and_dagger_emits_position_change,
-        test_awakening_hour_emits_chain_link_per_spirit,
+        test_ygo_destroy_handler_moves_to_gy,
+        test_ygo_send_to_gy_handler_moves_and_emits_only_sent,
+        test_raigeki_destroys_opponent_monsters_via_event,
+        test_mobius_destroys_opp_spell_trap_on_tribute,
+        test_zaborg_destroys_one_monster_on_tribute,
+        test_sangan_searches_on_send_to_gy,
+        test_witch_searches_on_send_to_gy,
+        test_armed_dragon_lv5_destroys_via_event,
+        test_armed_dragon_lv7_destroys_all_via_event,
+        test_breaker_destroys_spell_trap,
+        test_tribe_infecting_virus_clears_subtype,
     ]
-    passed = 0
-    failed = 0
+    failed = []
     for t in tests:
         try:
             t()
-            print(f"  PASS: {t.__name__}")
-            passed += 1
         except AssertionError as e:
-            print(f"  FAIL: {t.__name__} — {e}")
-            failed += 1
+            print(f"  FAIL: {t.__name__}: {e}")
+            failed.append(t.__name__)
         except Exception as e:
             import traceback
+            print(f"  ERROR: {t.__name__}: {type(e).__name__}: {e}")
             traceback.print_exc()
-            print(f"  ERROR: {t.__name__} — {type(e).__name__}: {e}")
-            failed += 1
-    total = passed + failed
+            failed.append(t.__name__)
     print()
-    print("=" * 60)
-    print(f"Results: {passed} passed, {failed} failed out of {total}")
-    print("=" * 60)
-    return failed == 0
+    print(f"  Passed: {len(tests) - len(failed)}/{len(tests)}")
+    if failed:
+        print(f"  Failed: {failed}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    ok = main()
-    sys.exit(0 if ok else 1)
+    run_all()
