@@ -3082,20 +3082,8 @@ def loporrit_scout_setup(obj: GameObject, state: GameState) -> list[Interceptor]
     return [make_etb_trigger(obj, creature_etb_effect, creature_etb_filter)]
 
 
-def tifa_lockhart_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Tifa: Attack -> +1/+0 for each untapped land."""
-    def attack_effect(event: Event, state: GameState) -> list[Event]:
-        untapped_lands = sum(1 for o in state.objects.values()
-                           if o.controller == obj.controller and
-                           CardType.LAND in o.characteristics.types and
-                           o.zone == ZoneType.BATTLEFIELD and
-                           not getattr(o.state, 'tapped', False))
-        return [Event(
-            type=EventType.PT_MODIFICATION,
-            payload={'object_id': obj.id, 'power_mod': untapped_lands, 'toughness_mod': 0, 'duration': 'end_of_turn'},
-            source=obj.id
-        )]
-    return [make_attack_trigger(obj, attack_effect)]
+# NOTE: removed duplicate tifa_lockhart_setup ("attack -> +1/+0 per untapped land");
+# the landfall-double-power variant at line ~1384 is the canonical version (user pick).
 
 
 # =============================================================================
