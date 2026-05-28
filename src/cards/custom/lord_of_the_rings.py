@@ -578,2311 +578,6 @@ def _ltr_khazad_dum_veteran_setup(obj: GameObject, state: GameState) -> list[Int
 
 
 # =============================================================================
-# Slice-9 median-lift setups (2026-05-19): drives LTR depth_v2_median 0 -> 2
-# (final gate). Each helper inlines state.zones.get('battlefield') (state +
-# zone axes), iterates allies/threats by subtype (state coupling), and emits
-# SCRY or SURVEIL (info event = zone+asymmetry) plus a cross-controller event
-# via all_opponents (asymmetry). Each setup scores depth >= 5 on the rubric.
-# Flavor stays Middle-earth: light/scry for elves, fire/damage for dwarves &
-# dragons, mill/drain for Mordor & wraiths, life/anthem for Gondor & Hobbits.
-# =============================================================================
-
-
-def _ltr_s9_count_subtype(state: GameState, controller: str, subtype: str) -> int:
-    """Count controller's battlefield permanents with `subtype`."""
-    bf = state.zones.get('battlefield')
-    if not bf:
-        return 0
-    n = 0
-    for oid in bf.objects:
-        o = state.objects.get(oid)
-        if not o or o.controller != controller:
-            continue
-        if o.characteristics and subtype in o.characteristics.subtypes:
-            n += 1
-    return n
-
-
-def _ltr_s9_count_type(state: GameState, controller: str, cardtype: CardType) -> int:
-    """Count controller's battlefield permanents of `cardtype`."""
-    bf = state.zones.get('battlefield')
-    if not bf:
-        return 0
-    n = 0
-    for oid in bf.objects:
-        o = state.objects.get(oid)
-        if not o or o.controller != controller:
-            continue
-        if o.characteristics and cardtype in o.characteristics.types:
-            n += 1
-    return n
-
-
-# --- WHITE ETB / Attack triggers ---------------------------------------------
-
-
-def _ltr_knights_of_dol_amroth_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: scry 1 + each opp -1 per Knight ally (cavalry charge)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        knights = _ltr_s9_count_subtype(st, obj.controller, 'Knight')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, knights), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_attack_trigger(obj, effect)]
-
-
-def _ltr_rohirrim_lancer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: each opp -1 + gain 1 per Knight ally (Riders of Rohan)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        knights = _ltr_s9_count_subtype(st, obj.controller, 'Knight')
-        events = []
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        if knights:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': obj.controller, 'amount': knights, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_attack_trigger(obj, effect)]
-
-
-def _ltr_dunedain_healer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: gain life per Human ally + scry 1 (Ranger's herbs)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        humans = _ltr_s9_count_subtype(st, obj.controller, 'Human')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, humans), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-# Slice-9 White instants/sorceries resolve handlers --------------------------
-
-
-def _ltr_s9_resolve_shield_of_the_west(targets: list, state: GameState) -> list[Event]:
-    """Shield of the West resolve: scry 1 + you gain 2 + each opp -1."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_charge_of_the_rohirrim(targets: list, state: GameState) -> list[Event]:
-    """Charge of the Rohirrim resolve: scry 1 + each opp -2 (charge through)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_gondorian_discipline(targets: list, state: GameState) -> list[Event]:
-    """Gondorian Discipline resolve: scry 1 + you gain 1 + each opp -1."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_rally_the_west(targets: list, state: GameState) -> list[Event]:
-    """Rally the West resolve: scry 2 + each opp -1 (the muster gathers)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_elendils_courage(targets: list, state: GameState) -> list[Event]:
-    """Elendil's Courage resolve: scry 1 + you gain 3 (king's blood)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_valiant_stand(targets: list, state: GameState) -> list[Event]:
-    """Valiant Stand resolve: scry 1 + you gain 2 + each opp -1 (the line holds)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_mustering_of_gondor(targets: list, state: GameState) -> list[Event]:
-    """Mustering of Gondor resolve: scry 2 + each opp -2 (army of the West)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_ride_to_ruin(targets: list, state: GameState) -> list[Event]:
-    """Ride to Ruin resolve: scry 2 + each opp -3 (the breaking charge)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -3, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_restoration_of_the_king(targets: list, state: GameState) -> list[Event]:
-    """Restoration of the King resolve: scry 2 + you gain 4 (the King returns)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 4, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_dawn_over_minas_tirith(targets: list, state: GameState) -> list[Event]:
-    """Dawn Over Minas Tirith resolve: scry 1 + gain 2 + each opp -2 (the sun rises)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-# Slice-9 White enchantment ETBs ---------------------------------------------
-
-
-def _ltr_oath_of_eorl_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Knight ally (the Oath rallies the Mark)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        knights = _ltr_s9_count_subtype(st, obj.controller, 'Knight')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, knights), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_the_white_tree_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 2 + each opp -1 (the tree blooms anew)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        humans = _ltr_s9_count_subtype(st, obj.controller, 'Human')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(2, humans), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-# --- BLUE ETB triggers + spell resolves -------------------------------------
-
-
-def _ltr_arwen_evenstar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + gain 1 per Elf ally (Evenstar's gift)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        elves = _ltr_s9_count_subtype(st, obj.controller, 'Elf')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        if elves:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': obj.controller, 'amount': elves, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_lorien_sentinel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Elf ally (Lorien's watchful eye)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        elves = _ltr_s9_count_subtype(st, obj.controller, 'Elf')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, elves), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_rivendell_scholar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 (study + sift) + each opp mills 1 (Rivendell archives)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        wizards = _ltr_s9_count_subtype(st, obj.controller, 'Wizard')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, wizards), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_grey_havens_navigator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + each opp -1 per Sailor/Elf ally (the ships set west)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        elves = _ltr_s9_count_subtype(st, obj.controller, 'Elf')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, elves), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_elvish_seer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp mills 1 (visions of the Eldar)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        wizards = _ltr_s9_count_subtype(st, obj.controller, 'Wizard')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, wizards), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_silvan_tracker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp -1 (silent woodland trail)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        scouts = _ltr_s9_count_subtype(st, obj.controller, 'Scout')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, scouts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_imladris_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 1 per Elf ally (the watchful guardian of Rivendell)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        elves = _ltr_s9_count_subtype(st, obj.controller, 'Elf')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        if elves:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': obj.controller, 'amount': elves, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_keeper_of_the_mirror_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + each opp -1 (the mirror sees all)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        wizards = _ltr_s9_count_subtype(st, obj.controller, 'Wizard')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, wizards), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-# Slice-9 Blue instants/sorceries resolve handlers --------------------------
-
-
-def _ltr_s9_resolve_foresight_of_the_elves(targets: list, state: GameState) -> list[Event]:
-    """Foresight of the Elves resolve: scry 3 + you gain 1 (deep seeing)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_elven_wisdom(targets: list, state: GameState) -> list[Event]:
-    """Elven Wisdom resolve: surveil 2 + each opp mills 2 (lore unfolds)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_mists_of_lorien(targets: list, state: GameState) -> list[Event]:
-    """Mists of Lorien resolve: scry 1 + each opp -1 (the veil deceives)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_visions_of_the_palantir(targets: list, state: GameState) -> list[Event]:
-    """Visions of the Palantir resolve: scry 2 + each opp reveals hand (the seeing stone)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.REVEAL_HAND,
-                                payload={'player': opp, 'zone': ZoneType.HAND},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_elronds_rejection(targets: list, state: GameState) -> list[Event]:
-    """Elrond's Rejection resolve: scry 1 + each opp -2 (the Lord says no)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_silver_flow(targets: list, state: GameState) -> list[Event]:
-    """Silver Flow resolve: scry 2 + each opp mills 3 (Bruinen rises)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 3, 'zone': ZoneType.LIBRARY},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_council_of_elrond(targets: list, state: GameState) -> list[Event]:
-    """Council of Elrond resolve: scry 3 + each opp -1 (the great council convenes)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_words_of_the_eldar(targets: list, state: GameState) -> list[Event]:
-    """Words of the Eldar resolve: surveil 3 + each opp mills 2 (ancient tongue)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_sailing_to_valinor(targets: list, state: GameState) -> list[Event]:
-    """Sailing to Valinor resolve: scry 4 + you gain 4 (the eldar sail west)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 4, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 4, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_memory_of_ages(targets: list, state: GameState) -> list[Event]:
-    """Memory of Ages resolve: surveil 2 + you gain 1 + each opp mills 1."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=None))
-    return events
-
-
-# Slice-9 Blue enchantment ETBs ---------------------------------------------
-
-
-def _ltr_mirror_of_galadriel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + each opp mills 1 (the mirror sees what may be)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        elves = _ltr_s9_count_subtype(st, obj.controller, 'Elf')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, elves), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_light_of_earendil_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 2 + each opp -1 (the star of hope)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_elven_sanctuary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + each opp -1 per Elf ally (the hidden vale)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        elves = _ltr_s9_count_subtype(st, obj.controller, 'Elf')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, elves), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-# --- BLACK ETB triggers + spell resolves ------------------------------------
-
-
-def _ltr_witch_king_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp -2 (Witch-King's terror)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        wraiths = _ltr_s9_count_subtype(st, obj.controller, 'Wraith')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(2, wraiths + 1), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_grima_wormtongue_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp discards 1 (poison whispered in the king's ear)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_orc_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: each opp -1 per Orc ally (the horde swarms)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        orcs = _ltr_s9_count_subtype(st, obj.controller, 'Orc')
-        events = []
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, orcs), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_attack_trigger(obj, effect)]
-
-
-def _ltr_uruk_hai_berserker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp -1 per Orc/Berserker ally (Isengard's brood)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        orcs = _ltr_s9_count_subtype(st, obj.controller, 'Orc')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, orcs), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_mordor_siege_engine_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: each opp -2 + you mill 1 (the great battering ram)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        constructs = _ltr_s9_count_subtype(st, obj.controller, 'Construct')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(2, constructs + 1), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_haradrim_assassin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp -2 (a knife in the dark)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        assassins = _ltr_s9_count_subtype(st, obj.controller, 'Assassin')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(2, assassins + 1), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_morgul_knight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: surveil 1 + each opp -1 per Wraith/Knight ally (Morgul charge)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        wraiths = _ltr_s9_count_subtype(st, obj.controller, 'Wraith')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, wraiths), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_attack_trigger(obj, effect)]
-
-
-# Slice-9 Black instants/sorceries resolve handlers --------------------------
-
-
-def _ltr_s9_resolve_shadow_of_mordor(targets: list, state: GameState) -> list[Event]:
-    """Shadow of Mordor resolve: surveil 1 + each opp -2 (the dark cloud falls)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_corruption_spreads(targets: list, state: GameState) -> list[Event]:
-    """Corruption Spreads resolve: surveil 1 + each opp discards 1."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_morgul_blade(targets: list, state: GameState) -> list[Event]:
-    """Morgul Blade resolve: surveil 1 + each opp -3 (the wraith-blade)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -3, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_dark_whispers(targets: list, state: GameState) -> list[Event]:
-    """Dark Whispers resolve: surveil 1 + each opp discards 2 (rumors of ruin)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.HAND},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_treachery_of_isengard(targets: list, state: GameState) -> list[Event]:
-    """Treachery of Isengard resolve: surveil 2 + each opp discards 1 + -1 life."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
-                                source=None))
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_saurons_command(targets: list, state: GameState) -> list[Event]:
-    """Sauron's Command resolve: surveil 2 + each opp -2 (the Dark Lord wills it)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_march_of_the_orcs(targets: list, state: GameState) -> list[Event]:
-    """March of the Orcs resolve: surveil 2 + each opp -3 (the great host advances)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -3, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_harvest_of_souls(targets: list, state: GameState) -> list[Event]:
-    """Harvest of Souls resolve: surveil 3 + each opp mills 3 + -1 (reaping the dead)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 3, 'zone': ZoneType.LIBRARY},
-                                source=None))
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_corruption_of_power(targets: list, state: GameState) -> list[Event]:
-    """Corruption of Power resolve: surveil 1 + each opp discards 1 + -1."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
-                                source=None))
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_ritual_of_morgoth(targets: list, state: GameState) -> list[Event]:
-    """Ritual of Morgoth resolve: surveil 2 + each opp mills 2 + -2 (deep darkness)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                                source=None))
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-# Slice-9 Black enchantments ETBs --------------------------------------------
-
-
-def _ltr_shadow_of_the_east_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp -1 per Wraith/Orc/Assassin ally (the East rises)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        wraiths = _ltr_s9_count_subtype(st, obj.controller, 'Wraith')
-        orcs = _ltr_s9_count_subtype(st, obj.controller, 'Orc')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, wraiths + orcs), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_the_ring_tempts_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + each opp discards 1 (the Ring's seductive whisper)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-# --- RED ETB / Attack triggers ----------------------------------------------
-
-
-def _ltr_iron_hills_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: each opp 1 damage per Dwarf ally (forge-tempered axes)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        dwarves = _ltr_s9_count_subtype(st, obj.controller, 'Dwarf')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, dwarves), 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_attack_trigger(obj, effect)]
-
-
-def _ltr_dwarf_berserker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: each opp 2 damage (berserk rage)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        dwarves = _ltr_s9_count_subtype(st, obj.controller, 'Dwarf')
-        events = []
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(2, dwarves), 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_attack_trigger(obj, effect)]
-
-
-def _ltr_mountain_guard_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Soldier/Dwarf ally (the watchful guard)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        dwarves = _ltr_s9_count_subtype(st, obj.controller, 'Dwarf')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, dwarves), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_warg_rider_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: each opp 1 damage per Knight ally (the warg pack runs)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        knights = _ltr_s9_count_subtype(st, obj.controller, 'Knight')
-        events = []
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, knights), 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_attack_trigger(obj, effect)]
-
-
-def _ltr_dragon_of_the_north_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 2 damage per Dragon ally (the dragon-flight)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        dragons = _ltr_s9_count_subtype(st, obj.controller, 'Dragon')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(2, dragons + 1), 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_fire_drake_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Dragon/Drake ally (small flame)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        drakes = _ltr_s9_count_subtype(st, obj.controller, 'Drake') + _ltr_s9_count_subtype(st, obj.controller, 'Dragon')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, drakes), 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_moria_goblin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: scry 1 + each opp -1 per Goblin ally (the goblin warren)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        goblins = _ltr_s9_count_subtype(st, obj.controller, 'Goblin')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, goblins), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_attack_trigger(obj, effect)]
-
-
-# Slice-9 Red instants/sorceries resolve handlers ----------------------------
-
-
-def _ltr_s9_resolve_flame_of_anor(targets: list, state: GameState) -> list[Event]:
-    """Flame of Anor resolve: scry 1 + each opp 3 damage (Gandalf's flame)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 3, 'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_dwarven_rage(targets: list, state: GameState) -> list[Event]:
-    """Dwarven Rage resolve: scry 1 + each opp 1 damage (kinship's fury)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 1, 'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_dragons_breath(targets: list, state: GameState) -> list[Event]:
-    """Dragon's Breath resolve: scry 1 + each opp 4 damage (dragon-fire)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 4, 'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_forge_fire(targets: list, state: GameState) -> list[Event]:
-    """Forge Fire resolve: scry 1 + each opp 2 damage (the smith's bellows)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2, 'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_battle_cry_of_erebor(targets: list, state: GameState) -> list[Event]:
-    """Battle Cry of Erebor resolve: scry 1 + you gain 2 + each opp -1 (the dwarves cry)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_smash_the_gate(targets: list, state: GameState) -> list[Event]:
-    """Smash the Gate resolve: scry 1 + each opp 2 damage + -1 (the gate breaks)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2, 'source': None, 'is_combat': False},
-                                source=None))
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_siege_of_erebor(targets: list, state: GameState) -> list[Event]:
-    """Siege of Erebor resolve: scry 2 + each opp 4 damage (the great siege)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 4, 'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_dragon_fire(targets: list, state: GameState) -> list[Event]:
-    """Dragon Fire resolve: scry 1 + each opp 5 damage (the dragon-tongue lashes)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 5, 'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_call_of_the_mountain(targets: list, state: GameState) -> list[Event]:
-    """Call of the Mountain resolve: scry 2 + each opp -2 (the kin gather)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_delving_the_mines(targets: list, state: GameState) -> list[Event]:
-    """Delving the Mines resolve: scry 2 + each opp mills 2 + 1 damage (the deep echoes)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                                source=None))
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 1, 'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-# Slice-9 Red enchantment ETBs -----------------------------------------------
-
-
-def _ltr_fires_of_mount_doom_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 2 damage (Mount Doom's heat)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        dwarves = _ltr_s9_count_subtype(st, obj.controller, 'Dwarf')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(2, dwarves), 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_wrath_of_the_dwarves_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Dwarf ally (the kindled wrath)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        dwarves = _ltr_s9_count_subtype(st, obj.controller, 'Dwarf')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, dwarves), 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-# --- GREEN ETB triggers + spell resolves ------------------------------------
-
-
-def _ltr_samwise_the_brave_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 1 per Hobbit ally (loyal friend)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        hobbits = _ltr_s9_count_subtype(st, obj.controller, 'Hobbit')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, hobbits), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_gwaihir_wind_lord_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + each opp -2 (the Wind Lord descends)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        birds = _ltr_s9_count_subtype(st, obj.controller, 'Bird')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(2, birds + 1), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_quickbeam_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: scry 1 + each opp -1 per Treefolk ally (the swift Ent)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        ents = _ltr_s9_count_subtype(st, obj.controller, 'Treefolk')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, ents), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_attack_trigger(obj, effect)]
-
-
-def _ltr_ent_sapling_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 1 per Treefolk ally (the young sapling grows)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        ents = _ltr_s9_count_subtype(st, obj.controller, 'Treefolk')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, ents), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_hobbiton_gardener_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 1 per Hobbit ally (the gardener's harvest)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        hobbits = _ltr_s9_count_subtype(st, obj.controller, 'Hobbit')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, hobbits), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_fangorn_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -2 per Treefolk ally (the ancient guardian)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        ents = _ltr_s9_count_subtype(st, obj.controller, 'Treefolk')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(2, ents), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_great_eagle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Bird ally (the eagles return)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        birds = _ltr_s9_count_subtype(st, obj.controller, 'Bird')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, birds), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_oliphaunt_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -3 (the great oliphaunt charges)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        beasts = _ltr_s9_count_subtype(st, obj.controller, 'Elephant') + _ltr_s9_count_subtype(st, obj.controller, 'Beast')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(3, beasts + 2), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_radagast_companion_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 1 per Bird/Beast ally (Radagast's bond)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        birds = _ltr_s9_count_subtype(st, obj.controller, 'Bird')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, birds), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_huorn_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Treefolk ally (the dark walking tree)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        ents = _ltr_s9_count_subtype(st, obj.controller, 'Treefolk')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, ents), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-# Slice-9 Green instants/sorceries resolve handlers --------------------------
-
-
-def _ltr_s9_resolve_strength_of_nature(targets: list, state: GameState) -> list[Event]:
-    """Strength of Nature resolve: scry 1 + you gain 3 + each opp -1 (the green tide)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_hobbits_cunning(targets: list, state: GameState) -> list[Event]:
-    """Hobbit's Cunning resolve: scry 2 + you gain 1 (the small folk slip away)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_entish_fury(targets: list, state: GameState) -> list[Event]:
-    """Entish Fury resolve: scry 1 + each opp -3 (the Ents wake to war)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -3, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_gift_of_the_shire(targets: list, state: GameState) -> list[Event]:
-    """Gift of the Shire resolve: scry 1 + you gain 4 (the second breakfast bounty)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 4, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_eagles_are_coming(targets: list, state: GameState) -> list[Event]:
-    """The Eagles Are Coming resolve: scry 2 + each opp -3 (the hosts descend)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -3, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_natures_reclamation(targets: list, state: GameState) -> list[Event]:
-    """Nature's Reclamation resolve: scry 1 + you gain 2 + each opp -2 (the wild reclaims)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_last_march_of_the_ents(targets: list, state: GameState) -> list[Event]:
-    """Last March of the Ents resolve: scry 3 + each opp -4 (the Ents march to ruin)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -4, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_shire_harvest(targets: list, state: GameState) -> list[Event]:
-    """Shire Harvest resolve: scry 2 + you gain 4 (the bountiful Shire)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 4, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_party_in_the_shire(targets: list, state: GameState) -> list[Event]:
-    """Party in the Shire resolve: scry 2 + you gain 3 + each opp -1 (the merry feast)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_s9_resolve_isengard_unleashed(targets: list, state: GameState) -> list[Event]:
-    """Isengard Unleashed resolve: surveil 2 + each opp -4 (Saruman's host)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -4, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-# Slice-9 Green enchantment ETBs ---------------------------------------------
-
-
-def _ltr_heart_of_fangorn_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 2 + each opp -1 per Treefolk ally (the forest stirs)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        ents = _ltr_s9_count_subtype(st, obj.controller, 'Treefolk')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, ents), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_second_breakfast_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 2 per Hobbit ally (a second meal)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        hobbits = _ltr_s9_count_subtype(st, obj.controller, 'Hobbit')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(2, hobbits + 1), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-# --- ARTIFACTS / EQUIPMENT ETB triggers -------------------------------------
-
-
-def _ltr_vilya_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 1 per artifact ally (Ring of Air)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        arts = _ltr_s9_count_type(st, obj.controller, CardType.ARTIFACT)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, arts), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_narya_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per artifact ally (Ring of Fire)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        arts = _ltr_s9_count_type(st, obj.controller, CardType.ARTIFACT)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, arts), 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_phial_of_galadriel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + you gain 2 (the star-glass shines)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_palantir_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + each opp reveals hand (the seeing stone)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.REVEAL_HAND,
-                                payload={'player': opp, 'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_horn_of_gondor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Human/Soldier ally (the great horn calls)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        humans = _ltr_s9_count_subtype(st, obj.controller, 'Human')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, humans), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_ring_of_barahir_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 2 (Beren's gift)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        humans = _ltr_s9_count_subtype(st, obj.controller, 'Human')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(2, humans), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_morgul_sword_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp -2 (the wraith-blade)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        wraiths = _ltr_s9_count_subtype(st, obj.controller, 'Wraith')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(2, wraiths + 1), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_dwarven_axe_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Dwarf ally (the smith's axe)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        dwarves = _ltr_s9_count_subtype(st, obj.controller, 'Dwarf')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, dwarves), 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_elven_bow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Elf/Archer ally (a silent shaft)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        elves = _ltr_s9_count_subtype(st, obj.controller, 'Elf')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, elves), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_orc_blade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp -1 per Orc ally (the jagged blade)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        orcs = _ltr_s9_count_subtype(st, obj.controller, 'Orc')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, orcs), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-# --- LAND ETB triggers ------------------------------------------------------
-
-
-def _ltr_rivendell_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 1 per Elf ally (the Last Homely House)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        elves = _ltr_s9_count_subtype(st, obj.controller, 'Elf')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, elves), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_the_shire_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 1 per Hobbit ally (the green country)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        hobbits = _ltr_s9_count_subtype(st, obj.controller, 'Hobbit')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, hobbits), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_minas_tirith_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Soldier ally (the White City stands)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        soldiers = _ltr_s9_count_subtype(st, obj.controller, 'Soldier')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, soldiers), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_mordor_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp -1 per Orc/Wraith ally (the land of shadow)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        orcs = _ltr_s9_count_subtype(st, obj.controller, 'Orc')
-        wraiths = _ltr_s9_count_subtype(st, obj.controller, 'Wraith')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, orcs + wraiths), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_erebor_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Dwarf ally (the Lonely Mountain)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        dwarves = _ltr_s9_count_subtype(st, obj.controller, 'Dwarf')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, dwarves), 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_helms_deep_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 1 per Soldier ally (the stronghold of Rohan)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        soldiers = _ltr_s9_count_subtype(st, obj.controller, 'Soldier')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, soldiers), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_isengard_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp discards 1 (Saruman's tower)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        wizards = _ltr_s9_count_subtype(st, obj.controller, 'Wizard')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, wizards), 'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_fangorn_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Treefolk ally (the wild forest)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        ents = _ltr_s9_count_subtype(st, obj.controller, 'Treefolk')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, ents), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_mount_doom_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp 2 damage (the volcanic heart)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2, 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_weathertop_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 (the watchtower of old)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        scouts = _ltr_s9_count_subtype(st, obj.controller, 'Scout')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, scouts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_osgiliath_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Soldier ally (the fallen city's stones)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        soldiers = _ltr_s9_count_subtype(st, obj.controller, 'Soldier')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, soldiers), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_grey_havens_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + each opp -1 (the ships set sail)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        elves = _ltr_s9_count_subtype(st, obj.controller, 'Elf')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, elves), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_mines_of_moria_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 1 per Dwarf/Goblin (the deep mines)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        dwarves = _ltr_s9_count_subtype(st, obj.controller, 'Dwarf')
-        goblins = _ltr_s9_count_subtype(st, obj.controller, 'Goblin')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, dwarves + goblins), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_edoras_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Knight ally (the Golden Hall)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        knights = _ltr_s9_count_subtype(st, obj.controller, 'Knight')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, knights), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-# -----------------------------------------------------------------------------
-# Slice-9 diversity helpers (avoid code_fingerprint collisions). Each helper
-# pulls in distinct helpers_called / event_types / zones_accessed signatures
-# so the AST scorer surfaces them as separate code fingerprints.
-# -----------------------------------------------------------------------------
-
-
-def _ltr_s9_count_in_graveyard(state: GameState, controller: str) -> int:
-    """Count cards in controller's graveyard (graveyard zone read)."""
-    gy = state.zones.get(f'graveyard_{controller}')
-    if gy is None:
-        return 0
-    return len(gy.objects)
-
-
-def _ltr_s9_count_in_hand(state: GameState, controller: str) -> int:
-    """Count cards in controller's hand (hand zone read)."""
-    hd = state.zones.get(f'hand_{controller}')
-    if hd is None:
-        return 0
-    return len(hd.objects)
-
-
-def _ltr_dawn_diversity_etb(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Diversity-flavored ETB: scry 1, draw 1 if graveyard >= 3, drain each opp."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        gy_count = _ltr_s9_count_in_graveyard(st, obj.controller)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        if gy_count >= 3:
-            events.append(Event(type=EventType.DRAW,
-                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_palantir_diversity_etb(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Diversity ETB: surveil 2, draw 1, opp reveals; uses hand-zone read."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        hand_count = _ltr_s9_count_in_hand(st, obj.controller)
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        if hand_count <= 6:
-            events.append(Event(type=EventType.DRAW,
-                                payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.REVEAL_HAND,
-                                payload={'player': opp, 'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_memory_resolve_diversity(targets: list, state: GameState) -> list[Event]:
-    """Memory of Ages diversity: surveil + draw + opp mill (uses graveyard zone)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    gy = state.zones.get(f'graveyard_{caster}')
-    gy_count = len(gy.objects) if gy else 0
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.DRAW,
-                    payload={'player': caster, 'amount': 1 + (1 if gy_count >= 3 else 0), 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=None))
-    return events
-
-
-def _ltr_council_resolve_diversity(targets: list, state: GameState) -> list[Event]:
-    """Council resolve diversity: scry + DRAW + opp drain; uses hand zone."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    hd = state.zones.get(f'hand_{caster}')
-    hand_count = len(hd.objects) if hd else 0
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.DRAW,
-                    payload={'player': caster, 'amount': max(1, 7 - hand_count), 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_restoration_resolve_diversity(targets: list, state: GameState) -> list[Event]:
-    """Restoration diversity: scry + DRAW + life gain + opp drain (graveyard)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    gy = state.zones.get(f'graveyard_{caster}')
-    gy_count = len(gy.objects) if gy else 0
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.DRAW,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': max(4, gy_count), 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _ltr_words_resolve_diversity(targets: list, state: GameState) -> list[Event]:
-    """Words of Eldar diversity: surveil + DRAW + opp mill (uses hand zone)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    hd = state.zones.get(f'hand_{caster}')
-    hand_count = len(hd.objects) if hd else 0
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.DRAW,
-                    payload={'player': caster, 'amount': 1 if hand_count <= 5 else 0, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                                source=None))
-    return events
-
-
-def _ltr_arwen_diversity_etb(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Arwen diversity ETB: scry + DRAW + life gain (uses graveyard scan)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        elves = _ltr_s9_count_subtype(st, obj.controller, 'Elf')
-        gy_count = _ltr_s9_count_in_graveyard(st, obj.controller)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.DRAW,
-                        payload={'player': obj.controller, 'amount': 1 if elves >= 2 else 0, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        if elves or gy_count:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': obj.controller, 'amount': max(1, elves), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_witch_king_diversity(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Witch-king diversity ETB: surveil + opp DISCARD + life loss (hand zone)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        wraiths = _ltr_s9_count_subtype(st, obj.controller, 'Wraith')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            hd = st.zones.get(f'hand_{opp}')
-            hand_count = len(hd.objects) if hd else 0
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hand_count, wraiths + 1)),
-                                         'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_dragon_diversity_etb(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Dragon diversity ETB: SCRY + DRAW + DAMAGE (uses hand + graveyard zones)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        dragons = _ltr_s9_count_subtype(st, obj.controller, 'Dragon')
-        gy = _ltr_s9_count_in_graveyard(st, obj.controller)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.DRAW,
-                        payload={'player': obj.controller, 'amount': 1 if gy >= 2 else 0, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(2, dragons + 1),
-                                         'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _ltr_dragon_fire_diversity(targets: list, state: GameState) -> list[Event]:
-    """Dragon Fire diversity: scry + draw + opp damage (graveyard scan)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    gy = state.zones.get(f'graveyard_{caster}')
-    gy_count = len(gy.objects) if gy else 0
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.DRAW,
-                    payload={'player': caster, 'amount': 1 if gy_count >= 2 else 0, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(5, gy_count + 1), 'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _ltr_sailing_resolve_diversity(targets: list, state: GameState) -> list[Event]:
-    """Sailing to Valinor diversity: scry + DRAW + gain (uses both zones)."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    hd = state.zones.get(f'hand_{caster}')
-    gy = state.zones.get(f'graveyard_{caster}')
-    hand_count = len(hd.objects) if hd else 0
-    gy_count = len(gy.objects) if gy else 0
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 4, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.DRAW,
-                    payload={'player': caster, 'amount': max(1, 7 - hand_count), 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': max(4, gy_count + 1), 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                                source=None))
-    return events
-
-
-def _ltr_harvest_resolve_diversity(targets: list, state: GameState) -> list[Event]:
-    """Harvest of Souls diversity: surveil + DRAW + opp life loss + mill."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    gy = state.zones.get(f'graveyard_{caster}')
-    gy_count = len(gy.objects) if gy else 0
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.DRAW,
-                    payload={'player': caster, 'amount': max(1, gy_count // 2), 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 3, 'zone': ZoneType.LIBRARY},
-                                source=None))
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-# =============================================================================
 # WHITE CARDS - GONDOR, ROHAN, MEN OF THE WEST
 # =============================================================================
 
@@ -3065,11 +760,7 @@ KNIGHTS_OF_DOL_AMROTH = _make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Knight"},
     keywords=["first strike"],
-    text=(
-        "First strike. Whenever Knights of Dol Amroth attacks, scry 1 and "
-        "each opponent loses 1 life per Knight you control. (The swan-knights' charge.)"
-    ),
-    setup_interceptors=_ltr_knights_of_dol_amroth_setup,
+    text="First strike",
 )
 
 
@@ -3096,11 +787,7 @@ ROHIRRIM_LANCER = _make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Knight"},
     keywords=["haste"],
-    text=(
-        "Haste. Whenever Rohirrim Lancer attacks, each opponent loses 1 life "
-        "and you gain 1 life per Knight you control. (Riders of the Mark.)"
-    ),
-    setup_interceptors=_ltr_rohirrim_lancer_setup,
+    text="Haste",
 )
 
 
@@ -3152,12 +839,7 @@ DUNEDAIN_HEALER = make_creature(
     power=1, toughness=3,
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    subtypes={"Human", "Cleric"},
-    text=(
-        "When Dunedain Healer enters, scry 1 and you gain 1 life per Human "
-        "you control. (The Ranger's herbs heal the kin.)"
-    ),
-    setup_interceptors=_ltr_dunedain_healer_setup,
+    subtypes={"Human", "Cleric"}
 )
 
 
@@ -3207,54 +889,42 @@ HELM_S_DEEP_GUARD = _make_creature(
 SHIELD_OF_THE_WEST = make_instant(
     name="Shield of the West",
     mana_cost="{1}{W}",
-    colors={Color.WHITE},
-    text="Scry 1; you gain 2 life; each opponent loses 1 life.",
-    resolve=_ltr_s9_resolve_shield_of_the_west,
+    colors={Color.WHITE}
 )
 
 
 CHARGE_OF_THE_ROHIRRIM = make_instant(
     name="Charge of the Rohirrim",
     mana_cost="{2}{W}{W}",
-    colors={Color.WHITE},
-    text="Scry 1; each opponent loses 2 life. (The riders break the line.)",
-    resolve=_ltr_s9_resolve_charge_of_the_rohirrim,
+    colors={Color.WHITE}
 )
 
 
 GONDORIAN_DISCIPLINE = make_instant(
     name="Gondorian Discipline",
     mana_cost="{W}",
-    colors={Color.WHITE},
-    text="Scry 1; you gain 1 life; each opponent loses 1 life.",
-    resolve=_ltr_s9_resolve_gondorian_discipline,
+    colors={Color.WHITE}
 )
 
 
 RALLY_THE_WEST = make_instant(
     name="Rally the West",
     mana_cost="{1}{W}",
-    colors={Color.WHITE},
-    text="Scry 2; each opponent loses 1 life. (The muster gathers.)",
-    resolve=_ltr_s9_resolve_rally_the_west,
+    colors={Color.WHITE}
 )
 
 
 ELENDIL_S_COURAGE = make_instant(
     name="Elendil's Courage",
     mana_cost="{W}",
-    colors={Color.WHITE},
-    text="Scry 1; you gain 3 life; each opponent loses 1 life. (The king's blood.)",
-    resolve=_ltr_s9_resolve_elendils_courage,
+    colors={Color.WHITE}
 )
 
 
 VALIANT_STAND = make_instant(
     name="Valiant Stand",
     mana_cost="{2}{W}",
-    colors={Color.WHITE},
-    text="Scry 1; you gain 2 life; each opponent loses 1 life. (The line holds.)",
-    resolve=_ltr_s9_resolve_valiant_stand,
+    colors={Color.WHITE}
 )
 
 
@@ -3263,60 +933,28 @@ VALIANT_STAND = make_instant(
 MUSTERING_OF_GONDOR = make_sorcery(
     name="Mustering of Gondor",
     mana_cost="{3}{W}{W}",
-    colors={Color.WHITE},
-    text="Scry 2; each opponent loses 2 life. (The army of the West marches.)",
-    resolve=_ltr_s9_resolve_mustering_of_gondor,
+    colors={Color.WHITE}
 )
 
 
 RIDE_TO_RUIN = make_sorcery(
     name="Ride to Ruin",
     mana_cost="{4}{W}{W}",
-    colors={Color.WHITE},
-    text="Scry 2; each opponent loses 3 life. (The breaking charge.)",
-    resolve=_ltr_s9_resolve_ride_to_ruin,
+    colors={Color.WHITE}
 )
 
 
 RESTORATION_OF_THE_KING = make_sorcery(
     name="Restoration of the King",
     mana_cost="{3}{W}{W}",
-    colors={Color.WHITE},
-    text="Scry 2; draw 1; gain life per graveyard card; each opp loses 1.",
-    resolve=_ltr_restoration_resolve_diversity,
+    colors={Color.WHITE}
 )
-
-
-def _ltr_dawn_resolve_diversity(targets: list, state: GameState) -> list[Event]:
-    """Dawn Over Minas Tirith diversity: scry + DRAW + gain + opp drain."""
-    caster = getattr(state, 'active_player', None) or (next(iter(state.players)) if state.players else None)
-    if caster is None:
-        return []
-    hd = state.zones.get(f'hand_{caster}')
-    hand_count = len(hd.objects) if hd else 0
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.DRAW,
-                    payload={'player': caster, 'amount': 1 if hand_count <= 6 else 0, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
 
 
 DAWN_OF_HOPE = make_sorcery(
     name="Dawn Over Minas Tirith",
     mana_cost="{2}{W}",
-    colors={Color.WHITE},
-    text="Scry 1; draw a card (if hand <= 6); gain 2 life; each opp loses 2 life.",
-    resolve=_ltr_dawn_resolve_diversity,
+    colors={Color.WHITE}
 )
 
 
@@ -3338,24 +976,14 @@ BANNER_OF_GONDOR = make_enchantment(
 OATH_OF_EORL = make_enchantment(
     name="Oath of Eorl",
     mana_cost="{1}{W}",
-    colors={Color.WHITE},
-    text=(
-        "When Oath of Eorl enters, scry 1 and each opponent loses 1 life per "
-        "Knight you control. (The Oath of the Riders rallies the Mark.)"
-    ),
-    setup_interceptors=_ltr_oath_of_eorl_setup,
+    colors={Color.WHITE}
 )
 
 
 THE_WHITE_TREE = make_enchantment(
     name="The White Tree",
     mana_cost="{2}{W}",
-    colors={Color.WHITE},
-    text=(
-        "When The White Tree enters, scry 1 and you gain life equal to the "
-        "number of Humans you control (at least 2); each opponent loses 1 life."
-    ),
-    setup_interceptors=_ltr_the_white_tree_setup,
+    colors={Color.WHITE}
 )
 
 
@@ -3416,11 +1044,7 @@ ARWEN_EVENSTAR = _make_creature(
     subtypes={"Elf", "Noble"},
     supertypes={"Legendary"},
     keywords=["lifelink"],
-    text=(
-        "Lifelink. When Arwen, Evenstar enters, scry 2; if you control 2+ Elves, "
-        "draw a card; gain life per Elf; each opponent loses 1 life."
-    ),
-    setup_interceptors=_ltr_arwen_diversity_etb,
+    text="Lifelink",
 )
 
 
@@ -3460,17 +1084,14 @@ CELEBORN_LORD_OF_LORIEN = make_creature(
 
 # --- Regular Creatures ---
 
+# STUB: ETB Scry(1) — Scry not implemented; text preserved, no interceptor
 LORIEN_SENTINEL = make_creature(
     name="Lorien Sentinel",
     power=2, toughness=2,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Elf", "Scout"},
-    text=(
-        "When Lorien Sentinel enters, scry 1 and each opponent loses 1 life "
-        "per Elf you control. (Lorien's watchful eye.)"
-    ),
-    setup_interceptors=_ltr_lorien_sentinel_setup,
+    text="When Lorien Sentinel enters the battlefield, scry 1.",
 )
 
 
@@ -3479,12 +1100,7 @@ RIVENDELL_SCHOLAR = make_creature(
     power=1, toughness=3,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
-    subtypes={"Elf", "Wizard"},
-    text=(
-        "When Rivendell Scholar enters, surveil 2 and each opponent mills 1 "
-        "card per Wizard you control. (The Rivendell archives.)"
-    ),
-    setup_interceptors=_ltr_rivendell_scholar_setup,
+    subtypes={"Elf", "Wizard"}
 )
 
 
@@ -3503,17 +1119,14 @@ MIRKWOOD_ARCHER = _make_creature(
 )
 
 
+# STUB: ETB Scry(2) — Scry not implemented; text preserved, no interceptor
 GREY_HAVENS_NAVIGATOR = make_creature(
     name="Grey Havens Navigator",
     power=1, toughness=3,
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Elf", "Sailor"},
-    text=(
-        "When Grey Havens Navigator enters, scry 2 and each opponent loses 1 "
-        "life per Elf you control. (The ships set west.)"
-    ),
-    setup_interceptors=_ltr_grey_havens_navigator_setup,
+    text="When Grey Havens Navigator enters the battlefield, scry 2.",
 )
 
 
@@ -3522,12 +1135,7 @@ ELVISH_SEER = make_creature(
     power=1, toughness=2,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    subtypes={"Elf", "Wizard"},
-    text=(
-        "When Elvish Seer enters, scry 1 and each opponent mills 1 card per "
-        "Wizard you control. (Visions of the Eldar.)"
-    ),
-    setup_interceptors=_ltr_elvish_seer_setup,
+    subtypes={"Elf", "Wizard"}
 )
 
 
@@ -3536,12 +1144,7 @@ SILVAN_TRACKER = make_creature(
     power=2, toughness=2,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    subtypes={"Elf", "Scout"},
-    text=(
-        "When Silvan Tracker enters, surveil 1 and each opponent loses 1 life "
-        "per Scout you control. (Silent woodland trail.)"
-    ),
-    setup_interceptors=_ltr_silvan_tracker_setup,
+    subtypes={"Elf", "Scout"}
 )
 
 
@@ -3567,11 +1170,7 @@ IMLADRIS_GUARDIAN = _make_creature(
     colors={Color.BLUE},
     subtypes={"Elf", "Soldier"},
     keywords=["flash"],
-    text=(
-        "Flash. When Imladris Guardian enters, scry 1; you gain 1 life per "
-        "Elf you control; each opponent loses 1 life."
-    ),
-    setup_interceptors=_ltr_imladris_guardian_setup,
+    text="Flash",
 )
 
 
@@ -3580,12 +1179,7 @@ MIRROR_OF_GALADRIEL = make_creature(
     power=0, toughness=4,
     mana_cost="{1}{U}",
     colors={Color.BLUE},
-    subtypes={"Elf", "Wizard"},
-    text=(
-        "When Keeper of the Mirror enters, surveil 2 and each opponent loses 1 "
-        "life per Wizard you control. (The mirror sees all.)"
-    ),
-    setup_interceptors=_ltr_keeper_of_the_mirror_setup,
+    subtypes={"Elf", "Wizard"}
 )
 
 
@@ -3610,54 +1204,42 @@ CIRDAN_THE_SHIPWRIGHT = make_creature(
 FORESIGHT_OF_ELVES = make_instant(
     name="Foresight of the Elves",
     mana_cost="{1}{U}",
-    colors={Color.BLUE},
-    text="Scry 3; you gain 1 life; each opponent mills 1 card.",
-    resolve=_ltr_s9_resolve_foresight_of_the_elves,
+    colors={Color.BLUE}
 )
 
 
 ELVEN_WISDOM = make_instant(
     name="Elven Wisdom",
     mana_cost="{2}{U}",
-    colors={Color.BLUE},
-    text="Surveil 2; each opponent mills 2 cards. (Ancient lore unfolds.)",
-    resolve=_ltr_s9_resolve_elven_wisdom,
+    colors={Color.BLUE}
 )
 
 
 MISTS_OF_LORIEN = make_instant(
     name="Mists of Lorien",
     mana_cost="{1}{U}",
-    colors={Color.BLUE},
-    text="Scry 1; each opponent loses 1 life. (The veil deceives.)",
-    resolve=_ltr_s9_resolve_mists_of_lorien,
+    colors={Color.BLUE}
 )
 
 
 VISIONS_OF_THE_PALANTIR = make_instant(
     name="Visions of the Palantir",
     mana_cost="{U}",
-    colors={Color.BLUE},
-    text="Scry 2; each opponent reveals their hand. (The seeing stone.)",
-    resolve=_ltr_s9_resolve_visions_of_the_palantir,
+    colors={Color.BLUE}
 )
 
 
 COUNTERSPELL_OF_THE_WISE = make_instant(
     name="Elrond's Rejection",
     mana_cost="{U}{U}",
-    colors={Color.BLUE},
-    text="Scry 1; each opponent loses 2 life. (The Lord of Rivendell says no.)",
-    resolve=_ltr_s9_resolve_elronds_rejection,
+    colors={Color.BLUE}
 )
 
 
 SILVER_FLOW = make_instant(
     name="Silver Flow",
     mana_cost="{2}{U}{U}",
-    colors={Color.BLUE},
-    text="Scry 2; each opponent mills 3 cards. (Bruinen rises against the foe.)",
-    resolve=_ltr_s9_resolve_silver_flow,
+    colors={Color.BLUE}
 )
 
 
@@ -3666,36 +1248,28 @@ SILVER_FLOW = make_instant(
 COUNCIL_OF_ELROND = make_sorcery(
     name="Council of Elrond",
     mana_cost="{2}{U}{U}",
-    colors={Color.BLUE},
-    text="Scry 3; draw up to 7 (hand fill); each opp loses 1 life.",
-    resolve=_ltr_council_resolve_diversity,
+    colors={Color.BLUE}
 )
 
 
 WORDS_OF_THE_ELDAR = make_sorcery(
     name="Words of the Eldar",
     mana_cost="{3}{U}",
-    colors={Color.BLUE},
-    text="Surveil 3; draw 1 (if hand <= 5); each opp mills 2 cards.",
-    resolve=_ltr_words_resolve_diversity,
+    colors={Color.BLUE}
 )
 
 
 SAILING_TO_VALINOR = make_sorcery(
     name="Sailing to Valinor",
     mana_cost="{4}{U}{U}",
-    colors={Color.BLUE},
-    text="Scry 4; draw to 7; gain life per graveyard; each opp mills 2.",
-    resolve=_ltr_sailing_resolve_diversity,
+    colors={Color.BLUE}
 )
 
 
 MEMORY_OF_AGES = make_sorcery(
     name="Memory of Ages",
     mana_cost="{1}{U}",
-    colors={Color.BLUE},
-    text="Surveil 2; draw 1 (more if graveyard >=3); each opp mills 1.",
-    resolve=_ltr_memory_resolve_diversity,
+    colors={Color.BLUE}
 )
 
 
@@ -3704,36 +1278,21 @@ MEMORY_OF_AGES = make_sorcery(
 MIRROR_POOL = make_enchantment(
     name="Mirror of Galadriel",
     mana_cost="{2}{U}",
-    colors={Color.BLUE},
-    text=(
-        "When Mirror of Galadriel enters, scry 2 and each opponent mills 1 "
-        "card per Elf you control. (The mirror sees what may be.)"
-    ),
-    setup_interceptors=_ltr_mirror_of_galadriel_setup,
+    colors={Color.BLUE}
 )
 
 
 LIGHT_OF_EARENDIL = make_enchantment(
     name="Light of Earendil",
     mana_cost="{1}{U}",
-    colors={Color.BLUE},
-    text=(
-        "When Light of Earendil enters, scry 1; you gain 2 life; each opponent "
-        "loses 1 life. (The star of hope.)"
-    ),
-    setup_interceptors=_ltr_light_of_earendil_setup,
+    colors={Color.BLUE}
 )
 
 
 ELVEN_SANCTUARY = make_enchantment(
     name="Elven Sanctuary",
     mana_cost="{2}{U}{U}",
-    colors={Color.BLUE},
-    text=(
-        "When Elven Sanctuary enters, scry 2 and each opponent loses 1 life "
-        "per Elf you control. (The hidden vale.)"
-    ),
-    setup_interceptors=_ltr_elven_sanctuary_setup,
+    colors={Color.BLUE}
 )
 
 
@@ -3769,11 +1328,7 @@ WITCH_KING_OF_ANGMAR = _make_creature(
     subtypes={"Wraith", "Noble"},
     supertypes={"Legendary"},
     keywords=["flying"],
-    text=(
-        "Flying. When Witch-king of Angmar enters, surveil 2 and each opponent "
-        "discards a card and loses 2 life. (Terror of the Nine.)"
-    ),
-    setup_interceptors=_ltr_witch_king_diversity,
+    text="Flying",
 )
 
 
@@ -3818,12 +1373,7 @@ GRIMA_WORMTONGUE = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Human", "Advisor"},
-    supertypes={"Legendary"},
-    text=(
-        "When Grima Wormtongue enters, surveil 1 and each opponent discards 1 "
-        "card. (Poison whispered in the king's ear.)"
-    ),
-    setup_interceptors=_ltr_grima_wormtongue_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -3861,11 +1411,7 @@ ORC_WARRIOR = _make_creature(
     colors={Color.BLACK},
     subtypes={"Orc", "Warrior"},
     keywords=["menace"],
-    text=(
-        "Menace. Whenever Orc Warrior attacks, each opponent loses 1 life per "
-        "Orc you control. (The horde swarms.)"
-    ),
-    setup_interceptors=_ltr_orc_warrior_setup,
+    text="Menace",
 )
 
 
@@ -3874,12 +1420,7 @@ URUK_HAI_BERSERKER = make_creature(
     power=3, toughness=2,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    subtypes={"Orc", "Berserker"},
-    text=(
-        "When Uruk-hai Berserker enters, surveil 1 and each opponent loses 1 "
-        "life per Orc you control. (Isengard's brood.)"
-    ),
-    setup_interceptors=_ltr_uruk_hai_berserker_setup,
+    subtypes={"Orc", "Berserker"}
 )
 
 
@@ -3890,11 +1431,7 @@ MORDOR_SIEGE_TOWER = _make_creature(
     colors={Color.BLACK},
     subtypes={"Construct"},
     keywords=["trample"],
-    text=(
-        "Trample. When Mordor Siege Engine enters, surveil 1 and each opponent "
-        "loses 2 life. (The great battering ram falls.)"
-    ),
-    setup_interceptors=_ltr_mordor_siege_engine_setup,
+    text="Trample",
 )
 
 
@@ -3905,11 +1442,7 @@ HARADRIM_ASSASSIN = _make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Assassin"},
     keywords=["deathtouch"],
-    text=(
-        "Deathtouch. When Haradrim Assassin enters, surveil 1 and each opponent "
-        "loses 2 life. (A knife in the dark.)"
-    ),
-    setup_interceptors=_ltr_haradrim_assassin_setup,
+    text="Deathtouch",
 )
 
 
@@ -4005,12 +1538,7 @@ MORGUL_KNIGHT = make_creature(
     power=2, toughness=3,
     mana_cost="{2}{B}",
     colors={Color.BLACK},
-    subtypes={"Wraith", "Knight"},
-    text=(
-        "Whenever Morgul Knight attacks, surveil 1 and each opponent loses 1 "
-        "life per Wraith you control. (The Morgul charge.)"
-    ),
-    setup_interceptors=_ltr_morgul_knight_setup,
+    subtypes={"Wraith", "Knight"}
 )
 
 
@@ -4034,54 +1562,42 @@ SHELOB_SPAWN = _make_creature(
 SHADOW_OF_MORDOR = make_instant(
     name="Shadow of Mordor",
     mana_cost="{1}{B}",
-    colors={Color.BLACK},
-    text="Surveil 1; each opponent loses 2 life. (The dark cloud falls.)",
-    resolve=_ltr_s9_resolve_shadow_of_mordor,
+    colors={Color.BLACK}
 )
 
 
 CORRUPTION_SPREADS = make_instant(
     name="Corruption Spreads",
     mana_cost="{B}",
-    colors={Color.BLACK},
-    text="Surveil 1; each opponent discards a card.",
-    resolve=_ltr_s9_resolve_corruption_spreads,
+    colors={Color.BLACK}
 )
 
 
 MORGUL_BLADE = make_instant(
     name="Morgul Blade",
     mana_cost="{1}{B}",
-    colors={Color.BLACK},
-    text="Surveil 1; each opponent loses 3 life. (The wraith-blade.)",
-    resolve=_ltr_s9_resolve_morgul_blade,
+    colors={Color.BLACK}
 )
 
 
 DARK_WHISPERS = make_instant(
     name="Dark Whispers",
     mana_cost="{2}{B}",
-    colors={Color.BLACK},
-    text="Surveil 1; each opponent discards 2 cards. (Rumors of ruin.)",
-    resolve=_ltr_s9_resolve_dark_whispers,
+    colors={Color.BLACK}
 )
 
 
 TREACHERY_OF_ISENGARD = make_instant(
     name="Treachery of Isengard",
     mana_cost="{2}{B}{B}",
-    colors={Color.BLACK},
-    text="Surveil 2; each opponent discards a card and loses 1 life.",
-    resolve=_ltr_s9_resolve_treachery_of_isengard,
+    colors={Color.BLACK}
 )
 
 
 SAURON_S_COMMAND = make_instant(
     name="Sauron's Command",
     mana_cost="{B}{B}",
-    colors={Color.BLACK},
-    text="Surveil 2; each opponent loses 2 life. (The Dark Lord wills it.)",
-    resolve=_ltr_s9_resolve_saurons_command,
+    colors={Color.BLACK}
 )
 
 
@@ -4090,36 +1606,28 @@ SAURON_S_COMMAND = make_instant(
 MARCH_OF_THE_ORCS = make_sorcery(
     name="March of the Orcs",
     mana_cost="{3}{B}{B}",
-    colors={Color.BLACK},
-    text="Surveil 2; each opponent loses 3 life. (The great host advances.)",
-    resolve=_ltr_s9_resolve_march_of_the_orcs,
+    colors={Color.BLACK}
 )
 
 
 HARVEST_OF_SOULS = make_sorcery(
     name="Harvest of Souls",
     mana_cost="{4}{B}{B}",
-    colors={Color.BLACK},
-    text="Surveil 3; draw per graveyard; each opp mills 3 + loses 1 life.",
-    resolve=_ltr_harvest_resolve_diversity,
+    colors={Color.BLACK}
 )
 
 
 CORRUPTION_OF_POWER = make_sorcery(
     name="Corruption of Power",
     mana_cost="{2}{B}",
-    colors={Color.BLACK},
-    text="Surveil 1; each opponent discards a card and loses 1 life.",
-    resolve=_ltr_s9_resolve_corruption_of_power,
+    colors={Color.BLACK}
 )
 
 
 RITUAL_OF_MORGOTH = make_sorcery(
     name="Ritual of Morgoth",
     mana_cost="{3}{B}",
-    colors={Color.BLACK},
-    text="Surveil 2; each opponent mills 2 cards and loses 2 life. (Deep darkness.)",
-    resolve=_ltr_s9_resolve_ritual_of_morgoth,
+    colors={Color.BLACK}
 )
 
 
@@ -4144,24 +1652,14 @@ EYE_OF_SAURON = make_enchantment(
 SHADOW_OF_THE_EAST = make_enchantment(
     name="Shadow of the East",
     mana_cost="{1}{B}",
-    colors={Color.BLACK},
-    text=(
-        "When Shadow of the East enters, surveil 1 and each opponent loses 1 "
-        "life per Orc/Wraith you control. (The East rises.)"
-    ),
-    setup_interceptors=_ltr_shadow_of_the_east_setup,
+    colors={Color.BLACK}
 )
 
 
 THE_RING_TEMPTS = make_enchantment(
     name="The Ring Tempts You",
     mana_cost="{2}{B}",
-    colors={Color.BLACK},
-    text=(
-        "When The Ring Tempts You enters, surveil 2 and each opponent discards "
-        "a card. (The Ring's seductive whisper.)"
-    ),
-    setup_interceptors=_ltr_the_ring_tempts_setup,
+    colors={Color.BLACK}
 )
 
 
@@ -4259,11 +1757,7 @@ IRON_HILLS_WARRIOR = _make_creature(
     colors={Color.RED},
     subtypes={"Dwarf", "Warrior"},
     keywords=["haste"],
-    text=(
-        "Haste. Whenever Iron Hills Warrior attacks, scry 1 and deal 1 damage "
-        "per Dwarf you control to each opponent. (Forge-tempered axes.)"
-    ),
-    setup_interceptors=_ltr_iron_hills_warrior_setup,
+    text="Haste",
 )
 
 
@@ -4274,11 +1768,7 @@ DWARF_BERSERKER = _make_creature(
     colors={Color.RED},
     subtypes={"Dwarf", "Berserker"},
     keywords=["haste"],
-    text=(
-        "Haste. Whenever Dwarf Berserker attacks, deal 2 damage to each opponent "
-        "(more per Dwarf you control). (Berserk rage.)"
-    ),
-    setup_interceptors=_ltr_dwarf_berserker_setup,
+    text="Haste",
 )
 
 
@@ -4329,11 +1819,7 @@ MOUNTAIN_GUARD = _make_creature(
     colors={Color.RED},
     subtypes={"Dwarf", "Soldier"},
     keywords=["first strike"],
-    text=(
-        "First strike. When Mountain Guard enters, scry 1 and each opponent "
-        "loses 1 life per Dwarf you control. (The watchful guard.)"
-    ),
-    setup_interceptors=_ltr_mountain_guard_setup,
+    text="First strike",
 )
 
 
@@ -4359,11 +1845,7 @@ WARG_RIDER = _make_creature(
     colors={Color.RED},
     subtypes={"Orc", "Knight"},
     keywords=["haste"],
-    text=(
-        "Haste. Whenever Warg Rider attacks, deal 1 damage to each opponent per "
-        "Knight you control. (The warg pack runs.)"
-    ),
-    setup_interceptors=_ltr_warg_rider_setup,
+    text="Haste",
 )
 
 
@@ -4374,11 +1856,7 @@ DRAGON_OF_THE_NORTH = _make_creature(
     colors={Color.RED},
     subtypes={"Dragon"},
     keywords=["flying"],
-    text=(
-        "Flying. When Dragon of the North enters, scry 1; draw a card if "
-        "graveyard >=2; deal 2+ damage to each opponent."
-    ),
-    setup_interceptors=_ltr_dragon_diversity_etb,
+    text="Flying",
 )
 
 
@@ -4404,11 +1882,7 @@ FIRE_DRAKE = _make_creature(
     colors={Color.RED},
     subtypes={"Drake"},
     keywords=["flying"],
-    text=(
-        "Flying. When Fire Drake enters, scry 1 and deal 1 damage to each "
-        "opponent per Drake/Dragon you control. (A small flame.)"
-    ),
-    setup_interceptors=_ltr_fire_drake_setup,
+    text="Flying",
 )
 
 
@@ -4419,11 +1893,7 @@ MORIA_GOBLIN = _make_creature(
     colors={Color.RED},
     subtypes={"Goblin"},
     keywords=["haste"],
-    text=(
-        "Haste. Whenever Moria Goblin attacks, scry 1 and each opponent loses "
-        "1 life per Goblin you control. (The goblin warren.)"
-    ),
-    setup_interceptors=_ltr_moria_goblin_setup,
+    text="Haste",
 )
 
 
@@ -4432,54 +1902,42 @@ MORIA_GOBLIN = _make_creature(
 FLAME_OF_ANOR = make_instant(
     name="Flame of Anor",
     mana_cost="{1}{R}{R}",
-    colors={Color.RED},
-    text="Scry 1; deal 3 damage to each opponent. (Gandalf's flame.)",
-    resolve=_ltr_s9_resolve_flame_of_anor,
+    colors={Color.RED}
 )
 
 
 DWARVEN_RAGE = make_instant(
     name="Dwarven Rage",
     mana_cost="{R}",
-    colors={Color.RED},
-    text="Scry 1; deal 1 damage to each opponent. (Kinship's fury.)",
-    resolve=_ltr_s9_resolve_dwarven_rage,
+    colors={Color.RED}
 )
 
 
 DRAGON_S_BREATH = make_instant(
     name="Dragon's Breath",
     mana_cost="{2}{R}",
-    colors={Color.RED},
-    text="Scry 1; deal 4 damage to each opponent. (Dragon-fire.)",
-    resolve=_ltr_s9_resolve_dragons_breath,
+    colors={Color.RED}
 )
 
 
 FORGE_FIRE = make_instant(
     name="Forge Fire",
     mana_cost="{R}{R}",
-    colors={Color.RED},
-    text="Scry 1; deal 2 damage to each opponent. (The smith's bellows roar.)",
-    resolve=_ltr_s9_resolve_forge_fire,
+    colors={Color.RED}
 )
 
 
 BATTLE_CRY = make_instant(
     name="Battle Cry of Erebor",
     mana_cost="{1}{R}",
-    colors={Color.RED},
-    text="Scry 1; you gain 2 life; each opponent loses 1 life. (The dwarves cry war.)",
-    resolve=_ltr_s9_resolve_battle_cry_of_erebor,
+    colors={Color.RED}
 )
 
 
 SMASH_THE_GATE = make_instant(
     name="Smash the Gate",
     mana_cost="{2}{R}",
-    colors={Color.RED},
-    text="Scry 1; deal 2 damage and 1 life loss to each opponent. (The gate breaks.)",
-    resolve=_ltr_s9_resolve_smash_the_gate,
+    colors={Color.RED}
 )
 
 
@@ -4488,36 +1946,28 @@ SMASH_THE_GATE = make_instant(
 SIEGE_OF_EREBOR = make_sorcery(
     name="Siege of Erebor",
     mana_cost="{4}{R}{R}",
-    colors={Color.RED},
-    text="Scry 2; deal 4 damage to each opponent. (The great siege.)",
-    resolve=_ltr_s9_resolve_siege_of_erebor,
+    colors={Color.RED}
 )
 
 
 DRAGON_FIRE = make_sorcery(
     name="Dragon Fire",
     mana_cost="{3}{R}{R}",
-    colors={Color.RED},
-    text="Scry 1; draw (if graveyard >=2); deal 5+ damage to each opp.",
-    resolve=_ltr_dragon_fire_diversity,
+    colors={Color.RED}
 )
 
 
 CALL_OF_THE_MOUNTAIN = make_sorcery(
     name="Call of the Mountain",
     mana_cost="{3}{R}",
-    colors={Color.RED},
-    text="Scry 2; each opponent loses 2 life. (The kin gather.)",
-    resolve=_ltr_s9_resolve_call_of_the_mountain,
+    colors={Color.RED}
 )
 
 
 MINES_OF_MORIA = make_sorcery(
     name="Delving the Mines",
     mana_cost="{2}{R}",
-    colors={Color.RED},
-    text="Scry 2; each opponent mills 2 cards and takes 1 damage. (Deep echoes.)",
-    resolve=_ltr_s9_resolve_delving_the_mines,
+    colors={Color.RED}
 )
 
 
@@ -4539,24 +1989,14 @@ FORGE_OF_EREBOR = make_enchantment(
 FIRES_OF_MOUNT_DOOM = make_enchantment(
     name="Fires of Mount Doom",
     mana_cost="{2}{R}{R}",
-    colors={Color.RED},
-    text=(
-        "When Fires of Mount Doom enters, scry 1 and deal 2 damage to each "
-        "opponent (more per Dwarf you control). (Mount Doom's heat.)"
-    ),
-    setup_interceptors=_ltr_fires_of_mount_doom_setup,
+    colors={Color.RED}
 )
 
 
 WRATH_OF_THE_DWARVES = make_enchantment(
     name="Wrath of the Dwarves",
     mana_cost="{1}{R}",
-    colors={Color.RED},
-    text=(
-        "When Wrath of the Dwarves enters, scry 1 and deal 1 damage to each "
-        "opponent per Dwarf you control. (The kindled wrath.)"
-    ),
-    setup_interceptors=_ltr_wrath_of_the_dwarves_setup,
+    colors={Color.RED}
 )
 
 
@@ -4590,12 +2030,7 @@ SAMWISE_THE_BRAVE = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Hobbit", "Citizen"},
-    supertypes={"Legendary"},
-    text=(
-        "When Samwise enters, scry 1; you gain 1 life per Hobbit you control; "
-        "each opponent loses 1 life. (Loyal friend.)"
-    ),
-    setup_interceptors=_ltr_samwise_the_brave_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -4688,11 +2123,7 @@ ENT_SAPLING = _make_creature(
     colors={Color.GREEN},
     subtypes={"Treefolk"},
     keywords=["defender", "reach"],
-    text=(
-        "Defender, reach. When Ent Sapling enters, scry 1; you gain 1 life "
-        "per Treefolk you control; each opponent loses 1 life."
-    ),
-    setup_interceptors=_ltr_ent_sapling_setup,
+    text="Defender, reach",
 )
 
 
@@ -4701,12 +2132,7 @@ HOBBITON_GARDENER = make_creature(
     power=1, toughness=2,
     mana_cost="{G}",
     colors={Color.GREEN},
-    subtypes={"Hobbit", "Citizen"},
-    text=(
-        "When Hobbiton Gardener enters, scry 1 and you gain 1 life per Hobbit "
-        "you control. (The gardener's harvest.)"
-    ),
-    setup_interceptors=_ltr_hobbiton_gardener_setup,
+    subtypes={"Hobbit", "Citizen"}
 )
 
 
@@ -4717,11 +2143,7 @@ FANGORN_GUARDIAN = _make_creature(
     colors={Color.GREEN},
     subtypes={"Treefolk"},
     keywords=["reach", "trample"],
-    text=(
-        "Reach, trample. When Fangorn Guardian enters, scry 1 and each opponent "
-        "loses 2 life (more per Treefolk you control). (The ancient guardian.)"
-    ),
-    setup_interceptors=_ltr_fangorn_guardian_setup,
+    text="Reach, trample",
 )
 
 
@@ -4732,11 +2154,7 @@ GREAT_EAGLE = _make_creature(
     colors={Color.GREEN},
     subtypes={"Bird"},
     keywords=["flying"],
-    text=(
-        "Flying. When Great Eagle enters, scry 1 and each opponent loses 1 "
-        "life per Bird you control. (The eagles return.)"
-    ),
-    setup_interceptors=_ltr_great_eagle_setup,
+    text="Flying",
 )
 
 
@@ -4748,11 +2166,7 @@ GWAIHIR_WIND_LORD = _make_creature(
     subtypes={"Bird"},
     supertypes={"Legendary"},
     keywords=["flying"],
-    text=(
-        "Flying. When Gwaihir, Wind Lord enters, scry 2 and each opponent "
-        "loses 2 life (more per Bird you control). (The Wind Lord descends.)"
-    ),
-    setup_interceptors=_ltr_gwaihir_wind_lord_setup,
+    text="Flying",
 )
 
 
@@ -4780,11 +2194,7 @@ QUICKBEAM = _make_creature(
     subtypes={"Treefolk"},
     supertypes={"Legendary"},
     keywords=["haste"],
-    text=(
-        "Haste. Whenever Quickbeam attacks, scry 1 and each opponent loses 1 "
-        "life per Treefolk you control. (The swift Ent.)"
-    ),
-    setup_interceptors=_ltr_quickbeam_setup,
+    text="Haste",
 )
 
 
@@ -4810,11 +2220,7 @@ OLIPHAUNT = _make_creature(
     colors={Color.GREEN},
     subtypes={"Elephant"},
     keywords=["trample"],
-    text=(
-        "Trample. When Oliphaunt enters, scry 1 and each opponent loses 3 life "
-        "(more per Elephant/Beast you control). (The great oliphaunt charges.)"
-    ),
-    setup_interceptors=_ltr_oliphaunt_setup,
+    text="Trample",
 )
 
 
@@ -4825,11 +2231,7 @@ RADAGAST_S_COMPANION = _make_creature(
     colors={Color.GREEN},
     subtypes={"Bird"},
     keywords=["flying"],
-    text=(
-        "Flying. When Radagast's Companion enters, scry 1 and you gain 1 life "
-        "per Bird you control. (Radagast's bond.)"
-    ),
-    setup_interceptors=_ltr_radagast_companion_setup,
+    text="Flying",
 )
 
 
@@ -4838,12 +2240,7 @@ HUORN = make_creature(
     power=4, toughness=4,
     mana_cost="{3}{G}",
     colors={Color.GREEN},
-    subtypes={"Treefolk"},
-    text=(
-        "When Huorn enters, scry 1 and each opponent loses 1 life per Treefolk "
-        "you control. (The dark walking tree.)"
-    ),
-    setup_interceptors=_ltr_huorn_setup,
+    subtypes={"Treefolk"}
 )
 
 
@@ -4852,54 +2249,42 @@ HUORN = make_creature(
 STRENGTH_OF_NATURE = make_instant(
     name="Strength of Nature",
     mana_cost="{1}{G}",
-    colors={Color.GREEN},
-    text="Scry 1; you gain 3 life; each opponent loses 1 life. (The green tide.)",
-    resolve=_ltr_s9_resolve_strength_of_nature,
+    colors={Color.GREEN}
 )
 
 
 HOBBIT_S_CUNNING = make_instant(
     name="Hobbit's Cunning",
     mana_cost="{G}",
-    colors={Color.GREEN},
-    text="Scry 2; you gain 1 life; each opponent loses 1 life. (The small folk slip away.)",
-    resolve=_ltr_s9_resolve_hobbits_cunning,
+    colors={Color.GREEN}
 )
 
 
 ENTISH_FURY = make_instant(
     name="Entish Fury",
     mana_cost="{2}{G}{G}",
-    colors={Color.GREEN},
-    text="Scry 1; each opponent loses 3 life. (The Ents wake to war.)",
-    resolve=_ltr_s9_resolve_entish_fury,
+    colors={Color.GREEN}
 )
 
 
 GIFT_OF_THE_SHIRE = make_instant(
     name="Gift of the Shire",
     mana_cost="{1}{G}",
-    colors={Color.GREEN},
-    text="Scry 1; you gain 4 life; each opponent loses 1 life. (The bounty of the Shire.)",
-    resolve=_ltr_s9_resolve_gift_of_the_shire,
+    colors={Color.GREEN}
 )
 
 
 EAGLES_ARE_COMING = make_instant(
     name="The Eagles Are Coming",
     mana_cost="{3}{G}{G}",
-    colors={Color.GREEN},
-    text="Scry 2; each opponent loses 3 life. (The hosts of Manwe descend.)",
-    resolve=_ltr_s9_resolve_eagles_are_coming,
+    colors={Color.GREEN}
 )
 
 
 NATURE_S_RECLAMATION = make_instant(
     name="Nature's Reclamation",
     mana_cost="{1}{G}",
-    colors={Color.GREEN},
-    text="Scry 1; you gain 2 life; each opponent loses 2 life. (The wild reclaims.)",
-    resolve=_ltr_s9_resolve_natures_reclamation,
+    colors={Color.GREEN}
 )
 
 
@@ -4908,36 +2293,28 @@ NATURE_S_RECLAMATION = make_instant(
 LAST_MARCH_OF_THE_ENTS = make_sorcery(
     name="Last March of the Ents",
     mana_cost="{5}{G}{G}",
-    colors={Color.GREEN},
-    text="Scry 3; each opponent loses 4 life. (The Ents march to ruin.)",
-    resolve=_ltr_s9_resolve_last_march_of_the_ents,
+    colors={Color.GREEN}
 )
 
 
 SHIRE_HARVEST = make_sorcery(
     name="Shire Harvest",
     mana_cost="{2}{G}",
-    colors={Color.GREEN},
-    text="Scry 2; you gain 4 life; each opponent loses 1 life. (The bountiful Shire.)",
-    resolve=_ltr_s9_resolve_shire_harvest,
+    colors={Color.GREEN}
 )
 
 
 PARTY_IN_THE_SHIRE = make_sorcery(
     name="Party in the Shire",
     mana_cost="{3}{G}",
-    colors={Color.GREEN},
-    text="Scry 2; you gain 3 life; each opponent loses 1 life. (The merry feast.)",
-    resolve=_ltr_s9_resolve_party_in_the_shire,
+    colors={Color.GREEN}
 )
 
 
 ISENGARD_UNLEASHED = make_sorcery(
     name="Isengard Unleashed",
     mana_cost="{4}{G}{G}",
-    colors={Color.GREEN},
-    text="Surveil 2; each opponent loses 4 life. (Saruman's host.)",
-    resolve=_ltr_s9_resolve_isengard_unleashed,
+    colors={Color.GREEN}
 )
 
 
@@ -4959,24 +2336,14 @@ PARTY_TREE = make_enchantment(
 FANGORN_FOREST = make_enchantment(
     name="Heart of Fangorn",
     mana_cost="{3}{G}{G}",
-    colors={Color.GREEN},
-    text=(
-        "When Heart of Fangorn enters, scry 1; you gain 2 life; each opponent "
-        "loses 1 life per Treefolk you control. (The forest stirs.)"
-    ),
-    setup_interceptors=_ltr_heart_of_fangorn_setup,
+    colors={Color.GREEN}
 )
 
 
 SECOND_BREAKFAST = make_enchantment(
     name="Second Breakfast",
     mana_cost="{1}{G}",
-    colors={Color.GREEN},
-    text=(
-        "When Second Breakfast enters, scry 1 and you gain 2+ life (more per "
-        "Hobbit you control). (A second meal.)"
-    ),
-    setup_interceptors=_ltr_second_breakfast_setup,
+    colors={Color.GREEN}
 )
 
 
@@ -5121,12 +2488,7 @@ VILYA = make_equipment(
     mana_cost="{2}",
     equip_cost="{1}",
     subtypes={"Ring"},
-    supertypes={"Legendary"},
-    text=(
-        "When Vilya enters, scry 1; you gain 1 life per artifact you control; "
-        "each opponent loses 1 life. (Ring of Air.)"
-    ),
-    setup_interceptors=_ltr_vilya_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -5135,36 +2497,21 @@ NARYA = make_equipment(
     mana_cost="{2}",
     equip_cost="{1}",
     subtypes={"Ring"},
-    supertypes={"Legendary"},
-    text=(
-        "When Narya enters, scry 1 and deal 1 damage to each opponent per "
-        "artifact you control. (Ring of Fire.)"
-    ),
-    setup_interceptors=_ltr_narya_setup,
+    supertypes={"Legendary"}
 )
 
 
 PHIAL_OF_GALADRIEL = make_artifact(
     name="Phial of Galadriel",
     mana_cost="{2}",
-    supertypes={"Legendary"},
-    text=(
-        "When Phial of Galadriel enters, scry 2; you gain 2 life; each opponent "
-        "loses 1 life. (The star-glass shines.)"
-    ),
-    setup_interceptors=_ltr_phial_of_galadriel_setup,
+    supertypes={"Legendary"}
 )
 
 
 PALANTIR_OF_ORTHANC = make_artifact(
     name="Palantir of Orthanc",
     mana_cost="{3}",
-    supertypes={"Legendary"},
-    text=(
-        "When Palantir of Orthanc enters, surveil 2; draw if hand <= 6; each "
-        "opponent reveals their hand. (The seeing stone.)"
-    ),
-    setup_interceptors=_ltr_palantir_diversity_etb,
+    supertypes={"Legendary"}
 )
 
 
@@ -5174,72 +2521,42 @@ MITHRIL_COAT = None  # populated in SPICE PASS section
 HORN_OF_GONDOR = make_artifact(
     name="Horn of Gondor",
     mana_cost="{3}",
-    supertypes={"Legendary"},
-    text=(
-        "When Horn of Gondor enters, scry 1 and each opponent loses 1 life "
-        "per Human you control. (The great horn calls.)"
-    ),
-    setup_interceptors=_ltr_horn_of_gondor_setup,
+    supertypes={"Legendary"}
 )
 
 
 RING_OF_BARAHIR = make_equipment(
     name="Ring of Barahir",
     mana_cost="{1}",
-    equip_cost="{1}",
-    text=(
-        "When Ring of Barahir enters, scry 1 and you gain 2 life (more per "
-        "Human you control). (Beren's gift.)"
-    ),
-    setup_interceptors=_ltr_ring_of_barahir_setup,
+    equip_cost="{1}"
 )
 
 
 MORGUL_SWORD = make_equipment(
     name="Morgul Sword",
     mana_cost="{2}",
-    equip_cost="{2}",
-    text=(
-        "When Morgul Sword enters, surveil 1 and each opponent loses 2+ life "
-        "(more per Wraith you control). (The wraith-blade.)"
-    ),
-    setup_interceptors=_ltr_morgul_sword_setup,
+    equip_cost="{2}"
 )
 
 
 DWARVEN_AXE = make_equipment(
     name="Dwarven Axe",
     mana_cost="{2}",
-    equip_cost="{1}",
-    text=(
-        "When Dwarven Axe enters, scry 1 and deal 1 damage to each opponent "
-        "per Dwarf you control. (The smith's axe.)"
-    ),
-    setup_interceptors=_ltr_dwarven_axe_setup,
+    equip_cost="{1}"
 )
 
 
 ELVEN_BOW = make_equipment(
     name="Elven Bow",
     mana_cost="{1}",
-    equip_cost="{1}",
-    text=(
-        "When Elven Bow enters, scry 1 and each opponent loses 1 life per Elf "
-        "you control. (A silent shaft.)"
-    ),
-    setup_interceptors=_ltr_elven_bow_setup,
+    equip_cost="{1}"
 )
 
 
 ORC_BLADE = make_equipment(
     name="Orc Blade",
     mana_cost="{1}",
-    equip_cost="{1}",
-    text=(
-        "When Orc Blade enters, surveil 1 and each opponent loses 1 life per "
-        "Orc you control. (The jagged blade.)"
-    ),
-    setup_interceptors=_ltr_orc_blade_setup,
+    equip_cost="{1}"
 )
 
 
@@ -5249,78 +2566,43 @@ ORC_BLADE = make_equipment(
 
 RIVENDELL = make_land(
     name="Rivendell",
-    supertypes={"Legendary"},
-    text=(
-        "When Rivendell enters, scry 1 and you gain 1 life per Elf you control. "
-        "(The Last Homely House.)"
-    ),
-    setup_interceptors=_ltr_rivendell_land_setup,
+    supertypes={"Legendary"}
 )
 
 
 THE_SHIRE = make_land(
     name="The Shire",
-    supertypes={"Legendary"},
-    text=(
-        "When The Shire enters, scry 1 and you gain 1 life per Hobbit you control. "
-        "(The green country.)"
-    ),
-    setup_interceptors=_ltr_the_shire_land_setup,
+    supertypes={"Legendary"}
 )
 
 
 MINAS_TIRITH = make_land(
     name="Minas Tirith",
-    supertypes={"Legendary"},
-    text=(
-        "When Minas Tirith enters, scry 1 and each opponent loses 1 life per "
-        "Soldier you control. (The White City stands.)"
-    ),
-    setup_interceptors=_ltr_minas_tirith_land_setup,
+    supertypes={"Legendary"}
 )
 
 
 MORDOR = make_land(
     name="Mordor, Land of Shadow",
-    supertypes={"Legendary"},
-    text=(
-        "When Mordor enters, surveil 1 and each opponent loses 1 life per "
-        "Orc/Wraith you control. (The land of shadow.)"
-    ),
-    setup_interceptors=_ltr_mordor_land_setup,
+    supertypes={"Legendary"}
 )
 
 
 EREBOR = make_land(
     name="Erebor, the Lonely Mountain",
-    supertypes={"Legendary"},
-    text=(
-        "When Erebor enters, scry 1 and deal 1 damage to each opponent per "
-        "Dwarf you control. (The Lonely Mountain.)"
-    ),
-    setup_interceptors=_ltr_erebor_land_setup,
+    supertypes={"Legendary"}
 )
 
 
 HELMS_DEEP = make_land(
     name="Helm's Deep",
-    supertypes={"Legendary"},
-    text=(
-        "When Helm's Deep enters, scry 1 and you gain 1 life per Soldier you "
-        "control. (The stronghold of Rohan.)"
-    ),
-    setup_interceptors=_ltr_helms_deep_land_setup,
+    supertypes={"Legendary"}
 )
 
 
 ISENGARD = make_land(
     name="Isengard",
-    supertypes={"Legendary"},
-    text=(
-        "When Isengard enters, surveil 1 and each opponent discards 1 card. "
-        "(Saruman's tower.)"
-    ),
-    setup_interceptors=_ltr_isengard_land_setup,
+    supertypes={"Legendary"}
 )
 
 
@@ -5328,73 +2610,38 @@ LOTHLORIEN = None  # populated in SPICE PASS section
 
 
 FANGORN = make_land(
-    name="Fangorn Forest",
-    text=(
-        "When Fangorn Forest enters, scry 1 and each opponent loses 1 life per "
-        "Treefolk you control. (The wild forest.)"
-    ),
-    setup_interceptors=_ltr_fangorn_land_setup,
+    name="Fangorn Forest"
 )
 
 
 MOUNT_DOOM = make_land(
     name="Mount Doom",
-    supertypes={"Legendary"},
-    text=(
-        "When Mount Doom enters, surveil 1 and deal 2 damage to each opponent. "
-        "(The volcanic heart of Mordor.)"
-    ),
-    setup_interceptors=_ltr_mount_doom_land_setup,
+    supertypes={"Legendary"}
 )
 
 
 WEATHERTOP = make_land(
-    name="Weathertop",
-    text=(
-        "When Weathertop enters, scry 1 and each opponent loses 1 life per "
-        "Scout you control. (The watchtower of old.)"
-    ),
-    setup_interceptors=_ltr_weathertop_land_setup,
+    name="Weathertop"
 )
 
 
 OSGILIATH = make_land(
-    name="Osgiliath, Fallen City",
-    text=(
-        "When Osgiliath enters, scry 1 and each opponent loses 1 life per "
-        "Soldier you control. (The fallen city's stones.)"
-    ),
-    setup_interceptors=_ltr_osgiliath_land_setup,
+    name="Osgiliath, Fallen City"
 )
 
 
 GREY_HAVENS = make_land(
-    name="Grey Havens",
-    text=(
-        "When Grey Havens enters, scry 2 and each opponent loses 1 life per "
-        "Elf you control. (The ships set sail.)"
-    ),
-    setup_interceptors=_ltr_grey_havens_land_setup,
+    name="Grey Havens"
 )
 
 
 MORIA = make_land(
-    name="Mines of Moria",
-    text=(
-        "When Mines of Moria enters, surveil 1 and each opponent mills 1 card "
-        "per Dwarf/Goblin you control. (The deep mines.)"
-    ),
-    setup_interceptors=_ltr_mines_of_moria_land_setup,
+    name="Mines of Moria"
 )
 
 
 EDORAS = make_land(
-    name="Edoras",
-    text=(
-        "When Edoras enters, scry 1 and each opponent loses 1 life per Knight "
-        "you control. (The Golden Hall.)"
-    ),
-    setup_interceptors=_ltr_edoras_land_setup,
+    name="Edoras"
 )
 
 
