@@ -223,82 +223,6 @@ def make_ally_etb_trigger(
 
 
 # =============================================================================
-# Slice-20 median-lift helpers (2026-05-19): drives TLAC depth_v2_median
-# 0 -> 2+ (final gate flips TLAC to 4/4 green). Each helper reads
-# state.zones (state + zone axes), iterates allies / threats by subtype
-# (state coupling), and emits SCRY / SURVEIL (info event = zone+asymmetry)
-# plus a cross-controller event via all_opponents (asymmetry). Each setup
-# scores depth >= 5 on the v2 rubric.
-#
-# TLAC flavor: scry/gain for Air Nomads + Water Tribe healers, surveil/mill
-# for Fire Nation + Dai Li + spies, damage for Firebenders / Dragons,
-# drain for Azula / Ozai / shadow ops, draw for Library / scholars,
-# life-gain for Earthbending defenders.
-#
-# 12 distinct helper shapes (axis + zone + payload variations) keep
-# code_diversity >= 0.40:
-#   1) etb scry + drain          (White air nomads, monks)
-#   2) attack drain              (Warrior combat triggers)
-#   3) etb surveil + mill        (Fire Nation, Dai Li)
-#   4) etb scry + heal           (Water Tribe healers, sanctuaries)
-#   5) etb surveil + discard     (Azula's schemes, mind games)
-#   6) etb scry + damage         (Firebenders, lightning techs)
-#   7) death trigger + drain     (Sacrifice, lethal foes)
-#   8) etb hand-reveal           (Library, scholars)
-#   9) etb graveyard + draw      (Cycle, restoration, scrolls)
-#  10) etb gain + ally scaling   (Earth Kingdom, Allies)
-#  11) upkeep scry + drain       (Lands, headquarters)
-#  12) resolve (instants/sorceries)
-# =============================================================================
-
-
-def _tlac_s20_count_subtype(state: GameState, controller: str, subtype: str) -> int:
-    """Count controller's battlefield permanents with `subtype` (state-coupled)."""
-    bf = state.zones.get('battlefield')
-    if not bf:
-        return 0
-    n = 0
-    for oid in bf.objects:
-        o = state.objects.get(oid)
-        if not o or o.controller != controller:
-            continue
-        if o.characteristics and subtype in (o.characteristics.subtypes or set()):
-            n += 1
-    return n
-
-
-def _tlac_s20_count_type(state: GameState, controller: str, cardtype: CardType) -> int:
-    """Count controller's battlefield permanents of `cardtype` (state-coupled)."""
-    bf = state.zones.get('battlefield')
-    if not bf:
-        return 0
-    n = 0
-    for oid in bf.objects:
-        o = state.objects.get(oid)
-        if not o or o.controller != controller:
-            continue
-        if o.characteristics and cardtype in (o.characteristics.types or set()):
-            n += 1
-    return n
-
-
-def _tlac_s20_count_in_graveyard(state: GameState, controller: str) -> int:
-    """Count cards in controller's graveyard (graveyard zone read)."""
-    gy = state.zones.get(f'graveyard_{controller}')
-    if gy is None:
-        return 0
-    return len(gy.objects)
-
-
-def _tlac_s20_count_in_hand(state: GameState, controller: str) -> int:
-    """Count cards in controller's hand (hand zone read)."""
-    hd = state.zones.get(f'hand_{controller}')
-    if hd is None:
-        return 0
-    return len(hd.objects)
-
-
-# =============================================================================
 # WHITE CARDS
 # =============================================================================
 
@@ -2081,8 +2005,8 @@ def fated_firepower_setup(obj: GameObject, state: GameState) -> list[Interceptor
             new_payload = dict(event.payload)
             new_payload['amount'] = new_amount
             return InterceptorResult(
-                action=InterceptorAction.MODIFY,
-                modified_event=Event(type=event.type, payload=new_payload, source=event.source)
+                action=InterceptorAction.TRANSFORM,
+                transformed_event=Event(type=event.type, payload=new_payload, source=event.source)
             )
         return InterceptorResult(action=InterceptorAction.PASS)
 
@@ -2090,7 +2014,7 @@ def fated_firepower_setup(obj: GameObject, state: GameState) -> list[Interceptor
         id=new_id(),
         source=obj.id,
         controller=obj.controller,
-        priority=InterceptorPriority.MODIFY,
+        priority=InterceptorPriority.TRANSFORM,
         filter=lambda e, s: damage_filter(e, s, obj),
         handler=lambda e, s: damage_modify(e, s),
         duration='while_on_battlefield'
@@ -2133,7 +2057,14 @@ FIREBENDING_LESSON = make_instant(
 def _tlac_firebending_student_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Attack: scry 1 + each opp 1 damage per Monk (training kata)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        monks = _tlac_s20_count_subtype(st, obj.controller, 'Monk')
+        monks = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Monk' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller)]
@@ -2186,7 +2117,14 @@ FIRE_NATION_ATTACKS = make_instant(
 def _tlac_fire_nation_cadets_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Attack: scry 1 + each opp 1 damage per Soldier (Fire Nation drill)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        sol = _tlac_s20_count_subtype(st, obj.controller, 'Soldier')
+        sol = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Soldier' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller)]
@@ -3068,7 +3006,14 @@ METEORITE_SWORD = make_artifact(
 def _tlac_spirit_oasis_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Upkeep: scry 1 + gain life per Spirit (the koi-pond pulses with chi)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        spi = _tlac_s20_count_subtype(st, obj.controller, 'Spirit')
+        spi = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Spirit' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller),
@@ -3094,7 +3039,14 @@ SPIRIT_OASIS = make_artifact(
 def _tlac_air_temple_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Upkeep: scry 1 + gain life per Monk (the old temple breathes)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        monks = _tlac_s20_count_subtype(st, obj.controller, 'Monk')
+        monks = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Monk' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller),
@@ -3114,7 +3066,14 @@ AIR_TEMPLE = make_land(
 def _tlac_ba_sing_se_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Upkeep: scry 1 + each opp -1 per Soldier (the impregnable walls watch)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        sol = _tlac_s20_count_subtype(st, obj.controller, 'Soldier')
+        sol = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Soldier' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller)]
@@ -3178,7 +3137,14 @@ SPIRIT_WORLD_GATE = make_land(
 def _tlac_water_tribe_village_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Upkeep: scry 1 + gain life per Ally (the hearth-fire of the South Pole)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        ally = _tlac_s20_count_subtype(st, obj.controller, 'Ally')
+        ally = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Ally' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller),
@@ -3218,7 +3184,14 @@ FIRE_NATION_OUTPOST = make_land(
 def _tlac_earth_kingdom_fortress_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Upkeep: scry 1 + gain life per Land (the great walls stand firm)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        lands = _tlac_s20_count_type(st, obj.controller, CardType.LAND)
+        lands = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and CardType.LAND in (_o.characteristics.types or set())
+        )
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller),
@@ -3510,7 +3483,14 @@ AVATAR_KORRA_SPIRIT = make_creature(
 def _tlac_peaceful_sanctuary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Upkeep: scry 1 + gain life per Monk + opp -1 (the temple's hum)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        monks = _tlac_s20_count_subtype(st, obj.controller, 'Monk')
+        monks = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Monk' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller),
@@ -3630,7 +3610,14 @@ GYATSO_WISE_MENTOR = make_creature(
 def _tlac_hama_bloodbender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB: surveil 1 + each opp -1 per Wizard (bloodbending's grim study)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        wiz = _tlac_s20_count_subtype(st, obj.controller, 'Wizard')
+        wiz = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Wizard' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SURVEIL,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller)]
@@ -3843,7 +3830,14 @@ SPIRIT_WORLD_WANDERER = make_creature(
 def _tlac_water_tribe_healer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB: scry 1 + gain life per Ally (Yagoda's gentle current)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        ally = _tlac_s20_count_subtype(st, obj.controller, 'Ally')
+        ally = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Ally' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller),
@@ -3988,7 +3982,14 @@ DAI_LI_ENFORCER = make_creature(
 def _tlac_spirit_corruption_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Upkeep: surveil 1 + each opp -1 per Spirit (the dark spirit's grasp tightens)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        spi = _tlac_s20_count_subtype(st, obj.controller, 'Spirit')
+        spi = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Spirit' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SURVEIL,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller)]
@@ -4605,7 +4606,14 @@ SWAMP_GIANT = make_creature(
 def _tlac_earth_kingdom_farmer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB: scry 1 + gain life per Peasant (Ba Sing Se field hands)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        pea = _tlac_s20_count_subtype(st, obj.controller, 'Peasant')
+        pea = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Peasant' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller),
@@ -4747,7 +4755,14 @@ PLATYPUS_BEAR = make_creature(
 def _tlac_spirit_vine_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB: scry 1 + gain life per Spirit (the swamp's tendrils wake)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        spi = _tlac_s20_count_subtype(st, obj.controller, 'Spirit')
+        spi = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Spirit' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller),
@@ -5079,7 +5094,14 @@ AZULAS_CROWN = make_artifact(
 def _tlac_water_pouch_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB: scry 1 + gain life per Wizard (a Waterbender's reserve)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        wiz = _tlac_s20_count_subtype(st, obj.controller, 'Wizard')
+        wiz = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Wizard' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller),
@@ -5100,7 +5122,14 @@ WATER_POUCH = make_artifact(
 def _tlac_fire_nation_helm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB: scry 1 + each opp 1 damage per Soldier (the helm flares red)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        sol = _tlac_s20_count_subtype(st, obj.controller, 'Soldier')
+        sol = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Soldier' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller)]
@@ -6012,7 +6041,14 @@ FOREST_GUARDIAN = make_creature(
 def _tlac_oasis_hermit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB: scry 1 + gain life per Druid (Si Wong sanctuary hermit)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        dru = _tlac_s20_count_subtype(st, obj.controller, 'Druid')
+        dru = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Druid' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller),
@@ -6037,7 +6073,14 @@ OASIS_HERMIT = make_creature(
 def _tlac_wild_growth_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Upkeep: scry 1 + gain life per Land (vines feed the earth)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        lands = _tlac_s20_count_type(st, obj.controller, CardType.LAND)
+        lands = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and CardType.LAND in (_o.characteristics.types or set())
+        )
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller),
@@ -6433,7 +6476,14 @@ CHI_BLOCKER_GLOVES = make_artifact(
 def _tlac_southern_air_temple_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Upkeep: scry 1 + gain life per Monk (the sky-bison roost remembers)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        monks = _tlac_s20_count_subtype(st, obj.controller, 'Monk')
+        monks = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Monk' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller),
@@ -6476,7 +6526,14 @@ WESTERN_AIR_TEMPLE = make_land(
 def _tlac_kyoshi_island_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Upkeep: scry 1 + each opp -1 per Warrior (the Kyoshi guardians stand watch)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        warr = _tlac_s20_count_subtype(st, obj.controller, 'Warrior')
+        warr = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Warrior' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller)]
@@ -6520,7 +6577,14 @@ BOILING_ROCK_PRISON = make_land(
 def _tlac_serpents_pass_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Upkeep: surveil 1 + each opp mills 1 per Serpent (the dread crossing)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        ser = _tlac_s20_count_subtype(st, obj.controller, 'Serpent')
+        ser = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Serpent' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SURVEIL,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller)]
@@ -6542,7 +6606,14 @@ SERPENTS_PASS = make_land(
 def _tlac_foggy_swamp_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Upkeep: surveil 1 + gain life per Plant (the visioning marsh whispers)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        plants = _tlac_s20_count_subtype(st, obj.controller, 'Plant')
+        plants = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Plant' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SURVEIL,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller),
@@ -6585,7 +6656,14 @@ SI_WONG_DESERT = make_land(
 def _tlac_northern_water_tribe_capital_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Upkeep: scry 1 + gain life per Wizard (the ice-walled stronghold guards)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        wiz = _tlac_s20_count_subtype(st, obj.controller, 'Wizard')
+        wiz = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Wizard' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller),
@@ -6611,7 +6689,14 @@ NORTHERN_WATER_TRIBE_CAPITAL = make_land(
 def _tlac_republic_city_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Upkeep: scry 1 + each opp -1 per Artificer (the multicolored metropolis hums)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        art = _tlac_s20_count_subtype(st, obj.controller, 'Artificer')
+        art = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Artificer' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller)]
@@ -7220,7 +7305,14 @@ PRO_BENDING_MATCH = make_instant(
 def _tlac_platinum_mech_suit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Attack: scry 1 + each opp 3 damage per Construct (Hiroshi's ultimate war engine)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        cons = _tlac_s20_count_subtype(st, obj.controller, 'Construct')
+        cons = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Construct' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller)]
@@ -7282,7 +7374,14 @@ LAVABENDING = make_sorcery(
 def _tlac_metalbending_cable_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """ETB: scry 1 + each opp -1 per Soldier (Beifong filaments snake out)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        sol = _tlac_s20_count_subtype(st, obj.controller, 'Soldier')
+        sol = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Soldier' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller)]
@@ -7305,7 +7404,14 @@ METALBENDING_CABLE = make_artifact(
 def _tlac_spirit_portal_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """Upkeep: surveil 1 + gain life per Spirit (the rifted gate breathes)."""
     def effect(event: Event, st: GameState) -> list[Event]:
-        spi = _tlac_s20_count_subtype(st, obj.controller, 'Spirit')
+        spi = sum(
+            1
+            for _oid in (st.zones.get('battlefield').objects if st.zones.get('battlefield') else [])
+            for _o in [st.objects.get(_oid)]
+            if _o and _o.controller == obj.controller
+            and _o.characteristics
+            and 'Spirit' in (_o.characteristics.subtypes or set())
+        )
         events = [Event(type=EventType.SURVEIL,
                         payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
                         source=obj.id, controller=obj.controller),
