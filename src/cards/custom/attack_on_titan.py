@@ -765,967 +765,31 @@ def _aot_s19_count_in_hand(state: GameState, controller: str) -> int:
 # --- SHAPE 1: ETB scry + ally-scaling drain (Survey Corps, Garrison) -------
 
 
-def _aot_sasha_blouse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Scout (Sasha hunts Marleyan agents)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        scouts = _aot_s19_count_subtype(st, obj.controller, 'Scout')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, scouts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_erwin_smith_commander_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Scout (Commander's brutal gambit)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        scouts = _aot_s19_count_subtype(st, obj.controller, 'Scout')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, scouts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_connie_springer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Soldier (Connie's village vengeance)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        soldiers = _aot_s19_count_subtype(st, obj.controller, 'Soldier')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, soldiers), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_petra_ral_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Scout (Petra leads Levi's squad)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        scouts = _aot_s19_count_subtype(st, obj.controller, 'Scout')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, scouts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_oluo_bozado_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Scout (Oluo emulates Levi's swagger)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        scouts = _aot_s19_count_subtype(st, obj.controller, 'Scout')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, scouts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_survey_corps_veteran_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Scout ally (veteran rallies recruits)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        scouts = _aot_s19_count_subtype(st, obj.controller, 'Scout')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, scouts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['first_strike']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_military_police_officer_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Soldier (MP enforcement crackdown)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        sol = _aot_s19_count_subtype(st, obj.controller, 'Soldier')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, sol), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['lifelink']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_squad_captain_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Soldier (captain's first orders)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        sol = _aot_s19_count_subtype(st, obj.controller, 'Soldier')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, sol), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_horse_mounted_scout_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Scout (cavalry charge picks targets)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        scouts = _aot_s19_count_subtype(st, obj.controller, 'Scout')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, scouts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['haste']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_wall_garrison_elite_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Wall (elite reports breach)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        walls = _aot_s19_count_subtype(st, obj.controller, 'Wall')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, walls), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
 # --- SHAPE 2: Attack drain (combat trigger, scales with subtype) ------------
-
-
-def _aot_jaw_titan_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: each opp -1 per Titan ally + scry 1 (Jaw Titan rips through ODM)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        titans = _aot_s19_count_subtype(st, obj.controller, 'Titan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, titans), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['haste', 'first_strike']), ih.make_attack_trigger(obj, effect)]
-
-
-def _aot_raging_titan_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: each opp -1 per Titan ally + scry 1 (raging Titan rampage)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        titans = _aot_s19_count_subtype(st, obj.controller, 'Titan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, titans), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['haste', 'trample']), ih.make_attack_trigger(obj, effect)]
-
-
-def _aot_wall_breaker_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: each opp -1 per Titan ally + scry 1 (Wall Breaker shatters Maria)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        titans = _aot_s19_count_subtype(st, obj.controller, 'Titan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, titans), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['trample']), ih.make_attack_trigger(obj, effect)]
-
-
-def _aot_attack_titan_acolyte_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: each opp -1 per Warrior ally + scry 1 (Yeagerist devotee charges)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        warriors = _aot_s19_count_subtype(st, obj.controller, 'Warrior')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, warriors), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['first_strike']), ih.make_attack_trigger(obj, effect)]
-
-
-def _aot_yeagerist_soldier_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: each opp -1 per Soldier ally + scry 1 (Yeagerist faction storms)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        sol = _aot_s19_count_subtype(st, obj.controller, 'Soldier')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, sol), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['haste']), ih.make_attack_trigger(obj, effect)]
-
-
-def _aot_louise_yeagerist_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: each opp -1 per Soldier ally + scry 1 (Louise idolizes Mikasa's combat)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        sol = _aot_s19_count_subtype(st, obj.controller, 'Soldier')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, sol), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['first_strike', 'haste']), ih.make_attack_trigger(obj, effect)]
-
-
-def _aot_porco_galliard_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: each opp -1 per Titan ally + scry 1 (Porco's Jaw Titan strikes)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        titans = _aot_s19_count_subtype(st, obj.controller, 'Titan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, titans), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['haste', 'first_strike']), ih.make_attack_trigger(obj, effect)]
 
 
 # --- SHAPE 3: ETB surveil + mill (Marleyan spies, intel ops) ----------------
 
 
-def _aot_marleyan_spy_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 2 (Marley sleeper agent reports)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['flying']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_marleyan_warrior_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 1 per Warrior ally (Marley war council)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        warriors = _aot_s19_count_subtype(st, obj.controller, 'Warrior')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, warriors), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['menace']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_marleyan_officer_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + each opp mills 1 (Marleyan officer interrogates)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['deathtouch']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_infiltrator_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 2 (infiltrator wreaks havoc)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['menace']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_intelligence_officer_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 1 per Scout (intel branch coordinates)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        scouts = _aot_s19_count_subtype(st, obj.controller, 'Scout')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, scouts), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_signal_corps_operator_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 1 per Soldier ally (signal traffic decoded)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        sol = _aot_s19_count_subtype(st, obj.controller, 'Soldier')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, sol), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_survey_cartographer_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 1 per Scout ally (cartographer maps outlands)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        scouts = _aot_s19_count_subtype(st, obj.controller, 'Scout')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, scouts), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_coastal_scout_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 1 (coastal recon flyover)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['flying']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_formation_analyst_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 1 (analyst studies enemy patterns)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['defender']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_military_tactician_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 2 (tactician reads enemy intent)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['flash']), ih.make_etb_trigger(obj, effect)]
-
-
 # --- SHAPE 4: ETB scry + heal (medics, gain-life on flavor) -----------------
-
-
-def _aot_eldian_refugee_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Eldian/Human ally (refugees find sanctuary)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        eldian = _aot_s19_count_subtype(st, obj.controller, 'Human')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, eldian), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_paradis_farmer_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Citizen/Human ally (farmer feeds the wall)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        cit = _aot_s19_count_subtype(st, obj.controller, 'Citizen')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, cit), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_kaya_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Citizen ally (Kaya bonds with Sasha)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        cit = _aot_s19_count_subtype(st, obj.controller, 'Citizen')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, cit), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_shiganshina_citizen_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Citizen ally (Shiganshina survivors gather)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        cit = _aot_s19_count_subtype(st, obj.controller, 'Citizen')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, cit), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_garrison_soldier_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Soldier ally + block-trigger life (garrison medic)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        sol = _aot_s19_count_subtype(st, obj.controller, 'Soldier')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, sol), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [
-        ih.make_block_trigger(obj, lambda e, s: _gain_life_events(obj, 2)),
-        ih.make_etb_trigger(obj, effect),
-    ]
 
 
 # --- SHAPE 5: ETB surveil + discard (mind-games, Pieck/Annie tactical) -----
 
 
-def _aot_pieck_finger_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + each opp discards 1 (Pieck's Cart Titan recons enemy hand)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            hd_count = _aot_s19_count_in_hand(st, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
-                                         'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['vigilance', 'trample']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_eldian_internment_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp discards 1 (Eldian guard breaks resolve)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            hd_count = _aot_s19_count_in_hand(st, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
-                                         'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_yelena_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + each opp discards 1 (Yelena's zealot interrogation)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            hd_count = _aot_s19_count_in_hand(st, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
-                                         'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['menace']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_onyankopon_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp discards 1 (anti-Marleyan defector reveals plans)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            hd_count = _aot_s19_count_in_hand(st, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
-                                         'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['flying']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_interior_police_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp discards 1 (Interior Police seize evidence)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            hd_count = _aot_s19_count_in_hand(st, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hd_count, 1)),
-                                         'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['flash', 'deathtouch']), ih.make_etb_trigger(obj, effect)]
-
-
 # --- SHAPE 6: ETB scry + damage (thunder-spear, attack-titan strikes) ------
-
-
-def _aot_reiner_braun_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Titan (Armored Titan crashes through)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        titans = _aot_s19_count_subtype(st, obj.controller, 'Titan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, titans), 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_pure_titan_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Titan (mindless titan tears walls)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        titans = _aot_s19_count_subtype(st, obj.controller, 'Titan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, titans), 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['trample']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_abnormal_titan_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Titan (abnormal sprints unpredictably)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        titans = _aot_s19_count_subtype(st, obj.controller, 'Titan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, titans), 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['haste', 'trample']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_small_titan_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage (a small titan still bites)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 1, 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['haste']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_mindless_titan_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Titan ally (mindless horde gathers)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        titans = _aot_s19_count_subtype(st, obj.controller, 'Titan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, titans), 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['trample']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_crawling_titan_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Titan (crawler stalks low)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        titans = _aot_s19_count_subtype(st, obj.controller, 'Titan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, titans), 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_forest_titan_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Titan (forest titan ambushes)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        titans = _aot_s19_count_subtype(st, obj.controller, 'Titan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, titans), 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['reach', 'trample']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_towering_titan_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Titan (towering titan looms)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        titans = _aot_s19_count_subtype(st, obj.controller, 'Titan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, titans), 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['reach', 'trample']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_primordial_titan_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 2 damage per Titan (primordial wakes from sleep)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        titans = _aot_s19_count_subtype(st, obj.controller, 'Titan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(2, titans), 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['trample']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_titan_horde_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Titan (horde overwhelms)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        titans = _aot_s19_count_subtype(st, obj.controller, 'Titan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, titans), 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['trample']), ih.make_etb_trigger(obj, effect)]
 
 
 # --- SHAPE 7: Death trigger + drain (Titan deaths echo) ---------------------
 
 
-def _aot_titan_inheritor_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Death: scry 1 + each opp -1 per Titan ally (Titan power inherits)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        titans = _aot_s19_count_subtype(st, obj.controller, 'Titan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, titans), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_death_trigger(obj, effect)]
-
-
-def _aot_marcel_galliard_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Death: scry 1 + each opp -1 per Warrior ally (Marcel's sacrifice avenged)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        warriors = _aot_s19_count_subtype(st, obj.controller, 'Warrior')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, warriors), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_death_trigger(obj, effect)]
-
-
-def _aot_ymir_original_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Death: scry 2 + each opp -2 (Ymir Fritz's death echoes 2000 years)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_death_trigger(obj, effect)]
-
-
-def _aot_eren_kruger_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Death: scry 1 + each opp -1 per Titan ally (Owl's prophecy fulfilled)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        titans = _aot_s19_count_subtype(st, obj.controller, 'Titan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, titans), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['haste']), ih.make_death_trigger(obj, effect)]
-
-
-def _aot_willy_tybur_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Death: scry 2 + each opp -2 (declaration of war echoes after death)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_death_trigger(obj, effect)]
-
-
-def _aot_ilse_langnar_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Death: scry 1 + each opp -1 per Scout (chronicler's last testimony)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        scouts = _aot_s19_count_subtype(st, obj.controller, 'Scout')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, scouts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_death_trigger(obj, effect)]
-
-
-def _aot_training_corps_cadet_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Death: scry 1 + each opp -1 (cadet's death rallies the squad)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_death_trigger(obj, effect)]
-
-
 # --- SHAPE 8: ETB hand-reveal (intel + reconnaissance) ---------------------
-
-
-def _aot_erwin_gambit_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + reveal each opp's hand (Erwin's gambit pre-empts)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.REVEAL_HAND,
-                                payload={'player': opp, 'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_supply_corps_quartermaster_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + draw + reveal each opp's hand (supply manifest tracks enemy)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.DRAW,
-                        payload={'player': obj.controller},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.REVEAL_HAND,
-                                payload={'player': opp, 'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_wall_architect_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + reveal each opp's hand (architect surveys enemy approach)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.REVEAL_HAND,
-                                payload={'player': opp, 'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_colt_grice_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + reveal each opp's hand (Beast Candidate observes)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.REVEAL_HAND,
-                                payload={'player': opp, 'zone': ZoneType.HAND},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['reach']), ih.make_etb_trigger(obj, effect)]
 
 
 # --- SHAPE 9: ETB graveyard + draw (Chronicles, Ymir's memory) ------------
 
 
-def _aot_armin_arlert_tactician_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + draw + draw extra per card in GY (Armin recalls intel)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        gy = _aot_s19_count_in_graveyard(st, obj.controller)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.DRAW,
-                        payload={'player': obj.controller, 'amount': 1 + (1 if gy >= 3 else 0)},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
 # --- SHAPE 10: ETB gain + ally scaling (Eldian, Wall-tribal) --------------
-
-
-def _aot_wall_defender_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Wall ally (Wall Defender shores the breach)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        walls = _aot_s19_count_subtype(st, obj.controller, 'Wall')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, walls), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return make_wall_defense(obj, 2) + [ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_wall_cultist_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Wall ally (cultist swears by the Walls)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        walls = _aot_s19_count_subtype(st, obj.controller, 'Wall')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, walls), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return make_wall_defense(obj, 1) + [ih.make_etb_trigger(obj, effect)]
 
 
 def _aot_forest_dweller_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -1746,194 +810,7 @@ def _aot_forest_dweller_setup_s19(obj: GameObject, state: GameState) -> list[Int
     return [ih.make_etb_trigger(obj, effect)]
 
 
-def _aot_titan_hunter_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Scout ally (hunter rallies Survey Corps)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        scouts = _aot_s19_count_subtype(st, obj.controller, 'Scout')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, scouts), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['reach']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_forest_scout_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Scout ally (scout reports back)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        scouts = _aot_s19_count_subtype(st, obj.controller, 'Scout')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, scouts), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_wild_horse_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Scout (wild horse joins cavalry)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        scouts = _aot_s19_count_subtype(st, obj.controller, 'Scout')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, scouts), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['haste']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_darius_zackly_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain life per Noble ally (Premier inspires nobles)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        nobles = _aot_s19_count_subtype(st, obj.controller, 'Noble')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller),
-                  Event(type=EventType.LIFE_CHANGE,
-                        payload={'player': obj.controller, 'amount': max(1, nobles), 'zone': ZoneType.BATTLEFIELD},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['vigilance']), ih.make_etb_trigger(obj, effect)]
-
-
 # --- Multicolored 'The Nine Titans' archetype shapes -----------------------
-
-
-def _aot_founding_titan_legendary_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + each opp -2 per Titan (Founding Titan's commanding scream)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        titans = _aot_s19_count_subtype(st, obj.controller, 'Titan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(2, titans), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['indestructible', 'trample', 'hexproof']),
-            ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_armored_titan_legendary_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -2 (Armored Titan armor turns blades)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['indestructible', 'trample']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_female_titan_legendary_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp -2 (Female Titan hunts Scouts)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['first_strike', 'deathtouch']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_cart_titan_legendary_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + each opp -1 (Cart Titan ferries supplies and intel)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['vigilance', 'trample']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_jaw_titan_legendary_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 2 damage (Jaw Titan's bite is final)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2, 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['haste', 'first_strike']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_war_hammer_titan_legendary_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -2 (War Hammer hardens reality)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['first_strike', 'indestructible']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_war_hammer_titan_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp 1 damage per Titan ally (War Hammer Titan strikes)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        titans = _aot_s19_count_subtype(st, obj.controller, 'Titan')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, titans), 'source': obj.id, 'is_combat': False},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['first_strike', 'trample']), ih.make_etb_trigger(obj, effect)]
-
-
-def _aot_gabi_braun_warrior_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp -2 (Gabi shoots Sasha at dinner)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [_self_keywords(obj, ['first_strike', 'haste']), ih.make_etb_trigger(obj, effect)]
 
 
 # --- Artifacts (non-equipment): scry/draw + minor opp-impact ----------------
@@ -2067,20 +944,6 @@ def _aot_eldian_armband_setup_s19(obj: GameObject, state: GameState) -> list[Int
 
 
 # --- SHAPE 11: Upkeep scry + drain (lands, headquarters, enchantments) ----
-
-
-def _aot_strategic_planning_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + each opp -1 (planning room consults intel)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in ih.all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [ih.make_upkeep_trigger(obj, effect)]
 
 
 def _aot_land_wall_maria_setup_s19(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3697,7 +2560,7 @@ ARMIN_ARLERT = make_creature(
     subtypes={"Human", "Scout", "Advisor"},
     supertypes={"Legendary"},
     text="When Armin Arlert, Tactician enters the battlefield, scry 2 and draw a card.",
-    setup_interceptors=_aot_armin_arlert_tactician_setup_s19,
+    setup_interceptors=_armin_arlert_setup,
 )
 
 
@@ -3735,7 +2598,7 @@ ERWIN_SMITH = make_creature(
     subtypes={"Human", "Scout", "Noble"},
     supertypes={"Legendary"},
     text="Vigilance. Whenever Erwin Smith, Commander attacks, draw a card.",
-    setup_interceptors=_aot_erwin_smith_commander_setup,
+    setup_interceptors=_erwin_smith_setup,
 )
 
 
@@ -3786,7 +2649,7 @@ SURVEY_CORPS_VETERAN = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier"},
     text="First strike.",
-    setup_interceptors=_aot_survey_corps_veteran_setup_s19,
+    setup_interceptors=_survey_corps_veteran_setup,
 )
 
 
@@ -3800,7 +2663,7 @@ GARRISON_SOLDIER = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     text="Whenever Garrison Soldier blocks, you gain 2 life.",
-    setup_interceptors=_aot_garrison_soldier_setup_s19,
+    setup_interceptors=_garrison_soldier_setup,
 )
 
 
@@ -3814,7 +2677,7 @@ MILITARY_POLICE_OFFICER = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier", "Noble"},
     text="Lifelink.",
-    setup_interceptors=_aot_military_police_officer_setup_s19,
+    setup_interceptors=_military_police_officer_setup,
 )
 
 
@@ -3828,7 +2691,7 @@ WALL_DEFENDER = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier", "Wall"},
-    setup_interceptors=_aot_wall_defender_setup_s19,
+    setup_interceptors=wall_defender_setup,
 )
 
 
@@ -3843,7 +2706,7 @@ TRAINING_CORPS_CADET = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     text="When Training Corps Cadet dies, draw a card.",
-    setup_interceptors=_aot_training_corps_cadet_setup_s19,
+    setup_interceptors=_training_corps_cadet_setup,
 )
 
 
@@ -3880,7 +2743,7 @@ SASHA_BLOUSE = make_creature(
     subtypes={"Human", "Scout", "Soldier"},
     supertypes={"Legendary"},
     text="Reach. When Sasha Blouse, Hunter enters the battlefield, you gain 2 life.",
-    setup_interceptors=_aot_sasha_blouse_setup,
+    setup_interceptors=_sasha_blouse_setup,
 )
 
 
@@ -3902,7 +2765,7 @@ CONNIE_SPRINGER = make_creature(
     subtypes={"Human", "Scout", "Soldier"},
     supertypes={"Legendary"},
     text="Haste. When Connie Springer dies, draw a card.",
-    setup_interceptors=_aot_connie_springer_setup,
+    setup_interceptors=_connie_springer_setup,
 )
 
 
@@ -3961,7 +2824,7 @@ PETRA_RAL = make_creature(
     subtypes={"Human", "Scout", "Soldier"},
     supertypes={"Legendary"},
     text="Flying. When Petra Ral dies, draw a card.",
-    setup_interceptors=_aot_petra_ral_setup,
+    setup_interceptors=_petra_ral_setup,
 )
 
 
@@ -3977,7 +2840,7 @@ OLUO_BOZADO = make_creature(
     subtypes={"Human", "Scout", "Soldier"},
     supertypes={"Legendary"},
     text="First strike.",
-    setup_interceptors=_aot_oluo_bozado_setup,
+    setup_interceptors=_oluo_bozado_setup,
 )
 
 
@@ -4009,7 +2872,7 @@ SQUAD_CAPTAIN = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier"},
     text="When Squad Captain enters the battlefield, create a 1/1 white Human Scout Soldier creature token.",
-    setup_interceptors=_aot_squad_captain_setup_s19,
+    setup_interceptors=_squad_captain_setup,
 )
 
 
@@ -4024,7 +2887,7 @@ WALL_GARRISON_ELITE = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
     text="Defender, vigilance. (Gets +0/+1 from its Wall training.)",
-    setup_interceptors=_aot_wall_garrison_elite_setup_s19,
+    setup_interceptors=_wall_garrison_elite_setup,
 )
 
 
@@ -4039,7 +2902,7 @@ INTERIOR_POLICE = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier", "Rogue"},
     text="Flash, deathtouch.",
-    setup_interceptors=_aot_interior_police_setup_s19,
+    setup_interceptors=_interior_police_setup,
 )
 
 
@@ -4053,7 +2916,7 @@ SHIGANSHINA_CITIZEN = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Citizen"},
     text="When Shiganshina Citizen dies, you gain 2 life.",
-    setup_interceptors=_aot_shiganshina_citizen_setup_s19,
+    setup_interceptors=_shiganshina_citizen_setup,
 )
 
 
@@ -4067,7 +2930,7 @@ ELDIAN_REFUGEE = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Citizen"},
     text="When Eldian Refugee enters the battlefield, you gain 1 life.",
-    setup_interceptors=_aot_eldian_refugee_setup_s19,
+    setup_interceptors=_eldian_refugee_setup,
 )
 
 
@@ -4081,7 +2944,7 @@ WALL_CULTIST = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Cleric", "Wall"},
     text="Defender. (Gets +0/+1.)",
-    setup_interceptors=_aot_wall_cultist_setup_s19,
+    setup_interceptors=_wall_cultist_setup,
 )
 
 
@@ -4098,7 +2961,7 @@ HORSE_MOUNTED_SCOUT = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Scout", "Soldier"},
     text="Haste.",
-    setup_interceptors=_aot_horse_mounted_scout_setup_s19,
+    setup_interceptors=_horse_mounted_scout_setup,
 )
 
 
@@ -4292,7 +3155,7 @@ ERWIN_GAMBIT = make_creature(
     subtypes={"Human", "Scout", "Noble"},
     supertypes={"Legendary"},
     text="When Erwin Smith, The Gambit enters the battlefield, scry 1.",
-    setup_interceptors=_aot_erwin_gambit_setup_s19,
+    setup_interceptors=_erwin_gambit_setup,
 )
 
 
@@ -4308,7 +3171,7 @@ PIECK_FINGER = make_creature(
     subtypes={"Human", "Warrior", "Titan"},
     supertypes={"Legendary"},
     text="Vigilance, trample.",
-    setup_interceptors=_aot_pieck_finger_setup_s19,
+    setup_interceptors=_pieck_finger_setup,
 )
 
 
@@ -4324,7 +3187,7 @@ INTELLIGENCE_OFFICER = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Scout", "Advisor"},
     text="When Intelligence Officer enters the battlefield, scry 2.",
-    setup_interceptors=_aot_intelligence_officer_setup_s19,
+    setup_interceptors=_intelligence_officer_setup,
 )
 
 
@@ -4338,7 +3201,7 @@ MARLEYAN_SPY = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Rogue"},
     text="Flying.",
-    setup_interceptors=_aot_marleyan_spy_setup_s19,
+    setup_interceptors=_marleyan_spy_setup,
 )
 
 
@@ -4352,7 +3215,7 @@ SURVEY_CARTOGRAPHER = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Scout"},
     text="When Survey Cartographer enters the battlefield, scry 1.",
-    setup_interceptors=_aot_survey_cartographer_setup_s19,
+    setup_interceptors=_survey_cartographer_setup,
 )
 
 
@@ -4418,7 +3281,7 @@ WALL_ARCHITECT = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Artificer"},
     text="When Wall Architect enters the battlefield, create a 0/4 white Wall creature token with defender.",
-    setup_interceptors=_aot_wall_architect_setup_s19,
+    setup_interceptors=_wall_architect_setup,
 )
 
 
@@ -4432,7 +3295,7 @@ MILITARY_TACTICIAN = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Soldier", "Advisor"},
     text="Flash.",
-    setup_interceptors=_aot_military_tactician_setup_s19,
+    setup_interceptors=_military_tactician_setup,
 )
 
 
@@ -4447,7 +3310,7 @@ SIGNAL_CORPS_OPERATOR = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Soldier"},
     text="When Signal Corps Operator enters the battlefield, scry 1.",
-    setup_interceptors=_aot_signal_corps_operator_setup_s19,
+    setup_interceptors=_signal_corps_operator_setup,
 )
 
 
@@ -4461,7 +3324,7 @@ SUPPLY_CORPS_QUARTERMASTER = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Soldier"},
     text="When Supply Corps Quartermaster enters the battlefield, draw a card.",
-    setup_interceptors=_aot_supply_corps_quartermaster_setup_s19,
+    setup_interceptors=_supply_corps_quartermaster_setup,
 )
 
 
@@ -4475,7 +3338,7 @@ COASTAL_SCOUT = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Scout"},
     text="Flying.",
-    setup_interceptors=_aot_coastal_scout_setup_s19,
+    setup_interceptors=_coastal_scout_setup,
 )
 
 
@@ -4489,7 +3352,7 @@ FORMATION_ANALYST = make_creature(
     colors={Color.BLUE},
     subtypes={"Human", "Advisor"},
     text="Defender. When Formation Analyst enters the battlefield, scry 1.",
-    setup_interceptors=_aot_formation_analyst_setup_s19,
+    setup_interceptors=_formation_analyst_setup,
 )
 
 
@@ -4607,7 +3470,7 @@ STRATEGIC_PLANNING = make_enchantment(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     text="At the beginning of your upkeep, scry 1.",
-    setup_interceptors=_aot_strategic_planning_setup_s19,
+    setup_interceptors=_strategic_planning_setup,
 )
 
 
@@ -4640,7 +3503,7 @@ REINER_BRAUN = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Warrior", "Titan"},
     supertypes={"Legendary"},
-    setup_interceptors=_aot_reiner_braun_setup_s19,
+    setup_interceptors=reiner_braun_setup,
 )
 
 
@@ -4784,7 +3647,7 @@ WAR_HAMMER_TITAN = make_creature(
     subtypes={"Human", "Warrior", "Titan"},
     supertypes={"Legendary"},
     text="First strike, trample. Whenever War Hammer Titan attacks, create a 3/1 black Construct creature token with haste and first strike named Hammer Golem.",
-    setup_interceptors=_aot_war_hammer_titan_setup_s19,
+    setup_interceptors=_war_hammer_titan_setup,
 )
 
 
@@ -4800,7 +3663,7 @@ MARLEYAN_WARRIOR = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Warrior", "Soldier"},
     text="Menace.",
-    setup_interceptors=_aot_marleyan_warrior_setup_s19,
+    setup_interceptors=_marleyan_warrior_setup,
 )
 
 
@@ -4828,7 +3691,7 @@ MARLEYAN_OFFICER = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Soldier"},
     text="Deathtouch.",
-    setup_interceptors=_aot_marleyan_officer_setup_s19,
+    setup_interceptors=_marleyan_officer_setup,
 )
 
 
@@ -4842,7 +3705,7 @@ INFILTRATOR = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Rogue"},
     text="Menace.",
-    setup_interceptors=_aot_infiltrator_setup_s19,
+    setup_interceptors=_infiltrator_setup,
 )
 
 
@@ -4856,7 +3719,7 @@ ELDIAN_INTERNMENT_GUARD = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Soldier"},
     text="Whenever another creature dies, you gain 1 life.",
-    setup_interceptors=_aot_eldian_internment_setup_s19,
+    setup_interceptors=_eldian_internment_guard_setup,
 )
 
 
@@ -4871,7 +3734,7 @@ TITAN_INHERITOR = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Warrior"},
     text="When Titan Inheritor enters the battlefield, draw a card.",
-    setup_interceptors=_aot_titan_inheritor_setup_s19,
+    setup_interceptors=_titan_inheritor_setup,
 )
 
 
@@ -4885,7 +3748,7 @@ MILITARY_EXECUTIONER = make_creature(
     colors={Color.BLACK},
     subtypes={"Human", "Soldier"},
     text="Deathtouch, menace.",
-    setup_interceptors=_aot_marleyan_officer_setup_s19,
+    setup_interceptors=_marleyan_officer_setup,
 )
 
 
@@ -4915,7 +3778,7 @@ PURE_TITAN = make_creature(
     colors={Color.BLACK},
     subtypes={"Titan"},
     text="Trample.",
-    setup_interceptors=_aot_pure_titan_setup_s19,
+    setup_interceptors=_pure_titan_setup,
 )
 
 
@@ -4930,7 +3793,7 @@ ABNORMAL_TITAN = make_creature(
     colors={Color.BLACK},
     subtypes={"Titan"},
     text="Haste, trample.",
-    setup_interceptors=_aot_abnormal_titan_setup_s19,
+    setup_interceptors=_abnormal_titan_setup,
 )
 
 
@@ -4944,7 +3807,7 @@ SMALL_TITAN = make_creature(
     colors={Color.BLACK},
     subtypes={"Titan"},
     text="Haste.",
-    setup_interceptors=_aot_small_titan_setup_s19,
+    setup_interceptors=_small_titan_setup,
 )
 
 
@@ -4976,7 +3839,7 @@ TITAN_HORDE = make_creature(
     colors={Color.BLACK},
     subtypes={"Titan"},
     text="Trample. When Titan Horde enters the battlefield, create two 2/2 black Titan creature tokens.",
-    setup_interceptors=_aot_titan_horde_setup_s19,
+    setup_interceptors=_titan_horde_setup,
 )
 
 
@@ -4990,7 +3853,7 @@ MINDLESS_TITAN = make_creature(
     colors={Color.BLACK},
     subtypes={"Titan"},
     text="Trample.",
-    setup_interceptors=_aot_mindless_titan_setup_s19,
+    setup_interceptors=_mindless_titan_setup,
 )
 
 
@@ -5004,7 +3867,7 @@ CRAWLING_TITAN = make_creature(
     colors={Color.BLACK},
     subtypes={"Titan"},
     text="When Crawling Titan dies, each opponent loses 2 life.",
-    setup_interceptors=_aot_crawling_titan_setup_s19,
+    setup_interceptors=_crawling_titan_setup,
 )
 
 
@@ -5266,7 +4129,7 @@ JAW_TITAN = make_creature(
     subtypes={"Titan"},
     supertypes={"Legendary"},
     text="Haste, first strike.",
-    setup_interceptors=_aot_jaw_titan_setup_s19,
+    setup_interceptors=_jaw_titan_setup,
 )
 
 
@@ -5359,7 +4222,7 @@ WALL_BREAKER = make_creature(
     colors={Color.RED},
     subtypes={"Titan"},
     text="Trample.",
-    setup_interceptors=_aot_wall_breaker_setup_s19,
+    setup_interceptors=_wall_breaker_setup,
 )
 
 
@@ -5393,7 +4256,7 @@ ATTACK_TITAN_ACOLYTE = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Warrior"},
     text="First strike.",
-    setup_interceptors=_aot_attack_titan_acolyte_setup_s19,
+    setup_interceptors=_attack_titan_acolyte_setup,
 )
 
 
@@ -5407,7 +4270,7 @@ YEAGERIST_SOLDIER = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Soldier"},
     text="Haste.",
-    setup_interceptors=_aot_yeagerist_soldier_setup_s19,
+    setup_interceptors=_yeagerist_soldier_setup,
 )
 
 
@@ -5771,7 +4634,7 @@ WALL_TITAN = make_creature(
     mana_cost="{4}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Titan", "Wall"},
-    setup_interceptors=_aot_wall_defender_setup_s19,
+    setup_interceptors=wall_defender_setup,
 )
 
 
@@ -5785,7 +4648,7 @@ FOREST_TITAN = make_creature(
     colors={Color.GREEN},
     subtypes={"Titan"},
     text="Reach, trample.",
-    setup_interceptors=_aot_forest_titan_setup_s19,
+    setup_interceptors=_forest_titan_setup,
 )
 
 
@@ -5799,7 +4662,7 @@ TOWERING_TITAN = make_creature(
     colors={Color.GREEN},
     subtypes={"Titan"},
     text="Trample, reach.",
-    setup_interceptors=_aot_towering_titan_setup_s19,
+    setup_interceptors=_towering_titan_setup,
 )
 
 
@@ -5813,7 +4676,7 @@ ANCIENT_TITAN = make_creature(
     colors={Color.GREEN},
     subtypes={"Titan"},
     text="Trample. When Ancient Titan enters the battlefield, scry 2.",
-    setup_interceptors=_aot_primordial_titan_setup_s19,
+    setup_interceptors=_ancient_titan_setup,
 )
 
 
@@ -5827,7 +4690,7 @@ PRIMORDIAL_TITAN = make_creature(
     colors={Color.GREEN},
     subtypes={"Titan"},
     text="Trample.",
-    setup_interceptors=_aot_primordial_titan_setup_s19,
+    setup_interceptors=_primordial_titan_setup,
 )
 
 
@@ -5852,7 +4715,7 @@ PARADIS_FARMER = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Citizen"},
     text="When Paradis Farmer enters the battlefield, you gain 1 life.",
-    setup_interceptors=_aot_paradis_farmer_setup_s19,
+    setup_interceptors=_paradis_farmer_setup,
 )
 
 
@@ -5866,7 +4729,7 @@ TITAN_HUNTER = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Scout"},
     text="Reach.",
-    setup_interceptors=_aot_titan_hunter_setup_s19,
+    setup_interceptors=_titan_hunter_setup,
 )
 
 
@@ -5880,7 +4743,7 @@ FOREST_SCOUT = make_creature(
     colors={Color.GREEN},
     subtypes={"Human", "Scout"},
     text="When Forest Scout enters the battlefield, scry 1.",
-    setup_interceptors=_aot_forest_scout_setup_s19,
+    setup_interceptors=_forest_scout_setup,
 )
 
 
@@ -5905,7 +4768,7 @@ WILD_HORSE = make_creature(
     colors={Color.GREEN},
     subtypes={"Horse"},
     text="Haste.",
-    setup_interceptors=_aot_wild_horse_setup_s19,
+    setup_interceptors=_wild_horse_setup,
 )
 
 
@@ -6455,7 +5318,7 @@ PORCO_GALLIARD = make_creature(
     subtypes={"Human", "Warrior", "Titan"},
     supertypes={"Legendary"},
     text="Haste, first strike.",
-    setup_interceptors=_aot_porco_galliard_setup_s19,
+    setup_interceptors=_porco_galliard_setup,
 )
 
 
@@ -6471,7 +5334,7 @@ MARCEL_GALLIARD = make_creature(
     subtypes={"Human", "Warrior"},
     supertypes={"Legendary"},
     text="When Marcel Galliard dies, draw a card.",
-    setup_interceptors=_aot_marcel_galliard_setup_s19,
+    setup_interceptors=_marcel_galliard_setup,
 )
 
 
@@ -6487,7 +5350,7 @@ YMIR = make_creature(
     subtypes={"Human", "Titan"},
     supertypes={"Legendary"},
     text="When Ymir, Original Titan dies, draw two cards.",
-    setup_interceptors=_aot_ymir_original_setup_s19,
+    setup_interceptors=_ymir_setup,
 )
 
 
@@ -6592,7 +5455,7 @@ COLT_GRICE = make_creature(
     subtypes={"Human", "Warrior"},
     supertypes={"Legendary"},
     text="Reach. When Colt Grice enters the battlefield, scry 1.",
-    setup_interceptors=_aot_colt_grice_setup_s19,
+    setup_interceptors=_colt_grice_setup,
 )
 
 
@@ -7149,7 +6012,7 @@ DARIUS_ZACKLY = make_creature(
     subtypes={"Human", "Noble"},
     supertypes={"Legendary"},
     text="Vigilance.",
-    setup_interceptors=_aot_darius_zackly_setup_s19,
+    setup_interceptors=_darius_zackly_setup,
 )
 
 
@@ -7186,7 +6049,7 @@ HANNES = make_creature(
     subtypes={"Human", "Soldier"},
     supertypes={"Legendary"},
     text="Vigilance. Whenever Hannes blocks, you gain 2 life.",
-    setup_interceptors=_aot_garrison_soldier_setup_s19,
+    setup_interceptors=_garrison_soldier_setup,
 )
 
 
@@ -7226,7 +6089,7 @@ WALL_ROSE_GARRISON = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Soldier", "Wall"},
     text="Whenever Wall Rose Garrison blocks, you gain 3 life.",
-    setup_interceptors=_aot_wall_defender_setup_s19,
+    setup_interceptors=_wall_rose_garrison_setup,
 )
 
 
@@ -7288,7 +6151,7 @@ ONYANKOPON = make_creature(
     subtypes={"Human", "Pilot"},
     supertypes={"Legendary"},
     text="Flying.",
-    setup_interceptors=_aot_onyankopon_setup_s19,
+    setup_interceptors=_onyankopon_setup,
 )
 
 
@@ -7307,7 +6170,7 @@ YELENA = make_creature(
     subtypes={"Human", "Soldier"},
     supertypes={"Legendary"},
     text="Menace. When Yelena enters the battlefield, scry 2.",
-    setup_interceptors=_aot_yelena_setup_s19,
+    setup_interceptors=_yelena_setup,
 )
 
 
@@ -7323,7 +6186,7 @@ ILSE_LANGNAR = make_creature(
     subtypes={"Human", "Scout"},
     supertypes={"Legendary"},
     text="When Ilse Langnar dies, draw a card.",
-    setup_interceptors=_aot_ilse_langnar_setup_s19,
+    setup_interceptors=_ilse_langnar_setup,
 )
 
 
@@ -7383,7 +6246,7 @@ KRUGER = make_creature(
     subtypes={"Human", "Titan"},
     supertypes={"Legendary"},
     text="Haste. When Eren Kruger dies, draw a card.",
-    setup_interceptors=_aot_eren_kruger_setup_s19,
+    setup_interceptors=_kruger_setup,
 )
 
 
@@ -7444,7 +6307,7 @@ WILLY_TYBUR = make_creature(
     subtypes={"Human", "Noble"},
     supertypes={"Legendary"},
     text="When Willy Tybur dies, create a 6/6 black and white Titan creature token with first strike.",
-    setup_interceptors=_aot_willy_tybur_setup_s19,
+    setup_interceptors=_willy_tybur_setup,
 )
 
 
@@ -7732,7 +6595,7 @@ KAYA = make_creature(
     subtypes={"Human", "Citizen"},
     supertypes={"Legendary"},
     text="When Kaya enters the battlefield, you gain 2 life.",
-    setup_interceptors=_aot_kaya_setup_s19,
+    setup_interceptors=_kaya_setup,
 )
 
 
@@ -7763,7 +6626,7 @@ LOUISE = make_creature(
     subtypes={"Human", "Soldier"},
     supertypes={"Legendary"},
     text="First strike, haste.",
-    setup_interceptors=_aot_louise_yeagerist_setup_s19,
+    setup_interceptors=_louise_setup,
 )
 
 
