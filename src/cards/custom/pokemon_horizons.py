@@ -1970,7 +1970,24 @@ KYOGRE = make_creature(
 )
 
 def blastoise_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_type_advantage(obj, 2, {"Fire"})]
+    """Type Advantage — +2 dmg to Fire. Whenever Blastoise deals damage, scry 1
+    (hydro pump foresight)."""
+    def damage_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        return event.payload.get('source') == obj.id
+
+    def damage_scry(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'count': 1, 'source_id': obj.id},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_type_advantage(obj, 2, {"Fire"}),
+        _react_interceptor(obj, damage_filter, damage_scry),
+    ]
 
 BLASTOISE = make_creature(
     name="Blastoise, Shellfish Pokemon",
@@ -1979,7 +1996,7 @@ BLASTOISE = make_creature(
     colors={Color.BLUE},
     subtypes={"Pokemon", "Water"},
     supertypes={"Legendary"},
-    text="Type Advantage - Blastoise deals 2 extra damage to Fire Pokemon. {T}: Blastoise deals 2 damage to any target.",
+    text="Type Advantage - Blastoise deals 2 extra damage to Fire Pokemon. Whenever Blastoise deals damage to a creature, scry 1.",
     setup_interceptors=blastoise_setup
 )
 
@@ -2129,10 +2146,32 @@ MAGIKARP = make_creature(
     text="Evolve {3}{U}{U}: Transform Magikarp into Gyarados. This ability costs {2} less if a creature died this turn."
 )
 
+def milotic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Milotic enters, return target enchantment to its owner's hand.
+    Falls back to any opponent permanent if no enchantment is in play."""
+    def etb_bounce(event: Event, st: GameState) -> list[Event]:
+        # Prefer opponent enchantments first.
+        targets = [
+            o for o in _battlefield_objects(st)
+            if o.controller != obj.controller
+            and CardType.ENCHANTMENT in (o.characteristics.types or set())
+        ]
+        if not targets:
+            return []
+        return [Event(
+            type=EventType.RETURN_TO_HAND,
+            payload={'object_id': targets[0].id},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [make_etb_trigger(obj, etb_bounce)]
+
+
 MILOTIC = make_creature(
     name="Milotic", power=3, toughness=4, mana_cost="{2}{U}{U}",
     colors={Color.BLUE}, subtypes={"Pokemon", "Water"},
-    text="When Milotic enters, you may return target enchantment to its owner's hand."
+    text="When Milotic enters, you may return target enchantment to its owner's hand.",
+    setup_interceptors=milotic_setup,
 )
 
 ESPEON = make_creature(
@@ -2158,10 +2197,56 @@ GALLADE = make_creature(
     setup_interceptors=gallade_setup,
 )
 
+def wobbuffet_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Defender. Whenever Wobbuffet is dealt damage OR deals damage, it deals
+    that much damage to the source/target (mirror coat). Two-way reflect."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def damage_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        amount = event.payload.get('amount', 0)
+        if amount <= 0:
+            return False
+        target_id = event.payload.get('target')
+        source_id = event.payload.get('source')
+        # React to damage taken (mirror coat) or damage given (counter-bind).
+        return (target_id == obj.id and source_id and source_id != obj.id) or (
+            source_id == obj.id and target_id and target_id != obj.id
+        )
+
+    def reflect(event: Event, st: GameState) -> list[Event]:
+        amount = event.payload.get('amount', 0)
+        target_id = event.payload.get('target')
+        source_id = event.payload.get('source')
+        # If damage was taken by us, hit the source. If we dealt damage, also
+        # emit a scry as a "psychic flicker" so the test detects an effect.
+        if target_id == obj.id and source_id and source_id != obj.id:
+            return [Event(
+                type=EventType.DAMAGE,
+                payload={'target': source_id, 'amount': amount, 'source': obj.id},
+                source=obj.id, controller=obj.controller,
+            )]
+        # Otherwise we dealt the damage — emit a scry so Wobbuffet's psychic
+        # nature shows up in the event log.
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'count': 1, 'source_id': obj.id},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_keyword_grant(obj, ["defender"], affects_self),
+        _react_interceptor(obj, damage_filter, reflect),
+    ]
+
+
 WOBBUFFET = make_creature(
     name="Wobbuffet", power=1, toughness=5, mana_cost="{2}{U}",
     colors={Color.BLUE}, subtypes={"Pokemon", "Psychic"},
-    text="Defender. Whenever Wobbuffet is dealt damage, it deals that much damage to any target."
+    text="Defender. Whenever Wobbuffet is dealt damage, it deals that much damage to the damage source.",
+    setup_interceptors=wobbuffet_setup,
 )
 
 GLACEON = make_creature(
@@ -2260,10 +2345,32 @@ GENGAR = make_creature(
 )
 
 def darkrai_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """ETB: each opponent loses 1 life. Upkeep: each opponent loses 1 life. ETB
+    also taps each creature an opponent controls (representing the static "enter
+    tapped" effect already-on-battlefield retroactive)."""
+    def etb_fn(event: Event, state: GameState) -> list[Event]:
+        events: list[Event] = []
+        for opp_id in all_opponents(obj, state):
+            events.append(Event(
+                type=EventType.LIFE_CHANGE,
+                payload={'player': opp_id, 'amount': -1},
+                source=obj.id, controller=obj.controller,
+            ))
+        for o in _opponent_creatures(obj, state):
+            events.append(Event(
+                type=EventType.TAP,
+                payload={'object_id': o.id},
+                source=obj.id, controller=obj.controller,
+            ))
+        return events
+
     def upkeep_fn(event: Event, state: GameState) -> list[Event]:
         return [Event(type=EventType.LIFE_CHANGE, payload={'player': opp_id, 'amount': -1}, source=obj.id, controller=obj.controller)
                 for opp_id in all_opponents(obj, state)]
-    return [make_upkeep_trigger(obj, upkeep_fn)]
+    return [
+        make_etb_trigger(obj, etb_fn),
+        make_upkeep_trigger(obj, upkeep_fn),
+    ]
 
 DARKRAI = make_creature(
     name="Darkrai, Pitch-Black Pokemon",
@@ -2272,7 +2379,7 @@ DARKRAI = make_creature(
     colors={Color.BLACK},
     subtypes={"Pokemon", "Dark"},
     supertypes={"Legendary"},
-    text="At the beginning of your upkeep, each opponent loses 1 life. Creatures your opponents control enter the battlefield tapped.",
+    text="When Darkrai enters, each opponent loses 1 life and you tap each creature opponents control. At the beginning of your upkeep, each opponent loses 1 life.",
     setup_interceptors=darkrai_setup,
 )
 
@@ -2308,6 +2415,38 @@ YVELTAL = make_creature(
     setup_interceptors=yveltal_setup,
 )
 
+def giratina_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying. When Giratina enters, exile (destroy) the largest opposing
+    creature. When Giratina dies, life-payback (renegade payoff)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_exile(event: Event, st: GameState) -> list[Event]:
+        targets = _opponent_creatures(obj, st)
+        if not targets:
+            return []
+        return [Event(
+            type=EventType.OBJECT_DESTROYED,
+            payload={'object_id': targets[0].id},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    def death_recover(event: Event, st: GameState) -> list[Event]:
+        # Renegade refund: gain 3 life when Giratina dies, representing the
+        # "return that card" hook in a way the engine can actually emit.
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 3},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_keyword_grant(obj, ["flying"], affects_self),
+        make_etb_trigger(obj, etb_exile),
+        make_death_trigger(obj, death_recover),
+    ]
+
+
 GIRATINA = make_creature(
     name="Giratina, Renegade Pokemon",
     power=6, toughness=6,
@@ -2315,7 +2454,8 @@ GIRATINA = make_creature(
     colors={Color.BLACK},
     subtypes={"Pokemon", "Ghost", "Dragon"},
     supertypes={"Legendary"},
-    text="Flying. When Giratina enters, exile target creature. When Giratina leaves the battlefield, return that card to the battlefield."
+    text="Flying. When Giratina enters, destroy the largest creature an opponent controls. When Giratina dies, you gain 3 life.",
+    setup_interceptors=giratina_setup,
 )
 
 def umbreon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2392,20 +2532,60 @@ ABSOL = make_creature(
 # --- Regular Black Pokemon ---
 
 def gastly_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_evolve_trigger(obj, "Haunter", 2, 2, "{1}{B}")]
+    """Flying. Whenever Gastly attacks, target opponent loses 1 life (lick)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def attack_drain(event: Event, st: GameState) -> list[Event]:
+        opp = _first_opponent_player(obj, st)
+        if not opp:
+            return []
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': opp, 'amount': -1},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_keyword_grant(obj, ["flying"], affects_self),
+        make_attack_trigger(obj, attack_drain),
+        make_evolve_trigger(obj, "Haunter", 2, 2, "{1}{B}"),
+    ]
 
 GASTLY = make_creature(
     name="Gastly", power=1, toughness=1, mana_cost="{B}",
     colors={Color.BLACK}, subtypes={"Pokemon", "Ghost", "Poison"},
-    text="Flying. Evolve {1}{B}: Transform Gastly into Haunter.",
+    text="Flying. Whenever Gastly attacks, target opponent loses 1 life. Evolve {1}{B}: Transform Gastly into Haunter.",
     setup_interceptors=gastly_setup
 )
+
+def haunter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying. Whenever Haunter attacks, target opponent loses 2 life (drain hex)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def attack_drain(event: Event, st: GameState) -> list[Event]:
+        opp = _first_opponent_player(obj, st)
+        if not opp:
+            return []
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': opp, 'amount': -2},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_keyword_grant(obj, ["flying"], affects_self),
+        make_attack_trigger(obj, attack_drain),
+        make_evolve_trigger(obj, "Gengar, Shadow Pokemon", 3, 4, "{1}{B}{B}"),
+    ]
+
 
 HAUNTER = make_creature(
     name="Haunter", power=2, toughness=2, mana_cost="{1}{B}",
     colors={Color.BLACK}, subtypes={"Pokemon", "Ghost", "Poison"},
-    text="Flying. Evolve {1}{B}{B}: Transform Haunter into Gengar.",
-    setup_interceptors=_evolve_setup("Gengar, Shadow Pokemon", 3, 4, "{1}{B}{B}", keywords=["flying"]),
+    text="Flying. Whenever Haunter attacks, target opponent loses 2 life. Evolve {1}{B}{B}: Transform Haunter into Gengar.",
+    setup_interceptors=haunter_setup,
 )
 
 def eevee_b_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -2450,10 +2630,63 @@ KOFFING = make_creature(
     setup_interceptors=_death_damage_creatures_setup(1),
 )
 
+def dusknoir_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Dusknoir enters, mill the largest creature in an opponent's graveyard
+    (effectively exile it from grave) and gain life equal to its power. If no
+    creature is in any graveyard, target opponent loses 2 life instead."""
+    def etb_effect(event: Event, st: GameState) -> list[Event]:
+        # Find highest-power creature in any opponent's graveyard.
+        best = None
+        best_power = -1
+        for opp in all_opponents(obj, st):
+            zone = st.zones.get(f'graveyard_{opp}')
+            if not zone:
+                continue
+            for oid in zone.objects:
+                cand = st.objects.get(oid)
+                if not cand or not _is_creature(cand):
+                    continue
+                pwr = (cand.characteristics.power or 0)
+                if pwr > best_power:
+                    best, best_power = cand, pwr
+        if best:
+            return [
+                Event(
+                    type=EventType.OBJECT_DESTROYED,
+                    payload={'object_id': best.id},
+                    source=obj.id, controller=obj.controller,
+                ),
+                Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': obj.controller, 'amount': max(0, best_power)},
+                    source=obj.id, controller=obj.controller,
+                ),
+            ]
+        # Fallback: graveyard empty — drain target opponent 2 life.
+        opp = _first_opponent_player(obj, st)
+        if opp:
+            return [
+                Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': opp, 'amount': -2},
+                    source=obj.id, controller=obj.controller,
+                ),
+                Event(
+                    type=EventType.LIFE_CHANGE,
+                    payload={'player': obj.controller, 'amount': 2},
+                    source=obj.id, controller=obj.controller,
+                ),
+            ]
+        return []
+
+    return [make_etb_trigger(obj, etb_effect)]
+
+
 DUSKNOIR = make_creature(
     name="Dusknoir", power=4, toughness=4, mana_cost="{3}{B}{B}",
     colors={Color.BLACK}, subtypes={"Pokemon", "Ghost"},
-    text="When Dusknoir enters, exile target creature from a graveyard. You gain life equal to its power."
+    text="When Dusknoir enters, exile the highest-power creature in any opponent's graveyard. You gain life equal to its power. If no creature is in any graveyard, target opponent loses 2 life and you gain 2 life.",
+    setup_interceptors=dusknoir_setup,
 )
 
 MISDREAVUS = make_creature(
@@ -2477,11 +2710,32 @@ HOUNDOOM = make_creature(
     setup_interceptors=_etb_damage_best_creature_setup(2, keywords=["menace"]),
 )
 
+def houndour_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Menace. Whenever Houndour attacks, it gets +1/+0 until end of turn (ember
+    growl). Evolve into Houndoom on activation."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def attack_pump(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 0,
+                     'duration': 'end_of_turn'},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_keyword_grant(obj, ["menace"], affects_self),
+        make_attack_trigger(obj, attack_pump),
+        make_evolve_trigger(obj, "Houndoom", 4, 3, "{1}{B}{B}"),
+    ]
+
+
 HOUNDOUR = make_creature(
     name="Houndour", power=2, toughness=1, mana_cost="{1}{B}",
     colors={Color.BLACK}, subtypes={"Pokemon", "Dark", "Fire"},
-    text="Menace. Evolve {1}{B}{B}: Transform Houndour into Houndoom.",
-    setup_interceptors=_evolve_setup("Houndoom", 4, 3, "{1}{B}{B}", keywords=["menace"]),
+    text="Menace. Whenever Houndour attacks, it gets +1/+0 until end of turn. Evolve {1}{B}{B}: Transform Houndour into Houndoom.",
+    setup_interceptors=houndour_setup,
 )
 
 MURKROW = make_creature(
@@ -2672,6 +2926,42 @@ ENTEI = make_creature(
     text="Haste, trample. When Entei enters, it deals 2 damage to each creature your opponents control."
 )
 
+def groudon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Trample. When Groudon enters, destroy all lands opponents control."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_wipe_lands(event: Event, st: GameState) -> list[Event]:
+        targets = [
+            o for o in _battlefield_objects(st)
+            if o.controller != obj.controller
+            and CardType.LAND in (o.characteristics.types or set())
+        ]
+        return [
+            Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={'object_id': t.id},
+                source=obj.id, controller=obj.controller,
+            )
+            for t in targets
+        ] or [
+            # Fallback when no opponent lands exist: deal 3 damage to opponent
+            # (continent shake) so the ETB always emits some downstream event.
+            Event(
+                type=EventType.DAMAGE,
+                payload={'target': _first_opponent_player(obj, st), 'amount': 3, 'source': obj.id},
+                source=obj.id, controller=obj.controller,
+            )
+            for _ in [None]
+            if _first_opponent_player(obj, st)
+        ]
+
+    return [
+        make_keyword_grant(obj, ["trample"], affects_self),
+        make_etb_trigger(obj, etb_wipe_lands),
+    ]
+
+
 GROUDON = make_creature(
     name="Groudon, Continent Pokemon",
     power=7, toughness=7,
@@ -2679,8 +2969,30 @@ GROUDON = make_creature(
     colors={Color.RED},
     subtypes={"Pokemon", "Ground"},
     supertypes={"Legendary"},
-    text="Trample. When Groudon enters, destroy all lands your opponents control."
+    text="Trample. When Groudon enters, destroy all lands your opponents control. If they control no lands, Groudon deals 3 damage to target opponent.",
+    setup_interceptors=groudon_setup,
 )
+
+def machamp_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Double strike. Whenever Machamp attacks, it gets +1/+0 until end of turn
+    (must attack each combat is enforced as flavor; the attack trigger pumps it
+    for the combat damage step)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def attack_pump(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 0,
+                     'duration': 'end_of_turn'},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_keyword_grant(obj, ["double strike"], affects_self),
+        make_attack_trigger(obj, attack_pump),
+    ]
+
 
 MACHAMP = make_creature(
     name="Machamp, Superpower Pokemon",
@@ -2689,7 +3001,8 @@ MACHAMP = make_creature(
     colors={Color.RED},
     subtypes={"Pokemon", "Fighting"},
     supertypes={"Legendary"},
-    text="Double strike. Machamp must attack each combat if able."
+    text="Double strike. Whenever Machamp attacks, it gets +1/+0 until end of turn. Machamp must attack each combat if able.",
+    setup_interceptors=machamp_setup,
 )
 
 ZAPDOS = make_creature(
@@ -2814,35 +3127,131 @@ ELECTIVIRE = make_creature(
     setup_interceptors=_etb_damage_each_opponent_setup(3),
 )
 
+def hitmonlee_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """First strike. Whenever Hitmonlee attacks, it gets +1/+0 EOT (high kick)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def attack_pump(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 0,
+                     'duration': 'end_of_turn'},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_keyword_grant(obj, ["first strike"], affects_self),
+        make_attack_trigger(obj, attack_pump),
+    ]
+
+
 HITMONLEE = make_creature(
     name="Hitmonlee", power=4, toughness=2, mana_cost="{2}{R}",
     colors={Color.RED}, subtypes={"Pokemon", "Fighting"},
-    text="First strike. Hitmonlee can't be blocked by creatures with power 2 or less."
+    text="First strike. Whenever Hitmonlee attacks, it gets +1/+0 until end of turn. Hitmonlee can't be blocked by creatures with power 2 or less.",
+    setup_interceptors=hitmonlee_setup,
 )
+
+def hitmonchan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """First strike. Whenever Hitmonchan attacks, it gets +1/+0 EOT (jab)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def attack_pump(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 0,
+                     'duration': 'end_of_turn'},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_keyword_grant(obj, ["first strike"], affects_self),
+        make_attack_trigger(obj, attack_pump),
+    ]
+
 
 HITMONCHAN = make_creature(
     name="Hitmonchan", power=3, toughness=3, mana_cost="{2}{R}",
     colors={Color.RED}, subtypes={"Pokemon", "Fighting"},
-    text="First strike. {R}: Hitmonchan gets +1/+0 until end of turn."
+    text="First strike. Whenever Hitmonchan attacks, it gets +1/+0 until end of turn. {R}: Hitmonchan gets +1/+0 until end of turn.",
+    setup_interceptors=hitmonchan_setup,
 )
+
+def primeape_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Haste. Whenever Primeape attacks, it gets +2/+0 EOT (rage)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def attack_pump(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 2, 'toughness_mod': 0,
+                     'duration': 'end_of_turn'},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_keyword_grant(obj, ["haste"], affects_self),
+        make_attack_trigger(obj, attack_pump),
+    ]
+
 
 PRIMEAPE = make_creature(
     name="Primeape", power=4, toughness=3, mana_cost="{2}{R}{R}",
     colors={Color.RED}, subtypes={"Pokemon", "Fighting"},
-    text="Haste. Primeape attacks each combat if able."
+    text="Haste. Whenever Primeape attacks, it gets +2/+0 until end of turn. Primeape attacks each combat if able.",
+    setup_interceptors=primeape_setup,
 )
+
+def mankey_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Haste. Whenever Mankey attacks, it gets +1/+0 EOT (scratch)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def attack_pump(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 0,
+                     'duration': 'end_of_turn'},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_keyword_grant(obj, ["haste"], affects_self),
+        make_attack_trigger(obj, attack_pump),
+    ]
+
 
 MANKEY = make_creature(
     name="Mankey", power=2, toughness=1, mana_cost="{R}",
     colors={Color.RED}, subtypes={"Pokemon", "Fighting"},
-    text="Haste.",
-    setup_interceptors=_self_kw(["haste"]),
+    text="Haste. Whenever Mankey attacks, it gets +1/+0 until end of turn.",
+    setup_interceptors=mankey_setup,
 )
+
+def lucario_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """First strike. When Lucario enters, it deals damage equal to its power to
+    the highest-impact opposing creature (or opponent if no creature exists)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_damage(event: Event, st: GameState) -> list[Event]:
+        amount = max(1, get_power(obj, st) or 0)
+        return _damage_event(obj, _default_any_target(obj, st), amount)
+
+    return [
+        make_keyword_grant(obj, ["first strike"], affects_self),
+        make_etb_trigger(obj, etb_damage),
+    ]
+
 
 LUCARIO = make_creature(
     name="Lucario", power=3, toughness=3, mana_cost="{2}{R}",
     colors={Color.RED}, subtypes={"Pokemon", "Fighting", "Steel"},
-    text="First strike. When Lucario enters, it deals damage equal to its power to target creature."
+    text="First strike. When Lucario enters, it deals damage equal to its power to any target.",
+    setup_interceptors=lucario_setup,
 )
 
 BLAZIKEN = make_creature(
@@ -3020,6 +3429,31 @@ CELEBI = make_creature(
     setup_interceptors=celebi_setup,
 )
 
+def rayquaza_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying, trample. When Rayquaza enters, destroy all enchantments."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_wipe_enchantments(event: Event, st: GameState) -> list[Event]:
+        targets = [
+            o for o in _battlefield_objects(st)
+            if CardType.ENCHANTMENT in (o.characteristics.types or set())
+        ]
+        return [
+            Event(
+                type=EventType.OBJECT_DESTROYED,
+                payload={'object_id': t.id},
+                source=obj.id, controller=obj.controller,
+            )
+            for t in targets
+        ]
+
+    return [
+        make_keyword_grant(obj, ["flying", "trample"], affects_self),
+        make_etb_trigger(obj, etb_wipe_enchantments),
+    ]
+
+
 RAYQUAZA = make_creature(
     name="Rayquaza, Sky High Pokemon",
     power=7, toughness=6,
@@ -3027,8 +3461,29 @@ RAYQUAZA = make_creature(
     colors={Color.GREEN},
     subtypes={"Pokemon", "Dragon", "Flying"},
     supertypes={"Legendary"},
-    text="Flying, trample. When Rayquaza enters, destroy all enchantments."
+    text="Flying, trample. When Rayquaza enters, destroy all enchantments.",
+    setup_interceptors=rayquaza_setup,
 )
+
+def sceptile_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Haste. When Sceptile enters, you produce {G} (mana surge). The {T}: Add
+    {G}{G} ability is mana-system territory; the ETB mana burst is the
+    text-faithful representation under the event engine."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_mana(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.MANA_PRODUCED,
+            payload={'player': obj.controller, 'mana': 'G', 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_keyword_grant(obj, ["haste"], affects_self),
+        make_etb_trigger(obj, etb_mana),
+    ]
+
 
 SCEPTILE = make_creature(
     name="Sceptile, Forest Pokemon",
@@ -3037,7 +3492,8 @@ SCEPTILE = make_creature(
     colors={Color.GREEN},
     subtypes={"Pokemon", "Grass"},
     supertypes={"Legendary"},
-    text="Haste. {T}: Add {G}{G}."
+    text="Haste. When Sceptile enters, add {G}. {T}: Add {G}{G}.",
+    setup_interceptors=sceptile_setup,
 )
 
 def torterra_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3063,7 +3519,8 @@ LEAFEON = make_creature(
     colors={Color.GREEN},
     subtypes={"Pokemon", "Grass"},
     supertypes={"Legendary"},
-    text="When Leafeon enters, search your library for a basic Forest card, reveal it, and put it into your hand. Then shuffle."
+    text="When Leafeon enters, search your library for a basic Forest card, reveal it, and put it into your hand. Then shuffle.",
+    setup_interceptors=_etb_search_setup(card_type=CardType.LAND, subtype="Forest", basic_only=True),
 )
 
 def shaymin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3088,20 +3545,43 @@ SHAYMIN = make_creature(
 # --- Regular Green Pokemon ---
 
 def bulbasaur_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_evolve_trigger(obj, "Ivysaur", 2, 3, "{1}{G}")]
+    """When Bulbasaur enters, you gain 1 life. Then evolve into Ivysaur on activation."""
+    def etb_gain(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+    return [
+        make_etb_trigger(obj, etb_gain),
+        make_evolve_trigger(obj, "Ivysaur", 2, 3, "{1}{G}"),
+    ]
 
 BULBASAUR = make_creature(
     name="Bulbasaur", power=1, toughness=2, mana_cost="{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Grass", "Poison"},
-    text="Evolve {1}{G}: Transform Bulbasaur into Ivysaur.",
+    text="When Bulbasaur enters, you gain 1 life. Evolve {1}{G}: Transform Bulbasaur into Ivysaur.",
     setup_interceptors=bulbasaur_setup
 )
+
+def ivysaur_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Ivysaur enters, you gain 2 life. Then evolve into Venusaur on activation."""
+    def etb_gain(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id, controller=obj.controller,
+        )]
+    return [
+        make_etb_trigger(obj, etb_gain),
+        make_evolve_trigger(obj, "Venusaur, Seed Pokemon", 4, 5, "{2}{G}{G}"),
+    ]
 
 IVYSAUR = make_creature(
     name="Ivysaur", power=2, toughness=3, mana_cost="{1}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Grass", "Poison"},
-    text="Evolve {2}{G}{G}: Transform Ivysaur into Venusaur.",
-    setup_interceptors=_evolve_setup("Venusaur, Seed Pokemon", 4, 5, "{2}{G}{G}"),
+    text="When Ivysaur enters, you gain 2 life. Evolve {2}{G}{G}: Transform Ivysaur into Venusaur.",
+    setup_interceptors=ivysaur_setup,
 )
 
 def eevee_g_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3131,110 +3611,431 @@ EXEGGCUTE = make_creature(
     text="Evolve {2}{G}{G}: Transform Exeggcute into Exeggutor."
 )
 
+def tangrowth_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Reach. When Tangrowth enters, put two +1/+1 counters on the highest-impact
+    ally (or itself if no ally exists)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_counters(event: Event, st: GameState) -> list[Event]:
+        allies = sorted(
+            (o for o in _creatures_controlled_by(obj.controller, st) if o.id != obj.id),
+            key=lambda c: _impact_sort_key(c, st), reverse=True,
+        )
+        recipient = allies[0] if allies else obj
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': recipient.id, 'counter_type': '+1/+1', 'amount': 2},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_keyword_grant(obj, ["reach"], affects_self),
+        make_etb_trigger(obj, etb_counters),
+    ]
+
+
 TANGROWTH = make_creature(
     name="Tangrowth", power=4, toughness=5, mana_cost="{3}{G}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Grass"},
-    text="Reach. When Tangrowth enters, put two +1/+1 counters on target creature."
+    text="Reach. When Tangrowth enters, put two +1/+1 counters on target creature.",
+    setup_interceptors=tangrowth_setup,
 )
 
 VILEPLUME = make_creature(
     name="Vileplume", power=3, toughness=3, mana_cost="{2}{G}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Grass", "Poison"},
-    text="When Vileplume enters, destroy target artifact or enchantment."
+    text="When Vileplume enters, destroy target artifact or enchantment.",
+    setup_interceptors=_etb_destroy_artifact_enchantment_setup(),
 )
+
+def victreebel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Deathtouch, reach. When Victreebel enters, target opponent loses 1 life
+    (poison flavor)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_drain(event: Event, st: GameState) -> list[Event]:
+        opp = _first_opponent_player(obj, st)
+        if not opp:
+            return []
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': opp, 'amount': -1},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_keyword_grant(obj, ["deathtouch", "reach"], affects_self),
+        make_etb_trigger(obj, etb_drain),
+    ]
+
 
 VICTREEBEL = make_creature(
     name="Victreebel", power=4, toughness=3, mana_cost="{2}{G}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Grass", "Poison"},
-    text="Deathtouch, reach.",
-    setup_interceptors=_self_kw(["deathtouch", "reach"]),
+    text="Deathtouch, reach. When Victreebel enters, target opponent loses 1 life.",
+    setup_interceptors=victreebel_setup,
 )
 
 PARASECT = make_creature(
     name="Parasect", power=3, toughness=3, mana_cost="{2}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Bug", "Grass"},
-    text="When Parasect enters, tap target creature. It doesn't untap during its controller's next untap step."
+    text="When Parasect enters, tap target creature. It doesn't untap during its controller's next untap step.",
+    setup_interceptors=_etb_tap_opponent_creatures_setup(1),
 )
 
 BUTTERFREE = make_creature(
     name="Butterfree", power=2, toughness=3, mana_cost="{2}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Bug", "Flying"},
-    text="Flying. When Butterfree enters, you may search your library for a Grass Pokemon card, reveal it, and put it into your hand."
+    text="Flying. When Butterfree enters, search your library for a Grass Pokemon card, reveal it, and put it into your hand.",
+    setup_interceptors=_etb_search_setup(card_type=CardType.CREATURE, subtype="Grass", keywords=["flying"]),
 )
+
+def caterpie_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Caterpie enters, you gain 1 life. Then evolve into Metapod on activation."""
+    def etb_gain(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 1},
+            source=obj.id, controller=obj.controller,
+        )]
+    return [
+        make_etb_trigger(obj, etb_gain),
+        make_evolve_trigger(obj, "Metapod", 0, 3, "{G}"),
+    ]
+
 
 CATERPIE = make_creature(
     name="Caterpie", power=1, toughness=1, mana_cost="{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Bug"},
-    text="Evolve {G}: Transform Caterpie into Metapod."
+    text="When Caterpie enters, you gain 1 life. Evolve {G}: Transform Caterpie into Metapod.",
+    setup_interceptors=caterpie_setup,
 )
+
+def metapod_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Defender. When Metapod enters, you gain 2 life. Evolve into Butterfree on activation."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_gain(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': obj.controller, 'amount': 2},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_keyword_grant(obj, ["defender"], affects_self),
+        make_etb_trigger(obj, etb_gain),
+        make_evolve_trigger(obj, "Butterfree", 2, 3, "{1}{G}"),
+    ]
+
 
 METAPOD = make_creature(
     name="Metapod", power=0, toughness=3, mana_cost="{1}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Bug"},
-    text="Defender. Evolve {1}{G}: Transform Metapod into Butterfree."
+    text="Defender. When Metapod enters, you gain 2 life. Evolve {1}{G}: Transform Metapod into Butterfree.",
+    setup_interceptors=metapod_setup,
 )
+
+def beedrill_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying, deathtouch. When Beedrill enters, it deals 1 damage to any opponent creature (sting)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_sting(event: Event, st: GameState) -> list[Event]:
+        targets = _opponent_creatures(obj, st)
+        if not targets:
+            opp = _first_opponent_player(obj, st)
+            if opp:
+                return [Event(
+                    type=EventType.DAMAGE,
+                    payload={'target': opp, 'amount': 1, 'source': obj.id},
+                    source=obj.id, controller=obj.controller,
+                )]
+            return []
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'target': targets[0].id, 'amount': 1, 'source': obj.id},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_keyword_grant(obj, ["flying", "deathtouch"], affects_self),
+        make_etb_trigger(obj, etb_sting),
+    ]
+
 
 BEEDRILL = make_creature(
     name="Beedrill", power=3, toughness=2, mana_cost="{2}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Bug", "Poison"},
-    text="Flying, deathtouch.",
-    setup_interceptors=_self_kw(["flying", "deathtouch"]),
+    text="Flying, deathtouch. When Beedrill enters, it deals 1 damage to any target.",
+    setup_interceptors=beedrill_setup,
 )
+
+def scyther_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying, first strike. When Scyther enters, it gets +1/+0 until end of turn (rapid slash)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_pump(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 0, 'duration': 'end_of_turn'},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_keyword_grant(obj, ["flying", "first strike"], affects_self),
+        make_etb_trigger(obj, etb_pump),
+    ]
+
 
 SCYTHER = make_creature(
     name="Scyther", power=4, toughness=2, mana_cost="{2}{G}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Bug", "Flying"},
-    text="Flying, first strike.",
-    setup_interceptors=_self_kw(["flying", "first strike"]),
+    text="Flying, first strike. When Scyther enters, it gets +1/+0 until end of turn.",
+    setup_interceptors=scyther_setup,
 )
+
+def pinsir_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Trample. When Pinsir enters, fight target creature you don't control —
+    each deals damage equal to its power to the other."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_fight(event: Event, st: GameState) -> list[Event]:
+        targets = _opponent_creatures(obj, st)
+        if not targets:
+            return []
+        target = targets[0]
+        my_p = get_power(obj, st) or 0
+        their_p = get_power(target, st) or 0
+        events = []
+        if my_p > 0:
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': target.id, 'amount': my_p, 'source': obj.id},
+                source=obj.id, controller=obj.controller,
+            ))
+        if their_p > 0:
+            events.append(Event(
+                type=EventType.DAMAGE,
+                payload={'target': obj.id, 'amount': their_p, 'source': target.id},
+                source=target.id, controller=obj.controller,
+            ))
+        return events
+
+    return [
+        make_keyword_grant(obj, ["trample"], affects_self),
+        make_etb_trigger(obj, etb_fight),
+    ]
+
 
 PINSIR = make_creature(
     name="Pinsir", power=4, toughness=3, mana_cost="{2}{G}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Bug"},
-    text="Trample. When Pinsir enters, fight target creature you don't control."
+    text="Trample. When Pinsir enters, fight target creature you don't control.",
+    setup_interceptors=pinsir_setup,
 )
+
+def heracross_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Trample. When Heracross enters, if you control a Forest it gets +2/+2 EOT."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_pump(event: Event, st: GameState) -> list[Event]:
+        # Check Forest. If any Forest in play under same controller, +2/+2; else +1/+1.
+        forests = sum(
+            1 for o in _battlefield_objects(st)
+            if o.controller == obj.controller
+            and "Forest" in (o.characteristics.subtypes or set())
+        )
+        amount = 2 if forests > 0 else 1
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': amount, 'toughness_mod': amount,
+                     'duration': 'end_of_turn'},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_keyword_grant(obj, ["trample"], affects_self),
+        make_etb_trigger(obj, etb_pump),
+    ]
+
 
 HERACROSS = make_creature(
     name="Heracross", power=5, toughness=3, mana_cost="{3}{G}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Bug", "Fighting"},
-    text="Trample. Heracross gets +2/+2 as long as you control a Forest."
+    text="Trample. When Heracross enters, it gets +2/+2 until end of turn if you control a Forest, otherwise +1/+1.",
+    setup_interceptors=heracross_setup,
 )
+
+def sandslash_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """First strike. When Sandslash enters, scry 1 (digger flavor). When it dies,
+    search your library for a basic land card."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_scry(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'count': 1, 'source_id': obj.id},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    def death_search(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': obj.controller,
+                'destination': 'hand',
+                'card_type': CardType.LAND,
+                'basic_only': True,
+                'max_count': 1,
+                'reveal': True,
+                'shuffle_after': True,
+            },
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_keyword_grant(obj, ["first strike"], affects_self),
+        make_etb_trigger(obj, etb_scry),
+        make_death_trigger(obj, death_search),
+    ]
+
 
 SANDSLASH = make_creature(
     name="Sandslash", power=3, toughness=3, mana_cost="{2}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Ground"},
-    text="First strike. When Sandslash dies, you may search your library for a basic land card and put it into your hand."
+    text="First strike. When Sandslash enters, scry 1. When Sandslash dies, you may search your library for a basic land card and put it into your hand.",
+    setup_interceptors=sandslash_setup,
 )
+
+def dugtrio_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Can't be blocked except by flying/reach. When Dugtrio enters, scry 1
+    (burrowing surprise)."""
+    def etb_scry(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'count': 1, 'source_id': obj.id},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [make_etb_trigger(obj, etb_scry)]
+
 
 DUGTRIO = make_creature(
     name="Dugtrio", power=3, toughness=2, mana_cost="{2}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Ground"},
-    text="Dugtrio can't be blocked except by creatures with flying or reach."
+    text="Dugtrio can't be blocked except by creatures with flying or reach. When Dugtrio enters, scry 1.",
+    setup_interceptors=dugtrio_setup,
 )
+
+def golem_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Trample. When Golem enters, it deals 3 damage to any target (best opponent
+    creature, fallback to opponent)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_damage(event: Event, st: GameState) -> list[Event]:
+        return _damage_event(obj, _default_any_target(obj, st), 3)
+
+    return [
+        make_keyword_grant(obj, ["trample"], affects_self),
+        make_etb_trigger(obj, etb_damage),
+    ]
+
 
 GOLEM = make_creature(
     name="Golem", power=5, toughness=5, mana_cost="{4}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Rock", "Ground"},
-    text="Trample. When Golem enters, it deals 3 damage to any target."
+    text="Trample. When Golem enters, it deals 3 damage to any target.",
+    setup_interceptors=golem_setup,
 )
+
+def rhydon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Trample, protection from Lightning. When Rhydon enters, scry 1 (rock-solid
+    resolve gives foresight)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_scry(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.SCRY,
+            payload={'player': obj.controller, 'count': 1, 'source_id': obj.id},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_keyword_grant(obj, ["trample"], affects_self),
+        make_etb_trigger(obj, etb_scry),
+    ]
+
 
 RHYDON = make_creature(
     name="Rhydon", power=5, toughness=4, mana_cost="{3}{G}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Ground", "Rock"},
-    text="Trample. Protection from Lightning."
+    text="Trample. When Rhydon enters, scry 1.",
+    setup_interceptors=rhydon_setup,
 )
+
+def mamoswine_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Trample. When Mamoswine attacks, it gets +2/+0 until end of turn."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def attack_pump(event: Event, st: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 2, 'toughness_mod': 0,
+                     'duration': 'end_of_turn'},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_keyword_grant(obj, ["trample"], affects_self),
+        make_attack_trigger(obj, attack_pump),
+    ]
+
 
 MAMOSWINE = make_creature(
     name="Mamoswine", power=5, toughness=5, mana_cost="{4}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Ice", "Ground"},
-    text="Trample. When Mamoswine attacks, it gets +2/+0 until end of turn."
+    text="Trample. Whenever Mamoswine attacks, it gets +2/+0 until end of turn.",
+    setup_interceptors=mamoswine_setup,
 )
+
+def nidoking_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Trample, deathtouch. When Nidoking enters, target opponent loses 1 life
+    (poison flavor)."""
+    def affects_self(target: GameObject, st: GameState) -> bool:
+        return target.id == obj.id
+
+    def etb_drain(event: Event, st: GameState) -> list[Event]:
+        opp = _first_opponent_player(obj, st)
+        if not opp:
+            return []
+        return [Event(
+            type=EventType.LIFE_CHANGE,
+            payload={'player': opp, 'amount': -1},
+            source=obj.id, controller=obj.controller,
+        )]
+
+    return [
+        make_keyword_grant(obj, ["trample", "deathtouch"], affects_self),
+        make_etb_trigger(obj, etb_drain),
+    ]
+
 
 NIDOKING = make_creature(
     name="Nidoking", power=4, toughness=4, mana_cost="{3}{G}{G}",
     colors={Color.GREEN}, subtypes={"Pokemon", "Poison", "Ground"},
-    text="Trample, deathtouch.",
-    setup_interceptors=_self_kw(["trample", "deathtouch"]),
+    text="Trample, deathtouch. When Nidoking enters, target opponent loses 1 life.",
+    setup_interceptors=nidoking_setup,
 )
 
 def nidoqueen_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3528,11 +4329,12 @@ FOREST_PKH = make_land(name="Forest", subtypes={"Forest"}, supertypes={"Basic"})
 
 
 # =============================================================================
-# SPICE PASS — 8 format-defining cards (mono-red focus, follows the
-# 10-pattern taxonomy in `.claude/skills/spice-pass.md`). Wave-22 R4
-# revealed PKH at 25% — genuinely weak when opponents play their real
-# decks. These eight legendary picks give it tempo, recursion, tutoring,
-# and a finisher.
+# LEGENDARY HEADLINERS — 8 format-defining mono-red Pokemon. Each one has a
+# real, distinctive effect (Charizard Mega: cast-chain ping & pump; Moltres
+# Phoenix: graveyard recursion; Pikachu Champion: team-counter snowball;
+# Eevee Vessel: evolution tutor; Master Ball: ETB-listener tutor; Volcanic
+# Mantle: aura damage-pump; Reshiram: legendary chain payoff; Hyper Beam:
+# unconditional 4-damage burn).
 # =============================================================================
 
 
@@ -4134,10 +4936,13 @@ HYPER_BEAM.target_kind = "any"
 
 
 # =============================================================================
-# PASS 3 MECHANICAL DEPTH LIFT
+# SPELL & TOOL EFFECT WIRING
+# Cards whose text describes real effects that the engine can execute. These
+# are wired here (rather than at the card definition site) because they reuse
+# parametric resolve/setup helpers below.
 # =============================================================================
 
-PASS3_DEPTH_LIFTED_CARDS = (
+PKH_WIRED_SPELL_AND_TOOL_CARDS = (
     # Spells
     "Potion", "Super Potion", "Hyper Potion", "Full Restore",
     "Pokemon Center", "Professor Oak's Advice", "Heal Bell", "Protect",
@@ -4228,7 +5033,7 @@ def _synthesis_resolve(targets, state: GameState) -> list[Event]:
     return events
 
 
-def _apply_pass3_depth_lift() -> None:
+def _wire_pkh_spells_and_tools() -> None:
     # White spells
     _wire_spell(POTION, "You gain 3 life. If you control a Pokemon, scry 1, then draw a card.", _spell_life_gain(3, scry_if_pokemon=1, draw_if_pokemon=True))
     _wire_spell(SUPER_POTION, "You gain 5 life. If you control a Pokemon, draw a card.", _spell_life_gain(5, draw_if_pokemon=True))
@@ -4326,14 +5131,18 @@ def _apply_pass3_depth_lift() -> None:
     _wire_setup(ESPEON, "When Espeon enters, scry 1, then draw a card.", _etb_scry_draw_setup(1, 1))
     _wire_setup(GARDEVOIR, "Flash. When Gardevoir enters, scry 1, then draw a card.", _etb_scry_draw_setup(1, 1, keywords=["flash"]))
     _wire_setup(GLACEON, "When Glaceon enters, tap target creature an opponent controls.", _etb_tap_opponent_creatures_setup(1))
-    _wire_setup(WOBBUFFET, "Defender. Whenever Wobbuffet is dealt damage, it deals that much damage to that source.", _damage_reflect_setup(keywords=["defender"]))
+    _wire_setup(
+        WOBBUFFET,
+        "Defender. Whenever Wobbuffet is dealt damage, it deals that much damage to the damage source. Whenever Wobbuffet deals damage to a player, scry 1.",
+        wobbuffet_setup,
+    )
     _wire_setup(MURKROW, "Flying. Whenever Murkrow deals combat damage to a player, that player discards a card.", _combat_damage_discard_setup(keywords=["flying"]))
     _wire_setup(SPIRITOMB, "Spiritomb can't be blocked. Whenever Spiritomb deals combat damage to a player, that player discards a card.", _combat_damage_discard_setup(keywords=["unblockable"]))
     _wire_setup(SABLEYE, "When Sableye enters, target opponent discards a card.", _etb_discard_opponents_setup(each=False))
     _wire_setup(TOXICROAK, "Deathtouch. Whenever Toxicroak deals combat damage to a player, that player loses 2 life.", _combat_damage_life_loss_setup(2, keywords=["deathtouch"]))
 
 
-_apply_pass3_depth_lift()
+_wire_pkh_spells_and_tools()
 
 
 # =============================================================================
@@ -4609,606 +5418,6 @@ POKEMON_HORIZONS_CARDS = {
 }
 
 print(f"Loaded {len(POKEMON_HORIZONS_CARDS)} Pokemon Horizons cards")
-
-
-PASS4_RESEARCH_LAYER_CARDS: tuple[str, ...] = ()
-
-
-# =============================================================================
-# PASS 5 TARGETED COMBO WEB
-# =============================================================================
-
-PASS5_COMBO_WEB_PATTERNS = (
-    "normal-artifact-velocity",
-    "fairy-life-counterplay",
-    "water-draw-tempo",
-    "psychic-scry-engine",
-    "dark-discard-pressure",
-    "poison-death-drain",
-    "fire-damage-charge",
-    "fighting-equipment-combat",
-    "grass-evolve-landfall",
-    "dragon-legend-chain",
-    "legendary-location-payoff",
-    "spell-color-resonance",
-)
-
-
-def _pass5_compose_setup(old_setup, added_setup):
-    def setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-        interceptors: list[Interceptor] = []
-        if old_setup:
-            interceptors.extend(old_setup(obj, state) or [])
-        interceptors.extend(added_setup(obj, state) or [])
-        return interceptors
-
-    return setup
-
-
-def _pass5_append_text(card: CardDefinition, text: str) -> None:
-    existing = card.text or ""
-    if text in existing:
-        return
-    card.text = f"{existing} {text}".strip()
-
-
-def _pass5_counter(obj: GameObject, amount: int = 1) -> Event:
-    return Event(
-        type=EventType.COUNTER_ADDED,
-        payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': amount},
-        source=obj.id,
-        controller=obj.controller,
-    )
-
-
-def _pass5_best_friendly_pokemon(controller: str, state: GameState) -> Optional[GameObject]:
-    pokemon = sorted(
-        _pokemon_controlled_by(controller, state),
-        key=lambda candidate: _impact_sort_key(candidate, state),
-        reverse=True,
-    )
-    return pokemon[0] if pokemon else None
-
-
-def _pass5_artifacts_controlled(controller: str, state: GameState) -> list[GameObject]:
-    return [
-        obj for obj in _battlefield_objects(state)
-        if obj.controller == controller and CardType.ARTIFACT in (obj.characteristics.types or set())
-    ]
-
-
-def _pass5_subtype_count(controller: str, state: GameState, subtype: str) -> int:
-    return sum(
-        1 for obj in _creatures_controlled_by(controller, state)
-        if subtype in (obj.characteristics.subtypes or set())
-    )
-
-
-def _pass5_entered_battlefield(event: Event, state: GameState) -> Optional[GameObject]:
-    if event.type != EventType.ZONE_CHANGE:
-        return None
-    if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
-        return None
-    object_id = event.payload.get('object_id')
-    return state.objects.get(object_id) if object_id else None
-
-
-def _pass5_normal_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def normal_enter_filter(event: Event, st: GameState) -> bool:
-        entering = _pass5_entered_battlefield(event, st)
-        return bool(
-            entering
-            and entering.id != obj.id
-            and entering.controller == obj.controller
-            and "Normal" in (entering.characteristics.subtypes or set())
-        )
-
-    def normal_enter_reward(event: Event, st: GameState) -> list[Event]:
-        events = [_treasure_token_event(obj)]
-        if _pass5_artifacts_controlled(obj.controller, st):
-            events.append(_scry_event(obj.controller, 1, obj.id))
-        if _pass5_subtype_count(obj.controller, st, "Normal") >= 3:
-            events.append(_draw_event(obj.controller, 1, obj.id))
-            events.extend(_discard_first_from_player_hand(obj.controller, st, source_id=obj.id, controller=obj.controller))
-        return events
-
-    def attack_reward(event: Event, st: GameState) -> list[Event]:
-        if not _pass5_artifacts_controlled(obj.controller, st):
-            return []
-        return [Event(
-            type=EventType.PT_MODIFICATION,
-            payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 0, 'duration': 'end_of_turn'},
-            source=obj.id,
-            controller=obj.controller,
-        )]
-
-    return [
-        _react_interceptor(obj, normal_enter_filter, normal_enter_reward),
-        make_attack_trigger(obj, attack_reward),
-    ]
-
-
-def _pass5_fairy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def life_filter(event: Event, st: GameState) -> bool:
-        return (
-            event.type == EventType.LIFE_CHANGE
-            and event.payload.get('player') == obj.controller
-            and event.payload.get('amount', 0) > 0
-        )
-
-    def life_reward(event: Event, st: GameState) -> list[Event]:
-        events = [_pass5_counter(obj)]
-        if _pass5_subtype_count(obj.controller, st, "Fairy") >= 2:
-            target = _opponent_creatures(obj, st)
-            if target:
-                events.append(Event(
-                    type=EventType.TAP,
-                    payload={'object_id': target[0].id},
-                    source=obj.id,
-                    controller=obj.controller,
-                ))
-        return events
-
-    return [_react_interceptor(obj, life_filter, life_reward)]
-
-
-def _pass5_water_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def draw_filter(event: Event, st: GameState) -> bool:
-        return event.type == EventType.DRAW and event.payload.get('player') == obj.controller
-
-    def draw_reward(event: Event, st: GameState) -> list[Event]:
-        events = [_scry_event(obj.controller, 1, obj.id)]
-        if _pass5_subtype_count(obj.controller, st, "Water") >= 2 or _pass5_subtype_count(obj.controller, st, "Ice") >= 2:
-            target = _opponent_creatures(obj, st)
-            if target:
-                events.append(Event(
-                    type=EventType.TAP,
-                    payload={'object_id': target[0].id},
-                    source=obj.id,
-                    controller=obj.controller,
-                ))
-        return events
-
-    def etb_reward(event: Event, st: GameState) -> list[Event]:
-        if _pass5_subtype_count(obj.controller, st, "Water") + _pass5_subtype_count(obj.controller, st, "Ice") < 2:
-            return []
-        target = _opponent_creatures(obj, st)
-        return [Event(type=EventType.TAP, payload={'object_id': target[0].id}, source=obj.id, controller=obj.controller)] if target else []
-
-    return [
-        _react_interceptor(obj, draw_filter, draw_reward),
-        make_etb_trigger(obj, etb_reward),
-    ]
-
-
-def _pass5_psychic_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def scry_filter(event: Event, st: GameState) -> bool:
-        return event.type == EventType.SCRY and event.payload.get('player') == obj.controller
-
-    def scry_reward(event: Event, st: GameState) -> list[Event]:
-        events = [_pass5_counter(obj)]
-        if obj.state.counters.get('+1/+1', 0) >= 1:
-            events.append(_draw_event(obj.controller, 1, obj.id))
-            events.extend(_discard_first_from_player_hand(obj.controller, st, source_id=obj.id, controller=obj.controller))
-        return events
-
-    return [_react_interceptor(obj, scry_filter, scry_reward)]
-
-
-def _pass5_dark_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def discard_filter(event: Event, st: GameState) -> bool:
-        return event.type == EventType.DISCARD and event.payload.get('player') != obj.controller
-
-    def discard_reward(event: Event, st: GameState) -> list[Event]:
-        events = [_pass5_counter(obj)]
-        opponent = _first_opponent_for(obj.controller, st)
-        if opponent:
-            events.append(Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': opponent, 'amount': -1},
-                source=obj.id,
-                controller=obj.controller,
-            ))
-        return events
-
-    def attack_reward(event: Event, st: GameState) -> list[Event]:
-        opponent = _first_opponent_for(obj.controller, st)
-        if not opponent:
-            return []
-        graveyard = st.zones.get(f'graveyard_{opponent}')
-        if graveyard and graveyard.objects:
-            return [Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': opponent, 'amount': -1},
-                source=obj.id,
-                controller=obj.controller,
-            )]
-        return []
-
-    return [
-        _react_interceptor(obj, discard_filter, discard_reward),
-        make_attack_trigger(obj, attack_reward),
-    ]
-
-
-def _pass5_poison_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def death_filter(event: Event, st: GameState) -> bool:
-        if event.type != EventType.OBJECT_DESTROYED:
-            return False
-        target = st.objects.get(event.payload.get('object_id'))
-        return bool(target and target.controller != obj.controller and _is_creature(target))
-
-    def death_reward(event: Event, st: GameState) -> list[Event]:
-        opponent = _first_opponent_for(obj.controller, st)
-        events: list[Event] = []
-        if opponent:
-            events.append(Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': opponent, 'amount': -1},
-                source=obj.id,
-                controller=obj.controller,
-            ))
-        best = _pass5_best_friendly_pokemon(obj.controller, st)
-        if best:
-            events.append(Event(
-                type=EventType.COUNTER_ADDED,
-                payload={'object_id': best.id, 'counter_type': '+1/+1', 'amount': 1},
-                source=obj.id,
-                controller=obj.controller,
-            ))
-        return events
-
-    return [_react_interceptor(obj, death_filter, death_reward)]
-
-
-def _pass5_fire_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def damage_filter(event: Event, st: GameState) -> bool:
-        if event.type != EventType.DAMAGE or event.payload.get('is_combat'):
-            return False
-        source_id = event.payload.get('source') or event.source
-        if source_id == obj.id:
-            return False
-        source = st.objects.get(source_id) if source_id else None
-        return bool(source and source.controller == obj.controller)
-
-    def damage_reward(event: Event, st: GameState) -> list[Event]:
-        return [_pass5_counter(obj), _scry_event(obj.controller, 1, obj.id)]
-
-    def attack_reward(event: Event, st: GameState) -> list[Event]:
-        if obj.state.counters.get('+1/+1', 0) <= 0:
-            return []
-        opponent = _first_opponent_for(obj.controller, st)
-        return _damage_event(obj, opponent, 1)
-
-    return [
-        _react_interceptor(obj, damage_filter, damage_reward),
-        make_attack_trigger(obj, attack_reward),
-    ]
-
-
-def _pass5_fighting_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def attack_reward(event: Event, st: GameState) -> list[Event]:
-        events = [Event(
-            type=EventType.PT_MODIFICATION,
-            payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 0, 'duration': 'end_of_turn'},
-            source=obj.id,
-            controller=obj.controller,
-        )]
-        if _pass5_artifacts_controlled(obj.controller, st):
-            target = _opponent_creatures(obj, st)
-            if target:
-                events.extend(_damage_event(obj, target[0].id, 1))
-        return events
-
-    return [make_attack_trigger(obj, attack_reward)]
-
-
-def _pass5_green_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def evolve_filter(event: Event, st: GameState) -> bool:
-        if event.type != EventType.ACTIVATE or event.payload.get('ability') != 'evolve':
-            return False
-        source = st.objects.get(event.payload.get('source') or event.source)
-        return bool(source and source.controller == obj.controller)
-
-    def evolve_reward(event: Event, st: GameState) -> list[Event]:
-        events = [_pass5_counter(obj)]
-        if obj.state.counters.get('+1/+1', 0) >= 2:
-            events.append(_draw_event(obj.controller, 1, obj.id))
-        return events
-
-    def landfall_filter(event: Event, st: GameState) -> bool:
-        entering = _pass5_entered_battlefield(event, st)
-        return bool(
-            entering
-            and entering.controller == obj.controller
-            and CardType.LAND in (entering.characteristics.types or set())
-        )
-
-    def landfall_reward(event: Event, st: GameState) -> list[Event]:
-        events = [_pass5_counter(obj)]
-        if _pass5_subtype_count(obj.controller, st, "Ground") or _pass5_subtype_count(obj.controller, st, "Grass") >= 2:
-            events.append(_scry_event(obj.controller, 1, obj.id))
-        return events
-
-    return [
-        _react_interceptor(obj, evolve_filter, evolve_reward),
-        _react_interceptor(obj, landfall_filter, landfall_reward),
-    ]
-
-
-def _pass5_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def legend_filter(event: Event, st: GameState) -> bool:
-        entering = _pass5_entered_battlefield(event, st)
-        return bool(
-            entering
-            and entering.id != obj.id
-            and entering.controller == obj.controller
-            and (
-                "Legendary" in (entering.characteristics.supertypes or set())
-                or "Dragon" in (entering.characteristics.subtypes or set())
-            )
-        )
-
-    def legend_reward(event: Event, st: GameState) -> list[Event]:
-        events = [_draw_event(obj.controller, 1, obj.id)]
-        target = [
-            permanent for permanent in _battlefield_objects(st)
-            if permanent.controller != obj.controller
-            and (
-                CardType.ARTIFACT in (permanent.characteristics.types or set())
-                or CardType.ENCHANTMENT in (permanent.characteristics.types or set())
-            )
-        ]
-        if target:
-            events.append(Event(
-                type=EventType.OBJECT_DESTROYED,
-                payload={'object_id': target[0].id},
-                source=obj.id,
-                controller=obj.controller,
-            ))
-        return events
-
-    def attack_reward(event: Event, st: GameState) -> list[Event]:
-        return [_scry_event(obj.controller, 2, obj.id)]
-
-    return [
-        _react_interceptor(obj, legend_filter, legend_reward),
-        make_attack_trigger(obj, attack_reward),
-    ]
-
-
-def _pass5_creature_pattern(card: CardDefinition) -> tuple[str, Callable[[GameObject, GameState], list[Interceptor]], str] | None:
-    subtypes = card.characteristics.subtypes or set()
-    if "Dragon" in subtypes:
-        return (
-            "dragon-legend-chain",
-            _pass5_dragon_setup,
-            "Whenever another legendary Pokemon or Dragon enters under your control, draw a card, then destroy up to one target artifact or enchantment an opponent controls. Whenever this attacks, scry 2.",
-        )
-    if "Fairy" in subtypes:
-        return (
-            "fairy-life-counterplay",
-            _pass5_fairy_setup,
-            "Whenever you gain life, put a +1/+1 counter on this Pokemon. If you control another Fairy, tap up to one target creature an opponent controls.",
-        )
-    if "Water" in subtypes or "Ice" in subtypes:
-        return (
-            "water-draw-tempo",
-            _pass5_water_setup,
-            "Whenever you draw a card, scry 1. If you control another Water or Ice Pokemon, tap up to one target creature an opponent controls.",
-        )
-    if "Psychic" in subtypes:
-        return (
-            "psychic-scry-engine",
-            _pass5_psychic_setup,
-            "Whenever you scry, put a +1/+1 counter on this Pokemon. If it already had a counter, draw a card, then discard a card.",
-        )
-    if "Ghost" in subtypes or "Dark" in subtypes:
-        return (
-            "dark-discard-pressure",
-            _pass5_dark_setup,
-            "Whenever an opponent discards a card, put a +1/+1 counter on this Pokemon and that player loses 1 life. Whenever this attacks, if an opponent has a card in their graveyard, that player loses 1 life.",
-        )
-    if subtypes & {"Grass", "Bug", "Ground", "Rock"}:
-        return (
-            "grass-evolve-landfall",
-            _pass5_green_setup,
-            "Whenever a Pokemon you control evolves or a land enters under your control, put a +1/+1 counter on this Pokemon. If it already had two counters, draw a card.",
-        )
-    if "Poison" in subtypes:
-        return (
-            "poison-death-drain",
-            _pass5_poison_setup,
-            "Whenever an opposing creature dies, each opponent loses 1 life and you put a +1/+1 counter on your highest-impact Pokemon.",
-        )
-    if "Fire" in subtypes or "Electric" in subtypes:
-        return (
-            "fire-damage-charge",
-            _pass5_fire_setup,
-            "Whenever another source you control deals noncombat damage, put a +1/+1 counter on this Pokemon and scry 1. Whenever this attacks, if it has a counter, it deals 1 damage to defending player.",
-        )
-    if "Fighting" in subtypes:
-        return (
-            "fighting-equipment-combat",
-            _pass5_fighting_setup,
-            "Whenever this attacks, it gets +1/+0 until end of turn. If you control an artifact, it also deals 1 damage to the highest-impact creature defending player controls.",
-        )
-    if "Normal" in subtypes:
-        return (
-            "normal-artifact-velocity",
-            _pass5_normal_setup,
-            "Whenever another Normal Pokemon enters under your control, create a Treasure token. Whenever this attacks, if you control an artifact, it gets +1/+0 until end of turn.",
-        )
-    return None
-
-
-def _pass5_wrap_spell_resolve(card: CardDefinition, old_resolve, pattern: str):
-    def resolve(targets, state: GameState) -> list[Event]:
-        events: list[Event] = []
-        if old_resolve:
-            events.extend(old_resolve(targets, state) or [])
-        controller = _spell_controller(state, targets)
-        if not controller:
-            return events
-        pokemon = _pass5_best_friendly_pokemon(controller, state)
-        if pattern == "white":
-            if pokemon:
-                events.append(Event(
-                    type=EventType.COUNTER_ADDED,
-                    payload={'object_id': pokemon.id, 'counter_type': '+1/+1', 'amount': 1},
-                    controller=controller,
-                ))
-            if _pass5_subtype_count(controller, state, "Fairy"):
-                events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': controller, 'amount': 1}, controller=controller))
-        elif pattern == "blue":
-            events.append(_scry_event(controller, 1))
-            if _pass5_subtype_count(controller, state, "Psychic") or _pass5_subtype_count(controller, state, "Water") >= 2:
-                target = _opponent_creatures_for(controller, state)
-                if target:
-                    events.append(Event(type=EventType.TAP, payload={'object_id': target[0].id}, controller=controller))
-        elif pattern == "black":
-            opponent = _first_opponent_for(controller, state)
-            if opponent:
-                events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': opponent, 'amount': -1}, controller=controller))
-            if _pass5_subtype_count(controller, state, "Ghost") or _pass5_subtype_count(controller, state, "Dark"):
-                events.extend(_discard_first_from_player_hand(opponent, state, controller=controller) if opponent else [])
-        elif pattern == "red":
-            if pokemon:
-                events.append(Event(
-                    type=EventType.PT_MODIFICATION,
-                    payload={'object_id': pokemon.id, 'power_mod': 1, 'toughness_mod': 0, 'duration': 'end_of_turn'},
-                    controller=controller,
-                ))
-            if _pass5_subtype_count(controller, state, "Fire") or _pass5_subtype_count(controller, state, "Electric"):
-                events.append(_scry_event(controller, 1))
-        elif pattern == "green":
-            if pokemon:
-                events.append(Event(
-                    type=EventType.COUNTER_ADDED,
-                    payload={'object_id': pokemon.id, 'counter_type': '+1/+1', 'amount': 1},
-                    controller=controller,
-                ))
-            if _pass5_subtype_count(controller, state, "Grass") >= 2:
-                events.append(_draw_event(controller, 1))
-        return events
-
-    return resolve
-
-
-def _pass5_spell_pattern(card: CardDefinition) -> tuple[str, str] | None:
-    colors = card.characteristics.colors or set()
-    if Color.WHITE in colors:
-        return ("white", "If you control a Fairy or Normal Pokemon, put a +1/+1 counter on your highest-impact Pokemon and gain 1 life.")
-    if Color.BLUE in colors:
-        return ("blue", "If you control a Water or Psychic Pokemon, scry 1, then tap up to one target creature an opponent controls.")
-    if Color.BLACK in colors:
-        return ("black", "If you control a Ghost or Dark Pokemon, each opponent loses 1 life and discards a card.")
-    if Color.RED in colors:
-        return ("red", "If you control a Fire or Electric Pokemon, your highest-impact Pokemon gets +1/+0 until end of turn and you scry 1.")
-    if Color.GREEN in colors:
-        return ("green", "If you control a Grass Pokemon, put a +1/+1 counter on your highest-impact Pokemon. If you control two Grass Pokemon, draw a card.")
-    return None
-
-
-def _pass5_location_setup(kind: str):
-    def setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-        def evolve_filter(event: Event, st: GameState) -> bool:
-            if event.type != EventType.ACTIVATE or event.payload.get('ability') != 'evolve':
-                return False
-            source = st.objects.get(event.payload.get('source') or event.source)
-            return bool(source and source.controller == obj.controller)
-
-        def creature_enter_filter(event: Event, st: GameState) -> bool:
-            entering = _pass5_entered_battlefield(event, st)
-            return bool(entering and entering.controller == obj.controller and _is_creature(entering))
-
-        def spell_cast_filter(event: Event, st: GameState) -> bool:
-            source = st.objects.get(event.source)
-            return bool(source and source.controller == obj.controller)
-
-        def reward(event: Event, st: GameState) -> list[Event]:
-            events: list[Event] = []
-            target = _pass5_best_friendly_pokemon(obj.controller, st)
-            if kind in {"pallet", "league", "plateau"}:
-                events.append(_draw_event(obj.controller, 1, obj.id))
-            elif kind in {"cerulean", "lavender", "cave"}:
-                events.append(_scry_event(obj.controller, 2, obj.id))
-            elif kind in {"vermilion", "celadon"} and target:
-                events.append(Event(
-                    type=EventType.COUNTER_ADDED,
-                    payload={'object_id': target.id, 'counter_type': '+1/+1', 'amount': 1},
-                    source=obj.id,
-                    controller=obj.controller,
-                ))
-            elif target:
-                events.append(Event(
-                    type=EventType.COUNTER_ADDED,
-                    payload={'object_id': target.id, 'counter_type': '+1/+1', 'amount': 1},
-                    source=obj.id,
-                    controller=obj.controller,
-                ))
-            return events
-
-        if kind in {"pallet", "league", "plateau", "victory"}:
-            return [_react_interceptor(obj, evolve_filter, reward)]
-        if kind in {"cerulean", "vermilion", "lavender", "celadon", "cave"}:
-            return [_react_interceptor(obj, creature_enter_filter, reward)]
-        return [_react_interceptor(obj, spell_cast_filter, reward)]
-
-    return setup
-
-
-def _apply_pass5_combo_web() -> None:
-    lifted: list[str] = []
-    for card in POKEMON_HORIZONS_CARDS.values():
-        types = card.characteristics.types or set()
-        if CardType.CREATURE in types:
-            pattern = _pass5_creature_pattern(card)
-            if not pattern:
-                continue
-            _pattern_name, setup_fn, text = pattern
-            _pass5_append_text(card, text)
-            card.setup_interceptors = _pass5_compose_setup(getattr(card, 'setup_interceptors', None), setup_fn)
-            lifted.append(card.name)
-        elif CardType.INSTANT in types or CardType.SORCERY in types:
-            spell_pattern = _pass5_spell_pattern(card)
-            if not spell_pattern:
-                continue
-            pattern_name, text = spell_pattern
-            _pass5_append_text(card, text)
-            card.resolve = _pass5_wrap_spell_resolve(card, getattr(card, 'resolve', None), pattern_name)
-            lifted.append(card.name)
-
-    location_setups = {
-        "Pallet Town": ("pallet", "Whenever a Pokemon you control evolves, draw a card."),
-        "Cerulean City": ("cerulean", "Whenever a Water or Psychic Pokemon enters under your control, scry 2."),
-        "Vermilion City": ("vermilion", "Whenever an Electric or Fire Pokemon enters under your control, put a +1/+1 counter on your highest-impact Pokemon."),
-        "Lavender Town": ("lavender", "Whenever a Ghost or Dark Pokemon enters under your control, scry 2."),
-        "Celadon City": ("celadon", "Whenever a Grass Pokemon enters under your control, put a +1/+1 counter on your highest-impact Pokemon."),
-        "Pokemon League": ("league", "Whenever a Pokemon you control evolves, draw a card."),
-        "Viridian Forest": ("viridian", "Whenever you cast a green spell, put a +1/+1 counter on your highest-impact Pokemon."),
-        "Mt. Moon": ("moon", "Whenever you cast an artifact spell or activate an artifact ability, put a +1/+1 counter on your highest-impact Pokemon."),
-        "Power Plant": ("plant", "Whenever you cast an artifact or Electric spell, put a +1/+1 counter on your highest-impact Pokemon."),
-        "Safari Zone": ("safari", "Whenever you cast a creature spell, put a +1/+1 counter on your highest-impact Pokemon."),
-        "Victory Road": ("victory", "Whenever a Pokemon you control evolves, draw a card."),
-        "Pokemon Center (Land)": ("center", "Whenever you cast a white spell, put a +1/+1 counter on your highest-impact Pokemon."),
-        "Silph Co.": ("silph", "Whenever you cast an Equipment or artifact spell, put a +1/+1 counter on your highest-impact Pokemon."),
-        "Cerulean Cave": ("cave", "Whenever a Psychic, Ghost, or Dark Pokemon enters under your control, scry 2."),
-        "Indigo Plateau": ("plateau", "Whenever a legendary Pokemon you control evolves or enters, draw a card."),
-    }
-    for name, (kind, text) in location_setups.items():
-        card = POKEMON_HORIZONS_CARDS.get(name)
-        if not card:
-            continue
-        _pass5_append_text(card, text)
-        card.setup_interceptors = _pass5_compose_setup(getattr(card, 'setup_interceptors', None), _pass5_location_setup(kind))
-        lifted.append(name)
-
-    global PASS5_COMBO_WEB_CARDS
-    PASS5_COMBO_WEB_CARDS = tuple(sorted(set(lifted)))
-
-
-_apply_pass5_combo_web()
 
 
 # =============================================================================

@@ -8,9 +8,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.cards.custom.pokemon_horizons import (
     POKEMON_HORIZONS_CARDS,
-    PASS3_DEPTH_LIFTED_CARDS,
-    PASS5_COMBO_WEB_CARDS,
-    PASS5_COMBO_WEB_PATTERNS,
+    PKH_WIRED_SPELL_AND_TOOL_CARDS,
 )
 from scripts.play.custom_set_depth_report import card_depth, summarize_set
 from src.engine import (
@@ -462,96 +460,30 @@ def test_pkh_does_not_use_setwide_research_boilerplate():
     assert research_cards == []
 
 
-def test_pass5_fire_damage_charge_turns_creatures_into_damage_combo_pieces():
-    game = Game()
-    p1 = game.add_player("P1")
-    p2 = game.add_player("P2")
-    cyndaquil = _put_on_battlefield(game, p1, "Cyndaquil")
-    _creature(game, p2, "Target", 2, 2)
-
-    before = len(game.state.event_log)
-    _put_on_battlefield(game, p1, "Magmar")
-    new_events = game.state.event_log[before:]
-
-    assert cyndaquil.state.counters.get("+1/+1", 0) >= 1
-    assert any(e.type == EventType.SCRY and e.payload.get("player") == p1.id for e in new_events)
+def test_pkh_wired_spell_and_tool_cards_have_resolve_or_setup():
+    """Every card claimed to be wired by the PASS3 spell/tool pass has a resolve
+    function or setup_interceptors. Replaces the legacy `PASS3_DEPTH_LIFTED`
+    gate without enforcing the gamed depth_v2 metric."""
+    for name in PKH_WIRED_SPELL_AND_TOOL_CARDS:
+        cd = POKEMON_HORIZONS_CARDS.get(name)
+        assert cd is not None, f"{name} not found in POKEMON_HORIZONS_CARDS"
+        assert (
+            getattr(cd, "setup_interceptors", None)
+            or getattr(cd, "resolve", None)
+        ), f"{name} wired by spell/tool pass but has neither setup_interceptors nor resolve"
 
 
-def test_pass5_fairy_life_gain_becomes_tap_counter_engine():
-    game = Game()
-    p1 = game.add_player("P1")
-    p2 = game.add_player("P2")
-    clefairy = _put_on_battlefield(game, p1, "Clefairy")
-    _put_on_battlefield(game, p1, "Jigglypuff")
-    enemy = _creature(game, p2, "Enemy", 3, 3)
-
-    game.emit(Event(
-        type=EventType.LIFE_CHANGE,
-        payload={"player": p1.id, "amount": 3},
-        source=clefairy.id,
-        controller=p1.id,
-    ))
-
-    assert clefairy.state.counters.get("+1/+1", 0) >= 1
-    assert enemy.state.tapped
-
-
-def test_pass5_green_landfall_and_location_evolve_hooks_create_real_decisions():
-    game = Game()
-    p1 = game.add_player("P1")
-    bulbasaur = _put_on_battlefield(game, p1, "Bulbasaur")
-    _put_on_battlefield(game, p1, "Exeggcute")
-    _put_on_battlefield(game, p1, "Pallet Town")
-
-    before_land = len(game.state.event_log)
-    _put_on_battlefield(game, p1, "Forest")
-    land_events = game.state.event_log[before_land:]
-    assert bulbasaur.state.counters.get("+1/+1", 0) >= 1
-    assert any(e.type == EventType.SCRY and e.payload.get("player") == p1.id for e in land_events)
-
-    before_evolve = len(game.state.event_log)
-    game.emit(Event(
-        type=EventType.ACTIVATE,
-        payload={"source": bulbasaur.id, "ability": "evolve"},
-        source=bulbasaur.id,
-        controller=p1.id,
-    ))
-    evolve_events = game.state.event_log[before_evolve:]
-
-    assert bulbasaur.name == "Ivysaur"
-    assert any(e.type == EventType.DRAW and e.payload.get("player") == p1.id for e in evolve_events)
-
-
-def test_pkh_combo_depth_gate_for_current_iteration():
+def test_pkh_baseline_depth_remains_acceptable():
+    """Soft baseline: most creatures have real interceptors. Replaces the
+    previous PASS5_COMBO_WEB gate which inflated the wired count with
+    pattern-based generic combo wrappers (the depth-rubber-stamp retrofit)."""
     cards = list(POKEMON_HORIZONS_CARDS.values())
     wired_cards = [
         cd for cd in cards
         if getattr(cd, "setup_interceptors", None) or getattr(cd, "resolve", None)
     ]
-    heuristic_high_depth_wired = [
-        cd for cd in wired_cards
-        if _depth_score(cd) >= 4
-    ]
-    report_high_depth_wired = [
-        cd for cd in wired_cards
-        if card_depth(cd)["score"] >= 28
-    ]
-    summary = summarize_set(cards)
-
     assert all(getattr(POKEMON_HORIZONS_CARDS[name], "setup_interceptors", None) for name in DEPTH_UPGRADES)
     assert all(getattr(POKEMON_HORIZONS_CARDS[name], "setup_interceptors", None) for name in PASS2_DEPTH_UPGRADES)
-    assert len(PASS3_DEPTH_LIFTED_CARDS) == 89
-    assert len(PASS5_COMBO_WEB_PATTERNS) >= 10
-    assert len(PASS5_COMBO_WEB_CARDS) >= 210
-    assert all(
-        getattr(POKEMON_HORIZONS_CARDS[name], "setup_interceptors", None)
-        or getattr(POKEMON_HORIZONS_CARDS[name], "resolve", None)
-        for name in PASS3_DEPTH_LIFTED_CARDS
-    )
-    assert all(card_depth(POKEMON_HORIZONS_CARDS[name])["score"] >= 28 for name in PASS3_DEPTH_LIFTED_CARDS)
-    assert len(wired_cards) >= 240
-    assert len(heuristic_high_depth_wired) >= 215
-    assert len(report_high_depth_wired) >= 240
-    assert summary["avg_score"] >= 68.0
-    assert summary["thin_pct"] <= 2.1
-    assert summary["wired_pct"] >= 96.0
+    # The set has ~250 cards; a meaningful fraction (e.g. ~180+) must carry
+    # a real implementation. Don't pin to a tight rubric-driven number.
+    assert len(wired_cards) >= 180
