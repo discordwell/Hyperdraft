@@ -121,21 +121,18 @@ def _undetected_vessels_you_control(state: GameState, controller_id: str) -> lis
 
 
 def _make_become_undetected_event(target_id: str, source_id: str, controller: str) -> Event:
-    """Emit a marker event the deck-storage / log layer can show.
+    """Emit the ``DEPTHS_BECOME_UNDETECTED`` event.
 
-    The actual flip of ``state.detected = False`` happens inline in the
-    effect handler that emits this event (engine has no
-    ``DEPTHS_BECOME_UNDETECTED`` event yet — we surface the change as a
-    PRIORITY_PASS marker so observers can hook it without a new enum
-    member).
+    The depths system REACT interceptor (depths.py) handles this event
+    by flipping ``state.detected = False`` and clearing any persistence
+    marker on the target. Card effects no longer need to mutate state
+    directly.
     """
     return Event(
-        type=EventType.PRIORITY_PASS,
+        type=EventType.DEPTHS_BECOME_UNDETECTED,
         payload={
-            "reason": "depths_become_undetected",
-            "target_id": target_id,
+            "object_id": target_id,
             "source": source_id,
-            "controller": controller,
         },
         source=source_id,
         controller=controller,
@@ -872,7 +869,9 @@ def _dead_stop_cast(obj: GameObject, state: GameState) -> list[Event]:
 
     events: list[Event] = []
     if target_id:
-        _flip_undetected(state, target_id)
+        # State mutation now handled by the DEPTHS_BECOME_UNDETECTED
+        # REACT interceptor in depths.py — emit the event and let the
+        # engine flip ``state.detected``.
         events.append(_make_become_undetected_event(target_id, obj.id, obj.controller))
         events.append(Event(
             type=EventType.GRANT_KEYWORD,
@@ -1075,7 +1074,9 @@ def _quiet_reload_cast(obj: GameObject, state: GameState) -> list[Event]:
 
     events: list[Event] = []
     if target_id:
-        _flip_undetected(state, target_id)
+        # State mutation now handled by the DEPTHS_BECOME_UNDETECTED
+        # REACT interceptor in depths.py — emit the event and let the
+        # engine flip ``state.detected``.
         events.append(_make_become_undetected_event(target_id, obj.id, obj.controller))
     _grant_charges(state, obj.controller, tc=2)
     return events

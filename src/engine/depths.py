@@ -1198,6 +1198,78 @@ def _install_depths_system_interceptors(game) -> None:
         duration="forever",
     ))
 
+    # ------------------------------------------------------------------
+    # (5) Become undetected — Dead-Stop Maneuver, Quiet Reload, etc.
+    # Card effects emit DEPTHS_BECOME_UNDETECTED; we flip state here so
+    # the card's cast_effect_fn doesn't have to mutate state directly.
+    # ------------------------------------------------------------------
+    def _undetect_filter(event: Event, st: GameState) -> bool:
+        return (st.game_mode == "depths"
+                and event.type == EventType.DEPTHS_BECOME_UNDETECTED)
+
+    def _undetect_handler(event: Event, st: GameState) -> InterceptorResult:
+        oid = event.payload.get("object_id")
+        obj = st.objects.get(oid) if oid else None
+        if not obj or not is_vessel(obj):
+            return InterceptorResult(action=InterceptorAction.PASS)
+        obj.state.detected = False
+        obj.state.detected_until = None
+        if hasattr(obj.state, "detected_durations"):
+            try:
+                obj.state.detected_durations = []
+            except Exception:
+                pass
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    game.register_interceptor(Interceptor(
+        id=new_id(),
+        source="DEPTHS_SYSTEM",
+        controller="SYSTEM",
+        priority=InterceptorPriority.REACT,
+        filter=_undetect_filter,
+        handler=_undetect_handler,
+        duration="forever",
+    ))
+
+    # ------------------------------------------------------------------
+    # (6) Damage remove — Damage Control and other heal effects.
+    # Card effects emit DAMAGE_REMOVE; we decrement state.damage here.
+    # Flagship targets also mirror the change onto player.life so the
+    # UI/SBA stay in sync (matching apply_player_damage's bookkeeping).
+    # ------------------------------------------------------------------
+    def _damage_remove_filter(event: Event, st: GameState) -> bool:
+        return (st.game_mode == "depths"
+                and event.type == EventType.DAMAGE_REMOVE)
+
+    def _damage_remove_handler(event: Event, st: GameState) -> InterceptorResult:
+        oid = event.payload.get("object_id")
+        obj = st.objects.get(oid) if oid else None
+        if not obj or not is_vessel(obj):
+            return InterceptorResult(action=InterceptorAction.PASS)
+        amount = max(0, int(event.payload.get("amount", 0) or 0))
+        if amount <= 0:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        current = int(obj.state.damage or 0)
+        new_damage = max(0, current - amount)
+        obj.state.damage = new_damage
+        # Mirror onto player.life for Flagship targets.
+        if "Flagship" in obj.characteristics.subtypes:
+            player = st.players.get(obj.controller)
+            if player is not None:
+                toughness = int(obj.characteristics.toughness or 0)
+                player.life = max(0, toughness - new_damage)
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    game.register_interceptor(Interceptor(
+        id=new_id(),
+        source="DEPTHS_SYSTEM",
+        controller="SYSTEM",
+        priority=InterceptorPriority.REACT,
+        filter=_damage_remove_filter,
+        handler=_damage_remove_handler,
+        duration="forever",
+    ))
+
 
 # =============================================================================
 # Mode Adapter

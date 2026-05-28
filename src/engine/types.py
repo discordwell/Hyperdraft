@@ -386,6 +386,18 @@ class EventType(Enum):
     #   Payload: {'object_id': str, 'controller': str,
     #             'old_oxygen': int, 'new_oxygen': int}
     DEPTHS_OXYGEN_TICK = auto()
+    # DEPTHS_BECOME_UNDETECTED: a previously-detected Vessel reverts to
+    # undetected via a card effect (Dead-Stop Maneuver, Quiet Reload, etc.).
+    # The depths system interceptor REACTs by setting ``state.detected`` to
+    # False and clearing any persistence marker.
+    #   Payload: {'object_id': str, 'source': str}
+    DEPTHS_BECOME_UNDETECTED = auto()
+    # DAMAGE_REMOVE: a card effect removes damage from a Vessel (e.g.
+    # Damage Control). The depths system interceptor REACTs by
+    # decrementing ``state.damage`` (clamped at 0). For Flagship targets
+    # the change is mirrored onto ``player.life`` so SBA/UI stay in sync.
+    #   Payload: {'object_id': str, 'amount': int}
+    DAMAGE_REMOVE = auto()
 
     # Library search subsystem (player-choice-driven tutors)
     LIBSEARCH_BEGIN = auto()          # Open the search choice (creates PendingChoice)

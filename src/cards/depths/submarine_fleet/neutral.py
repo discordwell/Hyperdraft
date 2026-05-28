@@ -652,9 +652,9 @@ def _damage_control_cast(obj: GameObject, state: GameState) -> list[Event]:
     """Remove up to 3 damage from target Vessel you control.
 
     Targeting machinery isn't wired through cast_effect_fn yet, so we
-    pick the most-damaged friendly Vessel as a sensible default. The
-    damage primitive uses direct mutation (no clean HEAL event in the
-    depths engine).
+    pick the most-damaged friendly Vessel as a sensible default. We emit
+    a ``DAMAGE_REMOVE`` event; the depths system interceptor mutates
+    ``state.damage`` (and mirrors onto ``player.life`` for Flagship).
     """
     candidates: list[GameObject] = []
     battlefield = state.zones.get("battlefield")
@@ -673,15 +673,12 @@ def _damage_control_cast(obj: GameObject, state: GameState) -> list[Event]:
         return []
     candidates.sort(key=lambda v: -(v.state.damage or 0))
     pick = candidates[0]
-    pick.state.damage = max(0, (pick.state.damage or 0) - 3)
-    # Mirror onto player.life for the Flagship case so UI/SBA stay in sync.
-    if "Flagship" in pick.characteristics.subtypes:
-        player = state.players.get(pick.controller)
-        if player is not None:
-            cap = pick.characteristics.toughness or player.max_life
-            player.life = min(int(cap), int(pick.characteristics.toughness or 0)
-                              - int(pick.state.damage or 0))
-    return []
+    return [Event(
+        type=EventType.DAMAGE_REMOVE,
+        payload={"object_id": pick.id, "amount": 3},
+        source=obj.id,
+        controller=obj.controller,
+    )]
 
 
 DAMAGE_CONTROL = make_action(
