@@ -311,7 +311,6 @@ class EventType(Enum):
                                       #           'controller': str, 'from_zone': str, 'reason': str}
     YGO_BANISH = auto()               # Card banished
     YGO_EQUIP = auto()                # Equip card to monster
-    YGO_LP_CHANGE = auto()            # Life Points changed
     YGO_DRAW = auto()                 # Draw Phase draw OR effect-induced draw / search-to-hand
                                       # payload: {'player', 'card_id'?, 'count'?, 'source'?}
                                       # source values: None|'draw'|'search'|'recovery'|'add_to_hand'
@@ -329,7 +328,6 @@ class EventType(Enum):
                                       # payload: {'player': pid, 'amount': int, 'new_lp': int, 'source': str}
     YGO_GAME_OVER = auto()            # LP-zero (or other) loss condition triggered.
                                       # payload: {'player': pid (loser), 'reason': str}
-    YGO_DRAW = auto()                 # Draw Phase draw
     YGO_ACTIVATE_MONSTER_EFFECT = auto()  # Activate a monster's Ignition/Quick Effect
                                           # payload: {'monster_id', 'effect_index', 'player', 'targets'}
 

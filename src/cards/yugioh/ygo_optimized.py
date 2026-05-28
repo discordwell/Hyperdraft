@@ -861,8 +861,11 @@ SPIRIT_REAPER = make_ygo_monster(
     attribute="DARK", ygo_monster_type="Effect",
     subtypes={"Zombie"},
     text="Cannot be destroyed by battle. When this card inflicts battle damage: Opponent discards 1 random card.",
-    setup_interceptors=_spirit_reaper_setup,
-    setup_interceptors=_battle_indestructible_setup,
+    # Merged during recovery: Spirit Reaper needs BOTH the discard-on-battle-damage
+    # effect and battle-indestructibility (two YGO commits each wired one half).
+    setup_interceptors=lambda obj, state: (
+        _spirit_reaper_setup(obj, state) + _battle_indestructible_setup(obj, state)
+    ),
     image_url="https://images.ygoprodeck.com/images/cards_cropped/23205979.jpg",
 )
 
