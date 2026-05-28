@@ -12,6 +12,101 @@ from .types import (
 
 
 # =============================================================================
+# YGO ATK / DEF effective-value queries
+# =============================================================================
+#
+# YGO monsters store printed ATK/DEF on ``card_def.atk`` and ``card_def.def_val``,
+# not on ``characteristics.power``/``characteristics.toughness`` (which the MTG
+# pipeline uses). Lord effects (Six Samurai, Konda's Banner-Bearer, Bushido,
+# etc.) register ``QUERY_POWER`` / ``QUERY_TOUGHNESS`` TRANSFORM interceptors,
+# so we need a YGO-aware getter that:
+#
+# 1. Starts from the printed ``atk`` / ``def_val`` (not ``characteristics.power``,
+#    which is ``None`` for YGO monsters).
+# 2. Applies any per-target ``atk_bonus_eot`` / ``def_bonus_eot`` /
+#    ``path_bravery_bonus`` markers cards write directly on ``obj.state``.
+# 3. Runs all priority=QUERY interceptors that pass the filter for this object,
+#    in timestamp order, so lord static effects (which mutate
+#    ``event.payload['value']``) compose.
+#
+# Combat and the turn manager both call these helpers so lord ATK swings,
+# Bushido pumps, equip bonuses, and trap drains all stack the same way.
+
+def get_ygo_atk(obj: GameObject, state: GameState,
+                *, battle_opponent_id: str | None = None) -> int:
+    """Effective ATK for a YGO monster, with all continuous effects applied.
+
+    ``battle_opponent_id`` (optional): if supplied, threaded into the
+    QUERY_POWER event payload so battle-conditional pumps (e.g. Mothrider
+    Samurai: "+1500 ATK during damage step if opponent is Lv 5+") can fire.
+    """
+    if obj is None or obj.card_def is None:
+        return 0
+    value = getattr(obj.card_def, 'atk', 0) or 0
+    return _resolve_ygo_query(obj, state, EventType.QUERY_POWER, value,
+                              direct_keys=('atk_bonus_eot',
+                                           'path_bravery_bonus'),
+                              extra_payload={'battle_opponent_id':
+                                             battle_opponent_id}
+                              if battle_opponent_id else None)
+
+
+def get_ygo_def(obj: GameObject, state: GameState) -> int:
+    """Effective DEF for a YGO monster, with all continuous effects applied."""
+    if obj is None or obj.card_def is None:
+        return 0
+    value = getattr(obj.card_def, 'def_val', 0) or 0
+    return _resolve_ygo_query(obj, state, EventType.QUERY_TOUGHNESS, value,
+                              direct_keys=('def_bonus_eot',))
+
+
+def _resolve_ygo_query(obj: GameObject, state: GameState,
+                       event_type: EventType, base_value: int,
+                       *, direct_keys: tuple = (),
+                       extra_payload: dict | None = None) -> int:
+    """Walk all QUERY-priority interceptors for ``obj`` and apply them in
+    timestamp order to ``base_value``.
+
+    ``direct_keys`` are state-stored boost markers (e.g. ``atk_bonus_eot``)
+    that some card scripts write to ``obj.state`` directly; we add them on top
+    of the interceptor-applied value so cards that don't bother registering
+    a transform still take effect.
+
+    ``extra_payload`` is merged into the QUERY event payload so callers can
+    expose battle context (battle_opponent_id, etc.) to TRANSFORM handlers.
+    """
+    # Sort registered interceptors by timestamp so QUERY layer composes
+    # deterministically.
+    interceptors = sorted(
+        [i for i in state.interceptors.values()
+         if i.priority == InterceptorPriority.QUERY],
+        key=lambda i: i.timestamp,
+    )
+    value = base_value
+    for inter in interceptors:
+        payload = {'object_id': obj.id, 'value': value}
+        if extra_payload:
+            payload.update(extra_payload)
+        ev = Event(type=event_type, payload=payload)
+        try:
+            if not inter.filter(ev, state):
+                continue
+        except Exception:
+            continue
+        try:
+            result = inter.handler(ev, state)
+        except Exception:
+            continue
+        if result and result.transformed_event:
+            value = result.transformed_event.payload.get('value', value)
+    # State-stored markers (atk_bonus_eot etc.) — these are written by cards
+    # whose effect resolves with a direct mutation rather than an interceptor.
+    for key in direct_keys:
+        value += int(getattr(obj.state, key, 0) or 0)
+    return value
+
+
+# =============================================================================
 # Trigger Helpers
 # =============================================================================
 

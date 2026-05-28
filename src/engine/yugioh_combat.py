@@ -18,6 +18,7 @@ from typing import Optional, TYPE_CHECKING
 from .types import (
     GameState, GameObject, Event, EventType, EventStatus, CardType, ZoneType
 )
+from .yugioh_helpers import get_ygo_atk, get_ygo_def
 from .yugioh_types import YGOPosition
 
 if TYPE_CHECKING:
@@ -103,7 +104,12 @@ class YugiohCombatManager:
         if not can:
             return events
 
-        atk_val = getattr(attacker.card_def, 'atk', 0) or 0
+        # Read effective ATK (applies lord boosts, Bushido pumps, equip
+        # bonuses, atk_bonus_eot, etc. via QUERY_POWER interceptors). Battle
+        # context (battle_opponent_id) is threaded so battle-conditional
+        # pumps like Mothrider Samurai can fire.
+        atk_val = get_ygo_atk(attacker, self.state,
+                              battle_opponent_id=target_id)
 
         # Direct attack
         if target_id is None:
@@ -151,8 +157,12 @@ class YugiohCombatManager:
                 ))
                 events.extend(defender.card_def.flip_effect(defender, self.state) or [])
 
-        def_atk = getattr(defender.card_def, 'atk', 0) or 0
-        def_def = getattr(defender.card_def, 'def_val', 0) or 0
+        # Read effective ATK/DEF for defender so lord boosts apply to both
+        # sides of the battle (also pass attacker as battle opponent so
+        # defender's battle-conditional pumps fire correctly).
+        def_atk = get_ygo_atk(defender, self.state,
+                              battle_opponent_id=attacker_id)
+        def_def = get_ygo_def(defender, self.state)
 
         if defender.state.ygo_position == 'face_up_atk':
             events.extend(self._resolve_atk_vs_atk(
