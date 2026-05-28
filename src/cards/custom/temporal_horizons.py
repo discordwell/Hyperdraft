@@ -24,6 +24,7 @@ from src.engine import (
     new_id, get_power, get_toughness
 )
 from typing import Optional, Callable
+import re
 
 
 # =============================================================================
@@ -1750,22 +1751,60 @@ def temporal_guardian_setup(obj: GameObject, state: GameState) -> list[Intercept
     return [make_chronicle_upkeep(obj, add_counters), make_temporal_hexproof(obj)]
 
 def chrono_paladin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_etb_trigger(obj, lambda e, s: [])]
+    """ETB: return target permanent card (MV<=3) from your graveyard to the battlefield."""
+    def etb(e, s):
+        return [Event(type=EventType.RETURN_FROM_GRAVEYARD,
+                      payload={'controller': obj.controller, 'mv_max': 3,
+                               'card_type': 'permanent', 'to_zone': 'battlefield'},
+                      source=obj.id)]
+    return [make_etb_trigger(obj, etb)]
 
 def keeper_of_moments_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_chronicle_end_step(obj, lambda e, s: [])]
+    """Chronicle end step: you may exile target creature you control, return it
+    at the beginning of the next end step (blink)."""
+    def end_eff(e, s):
+        return [Event(type=EventType.EXILE,
+                      payload={'controller': obj.controller, 'target_kind': 'creature',
+                               'optional': True, 'return_at': 'next_end_step'},
+                      source=obj.id)]
+    return [make_chronicle_end_step(obj, end_eff)]
 
 def timeless_sentinel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_upkeep_trigger(obj, lambda e, s: [Event(type=EventType.UNTAP, payload={'object_id': obj.id}, source=obj.id)], controller_only=False)]
 
 def future_sight_oracle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_prophecy_upkeep(obj, lambda e, s: [])]
+    """Prophecy upkeep: look at top card; if it's a creature, gain life equal
+    to its mana value. Emits SCRY (the look) always, plus the conditional life
+    gain when the revealed top card is a creature."""
+    def upkeep_eff(e, s):
+        events = [Event(type=EventType.SCRY,
+                        payload={'player': obj.controller, 'amount': 1},
+                        source=obj.id)]
+        lib_zone = s.zones.get(f"library_{obj.controller}")
+        lib = getattr(lib_zone, "objects", []) if lib_zone else []
+        top = s.objects.get(lib[0]) if lib else None
+        if top and CardType.CREATURE in top.characteristics.types:
+            mc = top.characteristics.mana_cost or ""
+            generic = sum(int(x) for x in re.findall(r'\{(\d+)\}', mc))
+            pips = len(re.findall(r'\{[WUBRGCS]\}', mc))
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                                payload={'player': obj.controller,
+                                         'amount': max(1, generic + pips)},
+                                source=obj.id))
+        return events
+    return [make_prophecy_upkeep(obj, upkeep_eff)]
 
 def eternal_adjudicator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_rewind_death(obj, time_counters=3)]
 
 def timeline_protector_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_etb_trigger(obj, lambda e, s: [])]
+    """Flash. ETB: target creature you control gains hexproof until end of turn."""
+    def etb(e, s):
+        return [Event(type=EventType.GRANT_KEYWORD,
+                      payload={'controller': obj.controller, 'target_kind': 'creature_you_control',
+                               'keyword': 'hexproof', 'duration': 'end_of_turn'},
+                      source=obj.id)]
+    return [make_etb_trigger(obj, etb)]
 
 def eternity_warden_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def filt(e, s, src):
@@ -1780,19 +1819,38 @@ def chronomancer_supreme_setup(obj: GameObject, state: GameState) -> list[Interc
     return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=lambda e,s: filt(e,s,obj), handler=lambda e,s: InterceptorResult(action=InterceptorAction.REACT, new_events=[Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)]), duration='while_on_battlefield')]
 
 def time_weaver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_upkeep_trigger(obj, lambda e, s: [], controller_only=True)]
+    """Temporal upkeep: you may exile the top card of your library face down
+    with a time counter; you may look at and play it while exiled (impulse)."""
+    def eff(e, s):
+        return [Event(type=EventType.EXILE_TOP_PLAY,
+                      payload={'caster': obj.controller, 'player': obj.controller,
+                               'amount': 1, 'until': 'forever', 'time_counter': True},
+                      source=obj.id)]
+    return [make_upkeep_trigger(obj, eff, controller_only=True)]
 
 def echo_of_tomorrow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_echo(obj, "{1}{U}"), make_etb_trigger(obj, lambda e, s: [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 1}, source=obj.id)])]
 
 def paradox_entity_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_etb_trigger(obj, lambda e, s: [])]
+    """Flash. ETB: exile target spell (its controller may recast it while exiled)."""
+    def etb(e, s):
+        return [Event(type=EventType.EXILE,
+                      payload={'controller': obj.controller, 'target_kind': 'spell',
+                               'recastable': True},
+                      source=obj.id)]
+    return [make_etb_trigger(obj, etb)]
 
 def suspended_scholar_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_etb_trigger(obj, lambda e, s: [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 2}, source=obj.id)])]
 
 def future_echo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_etb_trigger(obj, lambda e, s: [])]
+    """Flying. ETB: look at the top three cards of your library, put one back
+    and the rest on the bottom (library-filter dig). Modeled as scry 3."""
+    def etb(e, s):
+        return [Event(type=EventType.SCRY,
+                      payload={'player': obj.controller, 'amount': 3},
+                      source=obj.id)]
+    return [make_etb_trigger(obj, etb)]
 
 def temporal_anchor_enchantment_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def eff(e, s):
@@ -1807,18 +1865,48 @@ def entropy_wraith_setup(obj: GameObject, state: GameState) -> list[Interceptor]
     return [make_chronicle_end_step(obj, eff)]
 
 def chrono_reaper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_etb_trigger(obj, lambda e, s: [])]
+    """Menace. ETB: destroy target creature; if it had time counters, draw that many."""
+    def etb(e, s):
+        return [Event(type=EventType.OBJECT_DESTROYED,
+                      payload={'controller': obj.controller, 'target_kind': 'creature',
+                               'draw_per_time_counter': True},
+                      source=obj.id)]
+    return [make_etb_trigger(obj, etb)]
 
 def echo_of_death_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_echo(obj, "{1}{B}"), make_etb_trigger(obj, lambda e, s: [])]
+    """Deathtouch. Echo {1}{B}. ETB: target opponent loses 2 life."""
+    def etb(e, s):
+        return [Event(type=EventType.LIFE_CHANGE,
+                      payload={'player': p, 'amount': -2}, source=obj.id)
+                for p in all_opponents(obj, s)]
+    return [make_echo(obj, "{1}{B}"), make_etb_trigger(obj, etb)]
 
 def temporal_vampire_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_damage_trigger(obj, lambda e, s: [], combat_only=True)]
+    """Flying. Combat damage to a player: remove a time counter from target
+    permanent they control; if you can't, that player discards a card."""
+    def eff(e, s):
+        victim = e.payload.get('target')
+        return [Event(type=EventType.COUNTER_REMOVED,
+                      payload={'counter_type': 'time', 'amount': 1,
+                               'from_controller': victim,
+                               'else_discard': victim},
+                      source=obj.id)]
+    return [make_damage_trigger(obj, eff, combat_only=True)]
 
 def decay_of_ages_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """At the beginning of each opponent's upkeep, they sacrifice a creature
+    unless they pay 2 life."""
     def filt(e, s, src):
-        return e.type == EventType.PHASE_CHANGE and e.payload.get('phase') == 'upkeep' and e.payload.get('active_player') != src.controller
-    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=lambda e,s: filt(e,s,obj), handler=lambda e,s: InterceptorResult(action=InterceptorAction.REACT, new_events=[]), duration='while_on_battlefield')]
+        return (e.type in (EventType.PHASE_CHANGE, EventType.PHASE_START)
+                and e.payload.get('phase') == 'upkeep'
+                and (e.payload.get('active_player') or e.payload.get('player')) != src.controller)
+    def handler(e, s):
+        active = e.payload.get('active_player') or e.payload.get('player')
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[
+            Event(type=EventType.MAY_SACRIFICE,
+                  payload={'player': active, 'target_kind': 'creature',
+                           'else_pay_life': 2}, source=obj.id)])
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=lambda e,s: filt(e,s,obj), handler=handler, duration='while_on_battlefield')]
 
 def entropy_walker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def filt(e, s, src):
@@ -1828,15 +1916,32 @@ def entropy_walker_setup(obj: GameObject, state: GameState) -> list[Interceptor]
     return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=lambda e,s: filt(e,s,obj), handler=lambda e,s: InterceptorResult(action=InterceptorAction.REACT, new_events=[Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1}, source=obj.id)]), duration='while_on_battlefield')]
 
 def forgotten_ages_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_etb_trigger(obj, lambda e, s: []), make_rewind_death(obj, time_counters=2)]
+    """ETB: each player sacrifices a creature. Rewind death-cycle (2 counters)."""
+    def etb(e, s):
+        return [Event(type=EventType.SACRIFICE_REQUIRED,
+                      payload={'player': pid, 'target_kind': 'creature'},
+                      source=obj.id)
+                for pid in s.players.keys()]
+    return [make_etb_trigger(obj, etb), make_rewind_death(obj, time_counters=2)]
 
 def chrono_berserker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Haste. Temporal — Whenever you cast a spell from exile, deal 2 damage to any target."""
     def filt(e, s, src):
         return e.type == EventType.SPELL_CAST and e.payload.get('from_zone') == ZoneType.EXILE and e.payload.get('controller') == src.controller
-    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=lambda e,s: filt(e,s,obj), handler=lambda e,s: InterceptorResult(action=InterceptorAction.REACT, new_events=[]), duration='while_on_battlefield')]
+    def handler(e, s):
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[
+            Event(type=EventType.DAMAGE,
+                  payload={'source': obj.id, 'amount': 2, 'is_combat': False,
+                           'target_kind': 'any'}, source=obj.id)])
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=lambda e,s: filt(e,s,obj), handler=handler, duration='while_on_battlefield')]
 
 def time_rager_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_echo(obj, "{1}{R}"), make_etb_trigger(obj, lambda e, s: [])]
+    """Haste. Echo {1}{R}. ETB: it deals 2 damage to any target."""
+    def etb(e, s):
+        return [Event(type=EventType.DAMAGE,
+                      payload={'source': obj.id, 'amount': 2, 'is_combat': False,
+                               'target_kind': 'any'}, source=obj.id)]
+    return [make_echo(obj, "{1}{R}"), make_etb_trigger(obj, etb)]
 
 def accelerated_dragon_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def eff(e, s):
@@ -1854,7 +1959,13 @@ def temporal_phoenix_setup(obj: GameObject, state: GameState) -> list[Intercepto
     return [make_rewind_death(obj, time_counters=3)]
 
 def chaos_rift_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_upkeep_trigger(obj, lambda e, s: [], controller_only=True)]
+    """At the beginning of your upkeep, exile the top card of your library; you
+    may play it this turn (impulse)."""
+    def eff(e, s):
+        return [Event(type=EventType.EXILE_TOP_PLAY,
+                      payload={'caster': obj.controller, 'player': obj.controller,
+                               'amount': 1, 'until': 'end_of_turn'}, source=obj.id)]
+    return [make_upkeep_trigger(obj, eff, controller_only=True)]
 
 def elder_chronomancer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def eff(e, s):
@@ -1865,14 +1976,30 @@ def seedling_of_ages_setup(obj: GameObject, state: GameState) -> list[Intercepto
     return [make_upkeep_trigger(obj, lambda e, s: [Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': 'growth', 'amount': 1}, source=obj.id)], controller_only=True)]
 
 def cycle_of_eternity_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "Whenever a creature you control dies, you may put it on top of your
+    # library instead of into your graveyard." Replacement effect: redirect the
+    # battlefield->graveyard ZONE_CHANGE to the top of the owner's library.
     def filt(e, s, src):
         if e.type != EventType.ZONE_CHANGE or e.payload.get('to_zone_type') != ZoneType.GRAVEYARD or e.payload.get('from_zone_type') != ZoneType.BATTLEFIELD: return False
         t = s.objects.get(e.payload.get('object_id'))
         return t and t.controller == src.controller and CardType.CREATURE in t.characteristics.types
-    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REPLACE, filter=lambda e,s: filt(e,s,obj), handler=lambda e,s: InterceptorResult(action=InterceptorAction.REPLACE, new_events=[]), duration='while_on_battlefield')]
+    def handler(e, s):
+        new_event = e.copy()
+        new_event.payload['to_zone'] = 'library'
+        new_event.payload['to_zone_type'] = ZoneType.LIBRARY
+        new_event.payload['to_top'] = True
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=new_event)
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.TRANSFORM, filter=lambda e,s: filt(e,s,obj), handler=handler, duration='while_on_battlefield')]
 
 def echo_of_the_wild_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_echo(obj, "{3}{G}"), make_etb_trigger(obj, lambda e, s: [])]
+    """Trample. Echo {3}{G}. ETB: search your library for a basic land, put it
+    onto the battlefield tapped, then shuffle."""
+    def etb(e, s):
+        return [Event(type=EventType.SEARCH_LIBRARY,
+                      payload={'player': obj.controller, 'card_type': 'basic_land',
+                               'to_zone': 'battlefield', 'tapped': True},
+                      source=obj.id)]
+    return [make_echo(obj, "{3}{G}"), make_etb_trigger(obj, etb)]
 
 def primordial_titan_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def eff(e, s):
@@ -1883,38 +2010,115 @@ def timeless_forest_enchantment_setup(obj: GameObject, state: GameState) -> list
     return [make_keyword_grant(obj, ['trample'], lambda t, s: t.controller == obj.controller and t.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in t.characteristics.types and t.state.counters.get('+1/+1', 0) > 0)]
 
 def chronicle_beast_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_etb_trigger(obj, lambda e, s: [])]
+    """ETB: put a time counter on target permanent you control (grants it hexproof
+    while it has a time counter — the hexproof half is a static below)."""
+    def etb(e, s):
+        return [Event(type=EventType.PUT_TIME_COUNTER,
+                      payload={'controller': obj.controller,
+                               'target_kind': 'permanent_you_control'},
+                      source=obj.id)]
+    hexproof = make_keyword_grant(obj, ['hexproof'], lambda t, s: (
+        t.controller == obj.controller and t.zone == ZoneType.BATTLEFIELD and
+        t.state.counters.get('time', 0) > 0))
+    return [make_etb_trigger(obj, etb), hexproof]
 
 def ageless_oak_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_keyword_grant(obj, ['indestructible'], lambda t, s: t.id == obj.id and t.state.counters.get('time', 0) > 0)]
 
 def kael_timekeeper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_chronicle_upkeep(obj, lambda e, s: [])]
+    """Chronicle upkeep, choose one: put a time counter on target permanent;
+    remove one; or draw a card per permanent with a time counter. Default mode:
+    draw a card for each permanent you control with a time counter."""
+    def upkeep_eff(e, s):
+        n = sum(1 for t in s.objects.values()
+                if t.controller == obj.controller and t.zone == ZoneType.BATTLEFIELD
+                and t.state.counters.get('time', 0) > 0)
+        if n > 0:
+            return [Event(type=EventType.DRAW,
+                          payload={'player': obj.controller, 'amount': n},
+                          source=obj.id)]
+        # no time counters yet: take the "put a time counter" mode instead
+        return [Event(type=EventType.PUT_TIME_COUNTER,
+                      payload={'controller': obj.controller,
+                               'target_kind': 'permanent'}, source=obj.id)]
+    return [make_chronicle_upkeep(obj, upkeep_eff)]
 
 def temporal_twins_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_etb_trigger(obj, lambda e, s: []), make_end_step_trigger(obj, lambda e, s: [], controller_only=True)]
+    """ETB: create a token copy of it (not legendary). End step: sacrifice one."""
+    def etb(e, s):
+        return [Event(type=EventType.CREATE_TOKEN,
+                      payload={'controller': obj.controller,
+                               'copy_of': obj.id, 'not_legendary': True},
+                      source=obj.id)]
+    def end_eff(e, s):
+        return [Event(type=EventType.MAY_SACRIFICE,
+                      payload={'player': obj.controller, 'target_kind': 'temporal_twin'},
+                      source=obj.id)]
+    return [make_etb_trigger(obj, etb), make_end_step_trigger(obj, end_eff, controller_only=True)]
 
 def entropy_and_order_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_etb_trigger(obj, lambda e, s: [])]
+    """Flying. ETB choose one — return target creature from your graveyard to
+    the battlefield; or destroy target creature. Default: GY reanimation."""
+    def etb(e, s):
+        return [Event(type=EventType.RETURN_FROM_GRAVEYARD,
+                      payload={'controller': obj.controller, 'card_type': 'creature',
+                               'to_zone': 'battlefield', 'modal_alt': 'destroy_creature'},
+                      source=obj.id)]
+    return [make_etb_trigger(obj, etb)]
 
 def chrono_dragon_multicolor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_upkeep_trigger(obj, lambda e, s: [], controller_only=True)]
+    """Flying, haste. Temporal upkeep: exile top card with a time counter; you
+    may play cards exiled this way (impulse)."""
+    def eff(e, s):
+        return [Event(type=EventType.EXILE_TOP_PLAY,
+                      payload={'caster': obj.controller, 'player': obj.controller,
+                               'amount': 1, 'until': 'forever', 'time_counter': True},
+                      source=obj.id)]
+    return [make_upkeep_trigger(obj, eff, controller_only=True)]
 
 def decay_bloom_multicolor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def filt(e, s, src):
         if e.type != EventType.ZONE_CHANGE or e.payload.get('to_zone_type') != ZoneType.GRAVEYARD or e.payload.get('from_zone_type') != ZoneType.BATTLEFIELD: return False
         t = s.objects.get(e.payload.get('object_id'))
         return t and CardType.CREATURE in t.characteristics.types
-    return [make_etb_trigger(obj, lambda e, s: []), Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=lambda e,s: filt(e,s,obj), handler=lambda e,s: InterceptorResult(action=InterceptorAction.REACT, new_events=[Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1}, source=obj.id)]), duration='while_on_battlefield')]
+    def etb(e, s):
+        return [Event(type=EventType.RETURN_FROM_GRAVEYARD,
+                      payload={'controller': obj.controller, 'card_type': 'creature',
+                               'to_zone': 'hand'}, source=obj.id)]
+    return [make_etb_trigger(obj, etb), Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=lambda e,s: filt(e,s,obj), handler=lambda e,s: InterceptorResult(action=InterceptorAction.REACT, new_events=[Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1}, source=obj.id)]), duration='while_on_battlefield')]
 
 def temporal_paradox_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_etb_trigger(obj, lambda e, s: [])]
+    """Flying. ETB: each player exiles the top five cards of their library; you
+    may cast nonland cards exiled this way."""
+    def etb(e, s):
+        return [Event(type=EventType.EXILE_TOP_PLAY,
+                      payload={'caster': obj.controller, 'player': pid,
+                               'amount': 5, 'until': 'forever'}, source=obj.id)
+                for pid in s.players.keys()]
+    return [make_etb_trigger(obj, etb)]
 
 def chrono_warlord_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_attack_trigger(obj, lambda e, s: [])]
+    """First strike, vigilance. Temporal — Whenever Chrono-Warlord attacks,
+    creatures you control get +1/+1 and gain haste until end of turn."""
+    def atk(e, s):
+        events = []
+        for t in s.objects.values():
+            if (t.controller == obj.controller and t.zone == ZoneType.BATTLEFIELD
+                    and CardType.CREATURE in t.characteristics.types):
+                events.append(Event(type=EventType.TEMPORARY_BOOST,
+                                    payload={'object_id': t.id, 'power': 1, 'toughness': 1,
+                                             'keywords': ['haste'], 'until': 'end_of_turn'},
+                                    source=obj.id))
+        return events
+    return [make_attack_trigger(obj, atk)]
 
 def nature_mage_eternal_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_chronicle_upkeep(obj, lambda e, s: [])]
+    """Chronicle upkeep: you may put a time counter on target land you control."""
+    def upkeep_eff(e, s):
+        return [Event(type=EventType.PUT_TIME_COUNTER,
+                      payload={'controller': obj.controller, 'target_kind': 'land_you_control',
+                               'optional': True}, source=obj.id)]
+    return [make_chronicle_upkeep(obj, upkeep_eff)]
 
 def symbiotic_timeline_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def plus_filt(e, s, src):
@@ -1931,7 +2135,13 @@ def symbiotic_timeline_setup(obj: GameObject, state: GameState) -> list[Intercep
     ]
 
 def rift_walker_multicolor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    return [make_etb_trigger(obj, lambda e, s: [])]
+    """Haste. ETB: exile the top card of your library; you may play it this turn
+    (else put it into your hand at the next end step) — impulse."""
+    def etb(e, s):
+        return [Event(type=EventType.EXILE_TOP_PLAY,
+                      payload={'caster': obj.controller, 'player': obj.controller,
+                               'amount': 1, 'until': 'end_of_turn'}, source=obj.id)]
+    return [make_etb_trigger(obj, etb)]
 
 def suspended_relic_card_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_etb_trigger(obj, lambda e, s: [Event(type=EventType.DRAW, payload={'player': obj.controller, 'amount': 2}, source=obj.id), Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 4}, source=obj.id)])]
@@ -3024,67 +3234,38 @@ def _tmh_count_my_creatures(state: GameState, controller_id: str) -> int:
 
 
 def ageless_knight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 1 life per Knight ally + each opp loses 1."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        n_knights = _tmh_count_allies_by_subtype(state, obj.controller, 'Knight')
-        events = [
-            Event(type=EventType.SCRY,
-                  payload={'player': obj.controller, 'amount': 1},
-                  source=obj.id, controller=obj.controller),
-            Event(type=EventType.LIFE_CHANGE,
-                  payload={'player': obj.controller, 'amount': max(1, n_knights)},
-                  source=obj.id, controller=obj.controller),
-        ]
-        for opp_id in all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': opp_id, 'amount': -1},
-                source=obj.id, controller=obj.controller,
-            ))
-        return events
-    return [make_etb_trigger(obj, effect_fn)]
+    """First strike. Rewind — When Ageless Knight dies, exile it with two time
+    counters (the upkeep counter-removal / return cycle drives off the exile)."""
+    return [make_rewind_death(obj, time_counters=2)]
 
 
 def suspended_soldier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp loses 1 life per Soldier ally."""
+    """Suspend 2 — {W}. ETB: create a 1/1 white Soldier creature token."""
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        n_soldiers = _tmh_count_allies_by_subtype(state, obj.controller, 'Soldier')
-        amount = -max(1, n_soldiers)
-        events = [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 1},
-            source=obj.id, controller=obj.controller,
-        )]
-        for opp_id in all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': opp_id, 'amount': amount},
-                source=obj.id, controller=obj.controller,
-            ))
-        return events
+        return [Event(type=EventType.CREATE_TOKEN,
+                      payload={'controller': obj.controller, 'token': {
+                          'name': 'Soldier', 'types': {CardType.CREATURE},
+                          'subtypes': {'Soldier'}, 'power': 1, 'toughness': 1,
+                          'colors': {Color.WHITE}}},
+                      source=obj.id)]
     return [make_etb_trigger(obj, effect_fn)]
 
 
 def preservation_angel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + gain 1 life per Angel ally + each opp loses 1."""
+    """Flying, vigilance. ETB: put a time counter on each creature you control.
+    Creatures you control with time counters have lifelink (static below)."""
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        n_angels = _tmh_count_allies_by_subtype(state, obj.controller, 'Angel')
-        events = [
-            Event(type=EventType.SCRY,
-                  payload={'player': obj.controller, 'amount': 2},
-                  source=obj.id, controller=obj.controller),
-            Event(type=EventType.LIFE_CHANGE,
-                  payload={'player': obj.controller, 'amount': max(2, n_angels)},
-                  source=obj.id, controller=obj.controller),
-        ]
-        for opp_id in all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': opp_id, 'amount': -1},
-                source=obj.id, controller=obj.controller,
-            ))
-        return events
-    return [make_etb_trigger(obj, effect_fn)]
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': t.id, 'counter_type': 'time', 'amount': 1},
+                      source=obj.id)
+                for t in state.objects.values()
+                if t.controller == obj.controller and t.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in t.characteristics.types]
+    lifelink = make_keyword_grant(obj, ['lifelink'], lambda t, s: (
+        t.controller == obj.controller and t.zone == ZoneType.BATTLEFIELD and
+        CardType.CREATURE in t.characteristics.types and
+        t.state.counters.get('time', 0) > 0))
+    return [make_etb_trigger(obj, effect_fn), lifelink]
 
 
 def temporal_rift_mage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3108,43 +3289,28 @@ def temporal_rift_mage_setup(obj: GameObject, state: GameState) -> list[Intercep
 
 
 def time_warden_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """On attack: scry 1 + each opp loses 1 life per Wizard ally."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        n_wizards = _tmh_count_allies_by_subtype(state, obj.controller, 'Wizard')
-        amount = -max(1, n_wizards)
-        events = [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 1},
-            source=obj.id, controller=obj.controller,
-        )]
-        for opp_id in all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': opp_id, 'amount': amount},
-                source=obj.id, controller=obj.controller,
-            ))
-        return events
-    return [make_attack_trigger(obj, effect_fn)]
+    """Whenever you put a time counter on a permanent, scry 1."""
+    def filt(e, s):
+        return (e.type in (EventType.COUNTER_ADDED, EventType.PUT_TIME_COUNTER)
+                and e.payload.get('counter_type', 'time') == 'time'
+                and e.controller == obj.controller)
+    def handler(e, s):
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[
+            Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1},
+                  source=obj.id)])
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                        priority=InterceptorPriority.REACT, filter=filt, handler=handler,
+                        duration='while_on_battlefield')]
 
 
 def temporal_serpent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """On attack: scry 2 + each opp loses 2 life per creature ally (paradox depth)."""
+    """Unblockable. When Temporal Serpent deals combat damage to a player, take
+    an extra turn after this one; sacrifice it at that turn's end step."""
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        n_my = _tmh_count_my_creatures(state, obj.controller)
-        amount = -max(2, n_my)
-        events = [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 2},
-            source=obj.id, controller=obj.controller,
-        )]
-        for opp_id in all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': opp_id, 'amount': amount},
-                source=obj.id, controller=obj.controller,
-            ))
-        return events
-    return [make_attack_trigger(obj, effect_fn)]
+        return [Event(type=EventType.EXTRA_TURN,
+                      payload={'player': obj.controller,
+                               'sacrifice_at_end': obj.id}, source=obj.id)]
+    return [make_damage_trigger(obj, effect_fn, combat_only=True)]
 
 
 def decay_spirit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3247,19 +3413,9 @@ def accelerated_scout_setup(obj: GameObject, state: GameState) -> list[Intercept
 
 
 def eternal_flame_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """On attack: each opp takes 1 damage per Elemental ally."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        n_elem = _tmh_count_allies_by_subtype(state, obj.controller, 'Elemental')
-        amount = max(1, n_elem)
-        events = []
-        for opp_id in all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.DAMAGE,
-                payload={'source': obj.id, 'target': opp_id, 'amount': amount, 'is_combat': False},
-                source=obj.id, controller=obj.controller,
-            ))
-        return events
-    return [make_attack_trigger(obj, effect_fn)]
+    """Rewind — When Eternal Flame dies, exile it with two time counters; the
+    upkeep counter-removal / return cycle is driven by make_rewind_death."""
+    return [make_rewind_death(obj, time_counters=2)]
 
 
 def chrono_giant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -3283,103 +3439,59 @@ def chrono_giant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def ageless_wurm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """On attack: gain 1 life per creature ally + each opp loses 1."""
+    """Trample. Suspend 4 — {G}{G}. ETB: put a +1/+1 counter on each other
+    creature you control."""
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        n_my = _tmh_count_my_creatures(state, obj.controller)
-        events = [Event(
-            type=EventType.LIFE_CHANGE,
-            payload={'player': obj.controller, 'amount': max(1, n_my)},
-            source=obj.id, controller=obj.controller,
-        )]
-        for opp_id in all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': opp_id, 'amount': -1},
-                source=obj.id, controller=obj.controller,
-            ))
-        return events
-    return [make_attack_trigger(obj, effect_fn)]
+        return [Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': t.id, 'counter_type': '+1/+1', 'amount': 1},
+                      source=obj.id)
+                for t in state.objects.values()
+                if t.id != obj.id and t.controller == obj.controller
+                and t.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in t.characteristics.types]
+    return [make_etb_trigger(obj, effect_fn)]
 
 
 def ancient_guardian_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + gain 1 life per creature ally + each opp loses 1."""
+    """Reach, trample. ETB: search your library for a basic land card, put it
+    onto the battlefield, then shuffle."""
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        n_my = _tmh_count_my_creatures(state, obj.controller)
-        events = [
-            Event(type=EventType.SCRY,
-                  payload={'player': obj.controller, 'amount': 2},
-                  source=obj.id, controller=obj.controller),
-            Event(type=EventType.LIFE_CHANGE,
-                  payload={'player': obj.controller, 'amount': max(2, n_my)},
-                  source=obj.id, controller=obj.controller),
-        ]
-        for opp_id in all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': opp_id, 'amount': -1},
-                source=obj.id, controller=obj.controller,
-            ))
-        return events
+        return [Event(type=EventType.SEARCH_LIBRARY,
+                      payload={'player': obj.controller, 'card_type': 'basic_land',
+                               'to_zone': 'battlefield'}, source=obj.id)]
     return [make_etb_trigger(obj, effect_fn)]
 
 
 def hourglass_warriors_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """On attack: scry 1 + each opp loses 1 life per Soldier ally."""
+    """Vigilance. Whenever Hourglass Warriors attacks, put a time counter on
+    target creature (it can't attack or block while it has one)."""
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        n_soldiers = _tmh_count_allies_by_subtype(state, obj.controller, 'Soldier')
-        amount = -max(1, n_soldiers)
-        events = [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 1},
-            source=obj.id, controller=obj.controller,
-        )]
-        for opp_id in all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': opp_id, 'amount': amount},
-                source=obj.id, controller=obj.controller,
-            ))
-        return events
+        return [Event(type=EventType.PUT_TIME_COUNTER,
+                      payload={'controller': obj.controller, 'target_kind': 'creature'},
+                      source=obj.id)]
     return [make_attack_trigger(obj, effect_fn)]
 
 
 def entropy_twins_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """On attack: scry 1 + each opp loses 1 life per Wizard ally."""
+    """Menace. ETB: each opponent discards a card; if they can't, Entropy Twins
+    deals 3 damage to them."""
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        n_wizards = _tmh_count_allies_by_subtype(state, obj.controller, 'Wizard')
-        amount = -max(1, n_wizards)
-        events = [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 1},
-            source=obj.id, controller=obj.controller,
-        )]
-        for opp_id in all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': opp_id, 'amount': amount},
-                source=obj.id, controller=obj.controller,
-            ))
-        return events
-    return [make_attack_trigger(obj, effect_fn)]
+        return [Event(type=EventType.DISCARD,
+                      payload={'player': opp_id, 'amount': 1,
+                               'else_damage': 3, 'source': obj.id},
+                      source=obj.id)
+                for opp_id in all_opponents(obj, state)]
+    return [make_etb_trigger(obj, effect_fn)]
 
 
 def timeless_explorer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + each opp loses 1 life per creature ally."""
+    """ETB: search your library for a basic land card, reveal it, put it into
+    your hand, then shuffle. You may play an additional land this turn."""
     def effect_fn(event: Event, state: GameState) -> list[Event]:
-        n_my = _tmh_count_my_creatures(state, obj.controller)
-        amount = -max(1, n_my)
-        events = [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 2},
-            source=obj.id, controller=obj.controller,
-        )]
-        for opp_id in all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': opp_id, 'amount': amount},
-                source=obj.id, controller=obj.controller,
-            ))
-        return events
+        return [Event(type=EventType.SEARCH_LIBRARY,
+                      payload={'player': obj.controller, 'card_type': 'basic_land',
+                               'to_zone': 'hand', 'reveal': True,
+                               'extra_land': 1}, source=obj.id)]
     return [make_etb_trigger(obj, effect_fn)]
 
 
@@ -3404,23 +3516,23 @@ def echo_golem_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def chrono_sentry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """On attack: scry 1 + each opp loses 1 life per Construct ally."""
-    def effect_fn(event: Event, state: GameState) -> list[Event]:
-        n_con = _tmh_count_allies_by_subtype(state, obj.controller, 'Construct')
-        amount = -max(1, n_con)
-        events = [Event(
-            type=EventType.SCRY,
-            payload={'player': obj.controller, 'amount': 1},
-            source=obj.id, controller=obj.controller,
-        )]
-        for opp_id in all_opponents(obj, state):
-            events.append(Event(
-                type=EventType.LIFE_CHANGE,
-                payload={'player': opp_id, 'amount': amount},
-                source=obj.id, controller=obj.controller,
-            ))
-        return events
-    return [make_attack_trigger(obj, effect_fn)]
+    """Whenever a creature with a time counter enters under your control,
+    Chrono-Sentry gets +1/+1 until end of turn."""
+    def filt(e, s):
+        if e.type != EventType.ZONE_CHANGE or e.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        t = s.objects.get(e.payload.get('object_id'))
+        return (t is not None and t.controller == obj.controller
+                and CardType.CREATURE in t.characteristics.types
+                and t.state.counters.get('time', 0) > 0)
+    def handler(e, s):
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[
+            Event(type=EventType.TEMPORARY_BOOST,
+                  payload={'object_id': obj.id, 'power': 1, 'toughness': 1,
+                           'until': 'end_of_turn'}, source=obj.id)])
+    return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                        priority=InterceptorPriority.REACT, filter=filt, handler=handler,
+                        duration='while_on_battlefield')]
 
 
 # =============================================================================
