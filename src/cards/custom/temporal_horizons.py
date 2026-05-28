@@ -1948,37 +1948,6 @@ def suspended_island_land_setup(obj: GameObject, state: GameState) -> list[Inter
     return [make_upkeep_trigger(obj, eff, controller_only=True)]
 
 
-# =============================================================================
-# Slice-17 TMH median lift (2026-05-19): drives mtg_tmh depth_v2_median 0 -> 2+
-# (final gate to flip TMH to 4/4 green). Adds inline multi-axis setup_interceptors
-# (creatures, enchantments, lands, artifacts, equipment) and inline resolve=
-# handlers (instants/sorceries) to ~132 previously vanilla cards.
-#
-# Each helper reads state.zones (state + zone axes), iterates allies/threats
-# (state coupling), and emits SCRY/SURVEIL (info event = zone + asymmetry)
-# plus a cross-controller event via all_opponents (asymmetry). Each setup
-# scores depth >= 2 on the v2 rubric.
-#
-# Flavor: temporal/time-travel — scry = chronowarden foresight; surveil =
-# entropy archive; opp drain/damage = time decay; self-heal = preservation;
-# damage scales with Wizard/Knight/Goblin/Beast ally counts.
-#
-# 12 distinct helper shapes maintain code_diversity above 0.40:
-#   1) ETB scry + drain          (W defenders, guardians)
-#   2) Attack scry + drain       (W/R combat triggers)
-#   3) ETB surveil + mill        (B graveyard/entropy)
-#   4) ETB scry + heal           (W lifegain)
-#   5) ETB surveil + discard     (B mind-attack)
-#   6) ETB scry + damage         (R fire/lightning)
-#   7) Death trigger + drain     (B/R sacrifice payoffs)
-#   8) ETB hand-reveal           (U scry intel)
-#   9) ETB graveyard + draw      (U/B recursion engines)
-#  10) ETB gain + ally scaling   (G nature/growth)
-#  11) Upkeep scry + counter     (artifacts/lands engines)
-#  12) Resolve scry + payload    (instants/sorceries; caster reads state)
-# =============================================================================
-
-
 def _tmh_s17_count_subtype(state: GameState, controller: str, subtype: str) -> int:
     """Count controller's battlefield permanents with `subtype`."""
     bf = state.zones.get('battlefield')
@@ -2038,2315 +2007,40 @@ def _tmh_s17_active_caster(state: GameState) -> str:
 # --- SHAPE 1: ETB scry + drain (W defenders + guardians, Knight ally scaling) ---
 
 
-def _tmh_moment_of_clarity_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Human ally (a moment of clarity)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        humans = _tmh_s17_count_subtype(st, obj.controller, 'Human')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, humans), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_temporal_sanctuary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Knight ally (sanctuary aura)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        knights = _tmh_s17_count_subtype(st, obj.controller, 'Knight')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, knights), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_monastery_elder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Monk ally (monastery discipline)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        monks = _tmh_s17_count_subtype(st, obj.controller, 'Monk')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, monks), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_suspended_scout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Scout ally (advance reconnaissance)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        scouts = _tmh_s17_count_subtype(st, obj.controller, 'Scout')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, scouts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
 # --- SHAPE 2: Attack scry + drain (R/W combat triggers, Warrior ally scaling) ---
-
-
-def _tmh_rift_runner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: scry 1 + each opp -1 per Warrior ally (rift charge)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        warriors = _tmh_s17_count_subtype(st, obj.controller, 'Warrior')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, warriors), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_attack_trigger(obj, effect)]
-
-
-def _tmh_chrono_goblin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: scry 1 + each opp -1 per Goblin ally (time-mob rush)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        gobs = _tmh_s17_count_subtype(st, obj.controller, 'Goblin')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, gobs), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_attack_trigger(obj, effect)]
-
-
-def _tmh_accelerated_striker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Attack: scry 1 + each opp -1 per Warrior ally (chrono-accelerated strike)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        wars = _tmh_s17_count_subtype(st, obj.controller, 'Warrior')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, wars), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_attack_trigger(obj, effect)]
 
 
 # --- SHAPE 3: ETB surveil + mill (B Shade/Insect/Entropy graveyard pressure) ---
 
 
-def _tmh_temporal_shade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 2 (shadow archive read)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_entropy_crawler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 1 per Insect ally (creeping decay)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        bugs = _tmh_s17_count_subtype(st, obj.controller, 'Insect')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, bugs), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_entropy_shade_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + each opp mills 1 (entropy haunts the archive)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
 # --- SHAPE 10: ETB gain + ally scaling (G plant/druid growth) ---
-
-
-def _tmh_timeless_sapling_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 1 life per Plant ally + each opp -1 (timeless growth)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        plants = _tmh_s17_count_subtype(st, obj.controller, 'Plant')
-        events = [
-            Event(type=EventType.SCRY,
-                  payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                  source=obj.id, controller=obj.controller),
-            Event(type=EventType.LIFE_CHANGE,
-                  payload={'player': obj.controller, 'amount': max(1, plants), 'zone': ZoneType.BATTLEFIELD},
-                  source=obj.id, controller=obj.controller),
-        ]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_timeless_seedling_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 2 life per Plant ally + each opp -1 (seed of eternity)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        plants = _tmh_s17_count_subtype(st, obj.controller, 'Plant')
-        events = [
-            Event(type=EventType.SCRY,
-                  payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                  source=obj.id, controller=obj.controller),
-            Event(type=EventType.LIFE_CHANGE,
-                  payload={'player': obj.controller, 'amount': max(2, plants), 'zone': ZoneType.BATTLEFIELD},
-                  source=obj.id, controller=obj.controller),
-        ]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_grove_tender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 2 life per Druid ally + each opp -1 (grove caretaker)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        druids = _tmh_s17_count_subtype(st, obj.controller, 'Druid')
-        events = [
-            Event(type=EventType.SCRY,
-                  payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                  source=obj.id, controller=obj.controller),
-            Event(type=EventType.LIFE_CHANGE,
-                  payload={'player': obj.controller, 'amount': max(2, druids), 'zone': ZoneType.BATTLEFIELD},
-                  source=obj.id, controller=obj.controller),
-        ]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
 
 
 # --- SHAPE 11: Upkeep scry + payload (artifacts + utility lands; ENTERS hook) ---
 
 
-def _tmh_chrono_compass_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 2 + each opp -1 (compass divines time)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect, controller_only=True)]
-
-
-def _tmh_time_capsule_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + each opp mills 1 (capsule unlocks an archive)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect, controller_only=True)]
-
-
-def _tmh_rift_generator_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -2 (rift-tear shock)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_aeon_stone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + each opp -1 per artifact ally (aeon resonance)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        arts = _tmh_s17_count_type(st, obj.controller, CardType.ARTIFACT)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, arts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect, controller_only=True)]
-
-
-def _tmh_echo_chamber_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: surveil 1 + each opp mills 1 per artifact ally (echo trail)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        arts = _tmh_s17_count_type(st, obj.controller, CardType.ARTIFACT)
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, arts), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect, controller_only=True)]
-
-
-def _tmh_time_crystal_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + each opp -1 (crystal vibrates with chrono energy)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect, controller_only=True)]
-
-
-def _tmh_chrono_lens_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 2 + each opp loses 1 life per artifact ally (lens reveals time)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        arts = _tmh_s17_count_type(st, obj.controller, CardType.ARTIFACT)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, arts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect, controller_only=True)]
-
-
-def _tmh_temporal_prism_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + each opp mills 2 (prism shifts color and time)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect, controller_only=True)]
-
-
-def _tmh_rift_key_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + each opp -1 (key unlocks the rift)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_temporal_monument_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + each opp -1 per artifact ally (monument resonance)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        arts = _tmh_s17_count_type(st, obj.controller, CardType.ARTIFACT)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, arts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect, controller_only=True)]
-
-
-def _tmh_accelerated_boots_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Equipment with attack-time scry+drain trigger when attached creature attacks."""
-    def attached_attack_filter(event: Event, st: GameState, src: GameObject) -> bool:
-        if event.type != EventType.ATTACK_DECLARED:
-            return False
-        attacker_id = event.payload.get('attacker_id') or event.payload.get('attacker')
-        return attacker_id is not None and attacker_id == getattr(src.state, 'attached_to', None)
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    base_setup = make_equipment_setup(power_mod=1, toughness_mod=0, keywords=['haste'], equip_cost='{1}')
-    base_interceptors = base_setup(obj, state)
-    attack_int = Interceptor(
-        id=new_id(),
-        source=obj.id,
-        controller=obj.controller,
-        priority=InterceptorPriority.REACT,
-        filter=lambda e, s: attached_attack_filter(e, s, obj),
-        handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=effect(e, s)),
-        duration='while_on_battlefield',
-    )
-    return list(base_interceptors) + [attack_int]
-
-
 # --- SHAPE 11b: Land ETB scry + drain (utility lands, dual lands w/ ETB clauses) ---
 
 
-def _tmh_timeless_citadel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 (citadel calls to suspended souls)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_temporal_nexus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp mills 1 (nexus exposes the timeline)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_decay_wastes_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 2 (decay-text mill)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_eternal_grove_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 1 life + each opp -1 (text says gain 1 life)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [
-            Event(type=EventType.SCRY,
-                  payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                  source=obj.id, controller=obj.controller),
-            Event(type=EventType.LIFE_CHANGE,
-                  payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
-                  source=obj.id, controller=obj.controller),
-        ]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_rift_chasm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 1 (rift exposes the deep archive)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_chrono_spire_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + each opp -1 (spire calls to the future)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_entropy_pool_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp -1 (entropy pool drinks vitality)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_accelerated_plains_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 (haste-imbued plains, text grants haste)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_ancient_archive_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 2 + each opp mills 1 (archive opens; old data returns)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_chrono_tower_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per artifact ally (tower of the lost)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        arts = _tmh_s17_count_type(st, obj.controller, CardType.ARTIFACT)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, arts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_timeless_fortress_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 1 life + each opp -1 (fortress endures)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [
-            Event(type=EventType.SCRY,
-                  payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                  source=obj.id, controller=obj.controller),
-            Event(type=EventType.LIFE_CHANGE,
-                  payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
-                  source=obj.id, controller=obj.controller),
-        ]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_timeless_grove_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 1 life per creature ally + each opp -1 (grove's pulse)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        crs = _tmh_s17_count_type(st, obj.controller, CardType.CREATURE)
-        events = [
-            Event(type=EventType.SCRY,
-                  payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                  source=obj.id, controller=obj.controller),
-            Event(type=EventType.LIFE_CHANGE,
-                  payload={'player': obj.controller, 'amount': max(1, crs), 'zone': ZoneType.BATTLEFIELD},
-                  source=obj.id, controller=obj.controller),
-        ]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_entropy_marsh_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 1 (text says each player mills 1)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_accelerated_peak_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Warrior ally (peak grants haste)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        wars = _tmh_s17_count_subtype(st, obj.controller, 'Warrior')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, wars), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_suspended_sanctuary_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + gain 2 life + each opp -1 (sanctuary preserves time)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [
-            Event(type=EventType.SCRY,
-                  payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                  source=obj.id, controller=obj.controller),
-            Event(type=EventType.LIFE_CHANGE,
-                  payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                  source=obj.id, controller=obj.controller),
-        ]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect, controller_only=True)]
-
-
-def _tmh_rift_nexus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + each opp mills 1 (rift exposes all colors)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_temporal_oasis_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 (oasis grants foresight)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_decay_temple_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp -2 (temple of corruption)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_eternal_cathedral_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + gain 3 life + each opp -1 (cathedral hymn)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [
-            Event(type=EventType.SCRY,
-                  payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                  source=obj.id, controller=obj.controller),
-            Event(type=EventType.LIFE_CHANGE,
-                  payload={'player': obj.controller, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
-                  source=obj.id, controller=obj.controller),
-        ]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect, controller_only=True)]
-
-
-def _tmh_temporal_haven_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + each opp -1 per creature ally (haven's call)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        crs = _tmh_s17_count_type(st, obj.controller, CardType.CREATURE)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, crs), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect, controller_only=True)]
-
-
-def _tmh_suspended_citadel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + gain 5 life + each opp -1 (text: each player gains 5 life)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [
-            Event(type=EventType.SCRY,
-                  payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                  source=obj.id, controller=obj.controller),
-            Event(type=EventType.LIFE_CHANGE,
-                  payload={'player': obj.controller, 'amount': 5, 'zone': ZoneType.BATTLEFIELD},
-                  source=obj.id, controller=obj.controller),
-        ]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_eternal_nexus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 2 + each opp mills 1 (nexus channels eternity)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect, controller_only=True)]
-
-
 # --- Enchantment shapes (G/W/B Aura/static effects) ---
-
-
-def _tmh_time_stop_field_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp -1 per Wizard ally (field freezes the moment)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        wizs = _tmh_s17_count_subtype(st, obj.controller, 'Wizard')
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, wizs), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_temporal_grasp_enchantment_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: surveil 1 + each opp mills 1 per creature ally (grasp on the timeline)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        crs = _tmh_s17_count_type(st, obj.controller, CardType.CREATURE)
-        events = [Event(type=EventType.SURVEIL,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, crs), 'zone': ZoneType.LIBRARY},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_etb_trigger(obj, effect)]
-
-
-def _tmh_rift_portal_enchantment_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + each opp -1 per artifact ally (portal of dread)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        arts = _tmh_s17_count_type(st, obj.controller, CardType.ARTIFACT)
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                        source=obj.id, controller=obj.controller)]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, arts), 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect, controller_only=True)]
-
-
-def _tmh_eternal_cycle_enchantment_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + gain 1 + each opp -1 (cycle of life and death)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        events = [
-            Event(type=EventType.SCRY,
-                  payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                  source=obj.id, controller=obj.controller),
-            Event(type=EventType.LIFE_CHANGE,
-                  payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
-                  source=obj.id, controller=obj.controller),
-        ]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect, controller_only=True)]
-
-
-def _tmh_temporal_roots_enchantment_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Upkeep: scry 1 + gain 1 per creature ally + each opp -1 (root-bound time)."""
-    def effect(event: Event, st: GameState) -> list[Event]:
-        crs = _tmh_s17_count_type(st, obj.controller, CardType.CREATURE)
-        events = [
-            Event(type=EventType.SCRY,
-                  payload={'player': obj.controller, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                  source=obj.id, controller=obj.controller),
-            Event(type=EventType.LIFE_CHANGE,
-                  payload={'player': obj.controller, 'amount': max(1, crs), 'zone': ZoneType.BATTLEFIELD},
-                  source=obj.id, controller=obj.controller),
-        ]
-        for opp in all_opponents(obj, st):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=obj.id, controller=obj.controller))
-        return events
-    return [make_upkeep_trigger(obj, effect, controller_only=True)]
 
 
 # --- SHAPE 12: Resolve handlers (instants/sorceries) — each inlined uniquely ---
 
 
 # White spell resolves
-def _tmh_resolve_chronicle_of_ages(targets, state):
-    """Chronicle of Ages: scry 1 + gain 4 life + each opp -1 (chronicle returns)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 4, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_preserved_memory(targets, state):
-    """Preserved Memory: scry 1 + gain 2 life + each opp -1 (sealed memory)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_dawn_of_new_era(targets, state):
-    """Dawn of New Era: scry 2 + gain 3 life + each opp -2 (new era dawns)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_moment_preserved(targets, state):
-    """Moment Preserved: scry 1 + gain 1 + each opp -1 (instant preserve)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_divine_chronicle(targets, state):
-    """Divine Chronicle: scry 2 + gain 2 + each opp -1 (a divine record)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_ageless_army(targets, state):
-    """Ageless Army: scry 1 + gain 1 per creature ally + each opp -1 (army of ages)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    crs = _tmh_s17_count_type(state, caster, CardType.CREATURE)
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': max(1, crs), 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_temporal_blessing(targets, state):
-    """Temporal Blessing: scry 1 + gain 3 + each opp -1 (blessing through time)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_timeless_prayer(targets, state):
-    """Timeless Prayer: scry 2 + gain 4 + each opp -1 (prayer outside time)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 4, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_temporal_strike(targets, state):
-    """Temporal Strike: scry 1 + each opp 2 damage (strike from the future)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2,
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_temporal_ward(targets, state):
-    """Temporal Ward: scry 1 + gain 4 + each opp -1 (wards last forever)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 4, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_suspended_army(targets, state):
-    """Suspended Army: scry 1 + gain 1 per creature ally + each opp -2 (army awakens)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    crs = _tmh_s17_count_type(state, caster, CardType.CREATURE)
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': max(1, crs), 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
 
 
 # Blue spell resolves (surveil + draw / mill / discard)
-def _tmh_resolve_temporal_loop(targets, state):
-    """Temporal Loop: surveil 1 + each opp mills 2 (loop discards memory)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_rewind_moment(targets, state):
-    """Rewind Moment: surveil 1 + each opp mills 1 (the moment unwinds)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_glimpse_beyond_time(targets, state):
-    """Glimpse Beyond Time: surveil 2 + each opp mills 1 (glimpse beyond)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_chrono_shift(targets, state):
-    """Chrono-Shift: scry 1 + each opp -1 (shift through the timeline)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_paradox_strike(targets, state):
-    """Paradox Strike: scry 1 + each opp 1 damage (paradox bolt)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 1,
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_time_fracture(targets, state):
-    """Time Fracture: surveil 1 + each opp mills 3 (fracture in the archive)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 3, 'zone': ZoneType.LIBRARY},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_echo_duplication(targets, state):
-    """Echo Duplication: surveil 1 + each opp mills 1 per creature ally (echo)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    crs = _tmh_s17_count_type(state, caster, CardType.CREATURE)
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': max(1, crs), 'zone': ZoneType.LIBRARY},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_temporal_mist(targets, state):
-    """Temporal Mist: surveil 1 + each opp -1 (mist hides truth)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_temporal_disruption(targets, state):
-    """Temporal Disruption: surveil 2 + each opp mills 1 (disruption ripples)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_timeless_decay(targets, state):
-    """Timeless Decay: surveil 1 + each opp -2 (timeless decay rolls in)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_fate_unwritten(targets, state):
-    """Fate Unwritten: surveil 1 + each opp -1 + caster scry 1 (twin-action)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_stolen_moment(targets, state):
-    """Stolen Moment: surveil 1 + each opp discards 1 (moment is taken)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            hn = _tmh_s17_count_in_hand(state, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hn, 1)),
-                                         'zone': ZoneType.HAND},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_grave_timeline(targets, state):
-    """Grave Timeline: surveil 2 + each opp mills 2 (the grave times call)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_temporal_torment(targets, state):
-    """Temporal Torment: surveil 1 + each opp -2 + each opp discards 1 (torment)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-            hn = _tmh_s17_count_in_hand(state, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hn, 1)),
-                                         'zone': ZoneType.HAND},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_entropy_bolt(targets, state):
-    """Entropy Bolt: surveil 1 + each opp 3 damage (bolt of corruption)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 3,
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_entropy_cascade(targets, state):
-    """Entropy Cascade: surveil 2 + each opp -2 (cascade of decay)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_decay_touch(targets, state):
-    """Decay Touch: surveil 1 + each opp -1 (touch of decay)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_entropy_wave(targets, state):
-    """Entropy Wave: surveil 1 + each opp mills 3 + each opp -1 (entropic wave)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 3, 'zone': ZoneType.LIBRARY},
-                                source=None))
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_suspended_wisdom(targets, state):
-    """Suspended Wisdom: surveil 1 + each opp discards 1 per Wizard ally (wisdom)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    wizs = _tmh_s17_count_subtype(state, caster, 'Wizard')
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            hn = _tmh_s17_count_in_hand(state, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hn, max(1, wizs))),
-                                         'zone': ZoneType.HAND},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_temporal_clone(targets, state):
-    """Temporal Clone: surveil 1 + each opp -1 per creature ally (clone strike)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    crs = _tmh_s17_count_type(state, caster, CardType.CREATURE)
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, crs), 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_timeline_manipulation(targets, state):
-    """Timeline Manipulation: surveil 2 + each opp mills 2 (manipulate the line)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.MILL,
-                                payload={'player': opp, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_temporal_insight(targets, state):
-    """Temporal Insight: surveil 1 + caster scry 1 + each opp -1 (twin info)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_rift_surge(targets, state):
-    """Rift Surge: surveil 1 + each opp 2 damage (rift surge bursts)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2,
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_temporal_drain(targets, state):
-    """Temporal Drain: surveil 1 + each opp -2 + caster gain 2 (drain)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_entropy_plague(targets, state):
-    """Entropy Plague: surveil 2 + each opp -3 (entropic plague spreads)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -3, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_life_drain(targets, state):
-    """Life Drain: surveil 1 + each opp -2 + caster gain 2 (drain to caster)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_entropys_touch(targets, state):
-    """Entropy's Touch: surveil 1 + each opp -1 + caster gain 1 (small touch)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_temporal_vision(targets, state):
-    """Temporal Vision: surveil 2 + caster scry 1 + each opp -1 (vision)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_entropy_ritual(targets, state):
-    """Entropy Ritual: surveil 1 + each opp -2 + each opp discards 1 (ritual)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-            hn = _tmh_s17_count_in_hand(state, opp)
-            events.append(Event(type=EventType.DISCARD,
-                                payload={'player': opp, 'amount': max(1, min(hn, 1)),
-                                         'zone': ZoneType.HAND},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_rift_denial(targets, state):
-    """Rift Denial: surveil 1 + each opp -2 (counter substitute)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_entropy_grasp(targets, state):
-    """Entropy Grasp: surveil 2 + each opp -1 (grasp tightens)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
 
 
 # Red spell resolves (scry + damage / opp mills)
-def _tmh_resolve_temporal_storm(targets, state):
-    """Temporal Storm: scry 1 + each opp 3 damage (the storm rages)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 3,
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_shattered_timeline(targets, state):
-    """Shattered Timeline: scry 1 + each opp 4 damage (timeline shatters)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 4,
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_chrono_fury(targets, state):
-    """Chrono-Fury: scry 1 + each opp 2 damage + each opp -1 (chrono-rage)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2,
-                                         'source': None, 'is_combat': False},
-                                source=None))
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_blaze_through_time(targets, state):
-    """Blaze Through Time: scry 2 + each opp 2 damage (blaze of time)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2,
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_echo_flames(targets, state):
-    """Echo Flames: scry 1 + each opp 1 damage per Goblin ally (echo)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    gobs = _tmh_s17_count_subtype(state, caster, 'Goblin')
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, gobs),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_accelerate(targets, state):
-    """Accelerate: scry 1 + each opp 1 damage per Warrior ally (haste burst)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    wars = _tmh_s17_count_subtype(state, caster, 'Warrior')
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, wars),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_temporal_blast(targets, state):
-    """Temporal Blast: scry 1 + each opp 2 damage (blast of time)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2,
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_temporal_inferno(targets, state):
-    """Temporal Inferno: scry 2 + each opp 3 damage (inferno across time)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 3,
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_accelerated_strike(targets, state):
-    """Accelerated Strike: scry 1 + each opp 2 damage (haste-imbued strike)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2,
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_echo_strike(targets, state):
-    """Echo Strike: scry 1 + each opp 1 damage per creature ally (echo)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    crs = _tmh_s17_count_type(state, caster, CardType.CREATURE)
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, crs),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_rift_bolt(targets, state):
-    """Rift Bolt: scry 1 + each opp 3 damage (red lightning through the rift)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 3,
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_temporal_fury(targets, state):
-    """Temporal Fury: scry 1 + each opp 1 damage per Warrior ally (fury rage)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    wars = _tmh_s17_count_subtype(state, caster, 'Warrior')
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, wars),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_suspended_lightning(targets, state):
-    """Suspended Lightning: scry 1 + each opp 4 damage (delayed lightning)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 4,
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_rift_hammer(targets, state):
-    """Rift Hammer: scry 1 + each opp 3 damage + each opp -1 (hammer of time)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 3,
-                                         'source': None, 'is_combat': False},
-                                source=None))
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_accelerated_assault(targets, state):
-    """Accelerated Assault: scry 1 + each opp 1 damage per Warrior ally (assault)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    wars = _tmh_s17_count_subtype(state, caster, 'Warrior')
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': max(1, wars),
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_chrono_spark(targets, state):
-    """Chrono-Spark: scry 1 + each opp 2 damage (spark of time)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2,
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_chrono_blast(targets, state):
-    """Chrono-Blast: scry 2 + each opp 3 damage (chrono explosion)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 3,
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_accelerated_charge(targets, state):
-    """Accelerated Charge: scry 1 + each opp 2 damage + each opp -1 (R charge)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2,
-                                         'source': None, 'is_combat': False},
-                                source=None))
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
 
 
 # Green spell resolves (scry + gain + ally scaling)
-def _tmh_resolve_temporal_growth(targets, state):
-    """Temporal Growth: scry 1 + gain 3 + each opp -1 (growth across time)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_nature_reclaims(targets, state):
-    """Nature Reclaims: scry 1 + gain 2 + each opp -1 (nature reclaims its own)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_temporal_bloom(targets, state):
-    """Temporal Bloom: scry 1 + gain 3 + each opp -1 per Plant ally (bloom)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    plants = _tmh_s17_count_subtype(state, caster, 'Plant')
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -max(1, plants), 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_growth_through_time(targets, state):
-    """Growth Through Time: scry 1 + gain 2 per creature ally + each opp -1 (growth)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    crs = _tmh_s17_count_type(state, caster, CardType.CREATURE)
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': max(2, crs), 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_chronicle_growth(targets, state):
-    """Chronicle Growth: scry 1 + gain 1 + each opp -1 (chronicle grows)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_eternal_bloom(targets, state):
-    """Eternal Bloom: scry 2 + gain 4 + each opp -1 (eternal flowering)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 4, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_timeless_vigor(targets, state):
-    """Timeless Vigor: scry 1 + gain 1 per creature ally + each opp -1 (vigor)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    crs = _tmh_s17_count_type(state, caster, CardType.CREATURE)
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': max(1, crs), 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_temporal_harvest(targets, state):
-    """Temporal Harvest: scry 2 + gain 3 + each opp -2 (harvest of ages)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_primal_echo(targets, state):
-    """Primal Echo: scry 1 + gain 3 per Beast ally + each opp -1 (echo of beast)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    beasts = _tmh_s17_count_subtype(state, caster, 'Beast')
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': max(3, beasts), 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_growth_surge(targets, state):
-    """Growth Surge: scry 1 + gain 2 + each opp -1 (surge of growth)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_growth_pulse(targets, state):
-    """Growth Pulse: scry 1 + gain 1 per creature ally + each opp -1 (pulse)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    crs = _tmh_s17_count_type(state, caster, CardType.CREATURE)
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': max(1, crs), 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_timeless_growth(targets, state):
-    """Timeless Growth: scry 1 + gain 2 + each opp -1 (G pump substitute)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_primal_growth(targets, state):
-    """Primal Growth: scry 2 + gain 2 per Plant ally + each opp -1 (primal G)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    plants = _tmh_s17_count_subtype(state, caster, 'Plant')
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': max(2, plants), 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
 
 
 # Multicolor / cross-section spell resolves
-def _tmh_resolve_temporal_ambush(targets, state):
-    """Temporal Ambush: surveil 1 + each opp -2 + caster gain 1 (BG ambush)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_chrono_surge(targets, state):
-    """Chrono-Surge: scry 1 + each opp 2 damage + caster gain 2 (RW surge)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2,
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_rift_eruption(targets, state):
-    """Rift Eruption: scry 1 + each opp 3 damage + each opp -1 (BR eruption)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 3,
-                                         'source': None, 'is_combat': False},
-                                source=None))
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_temporal_convergence(targets, state):
-    """Temporal Convergence: surveil 1 + scry 1 + each opp -2 (BW convergence)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_time_siphon(targets, state):
-    """Time Siphon: surveil 1 + each opp -2 + caster gain 2 (BB siphon)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -2, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_eternal_blessing(targets, state):
-    """Eternal Blessing: scry 2 + gain 3 + each opp -1 (GW blessing)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 3, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_chrono_shatter(targets, state):
-    """Chrono-Shatter: scry 1 + each opp 2 damage + caster gain 1 (RW shatter)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.DAMAGE,
-                                payload={'target': opp, 'amount': 2,
-                                         'source': None, 'is_combat': False},
-                                source=None))
-    return events
-
-
-def _tmh_resolve_temporal_rebirth(targets, state):
-    """Temporal Rebirth: surveil 1 + scry 1 + each opp -1 + caster gain 2 (BW)."""
-    caster = _tmh_s17_active_caster(state)
-    if caster is None:
-        return []
-    events = [Event(type=EventType.SURVEIL,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.SCRY,
-                    payload={'player': caster, 'amount': 1, 'zone': ZoneType.LIBRARY},
-                    source=None),
-              Event(type=EventType.LIFE_CHANGE,
-                    payload={'player': caster, 'amount': 2, 'zone': ZoneType.BATTLEFIELD},
-                    source=None)]
-    for opp in state.players:
-        if opp != caster:
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp, 'amount': -1, 'zone': ZoneType.BATTLEFIELD},
-                                source=None))
-    return events
 
 
 # =============================================================================
@@ -4426,7 +2120,6 @@ MOMENT_OF_CLARITY = make_instant(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Exile target creature. At the beginning of the next end step, return it to the battlefield under its owner's control.",
-    setup_interceptors=_tmh_moment_of_clarity_setup,
 )
 
 TEMPORAL_SANCTUARY = make_enchantment(
@@ -4434,7 +2127,6 @@ TEMPORAL_SANCTUARY = make_enchantment(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="Creatures you control can't be the targets of spells or abilities your opponents control during your turn.",
-    setup_interceptors=_tmh_temporal_sanctuary_setup,
 )
 
 CHRONICLE_OF_AGES = make_sorcery(
@@ -4442,7 +2134,6 @@ CHRONICLE_OF_AGES = make_sorcery(
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     text="Return up to two target creature cards with total mana value 5 or less from your graveyard to the battlefield.",
-    resolve=_tmh_resolve_chronicle_of_ages,
 )
 
 PRESERVED_MEMORY = make_instant(
@@ -4450,7 +2141,6 @@ PRESERVED_MEMORY = make_instant(
     mana_cost="{W}",
     colors={Color.WHITE},
     text="Target creature gains indestructible until end of turn. Scry 1.",
-    resolve=_tmh_resolve_preserved_memory,
 )
 
 TIMELINE_PROTECTOR = make_creature(
@@ -4469,7 +2159,6 @@ DAWN_OF_NEW_ERA = make_sorcery(
     mana_cost="{4}{W}{W}",
     colors={Color.WHITE},
     text="Exile all creatures. Each player creates a 1/1 white Spirit creature token for each creature they controlled that was exiled this way.",
-    resolve=_tmh_resolve_dawn_of_new_era,
 )
 
 ETERNITY_WARDEN = make_creature(
@@ -4549,7 +2238,6 @@ TEMPORAL_LOOP = make_instant(
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
     text="Return target spell to its owner's hand. Its controller may cast it again this turn without paying its mana cost.",
-    resolve=_tmh_resolve_temporal_loop,
 )
 
 REWIND_MOMENT = make_instant(
@@ -4557,7 +2245,6 @@ REWIND_MOMENT = make_instant(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     text="Rewind — Return target nonland permanent to its owner's hand. At the beginning of the next end step, that player may put it onto the battlefield.",
-    resolve=_tmh_resolve_rewind_moment,
 )
 
 GLIMPSE_BEYOND_TIME = make_sorcery(
@@ -4565,7 +2252,6 @@ GLIMPSE_BEYOND_TIME = make_sorcery(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     text="Look at the top five cards of your library. Put two into your hand and the rest on the bottom of your library in any order.",
-    resolve=_tmh_resolve_glimpse_beyond_time,
 )
 
 TIME_STOP_FIELD = make_enchantment(
@@ -4573,7 +2259,6 @@ TIME_STOP_FIELD = make_enchantment(
     mana_cost="{3}{U}{U}",
     colors={Color.BLUE},
     text="Players can't cast more than two spells each turn.",
-    setup_interceptors=_tmh_time_stop_field_setup,
 )
 
 CHRONO_SHIFT = make_instant(
@@ -4581,7 +2266,6 @@ CHRONO_SHIFT = make_instant(
     mana_cost="{U}",
     colors={Color.BLUE},
     text="Target creature phases out until the beginning of your next upkeep.",
-    resolve=_tmh_resolve_chrono_shift,
 )
 
 FUTURE_ECHO = make_creature(
@@ -4636,7 +2320,6 @@ TIMELESS_DECAY = make_sorcery(
     mana_cost="{1}{B}{B}",
     colors={Color.BLACK},
     text="All creatures get -2/-2 until end of turn. For each creature that dies this turn, put a time counter on target permanent you control.",
-    resolve=_tmh_resolve_timeless_decay,
 )
 
 FATE_UNWRITTEN = make_instant(
@@ -4644,7 +2327,6 @@ FATE_UNWRITTEN = make_instant(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     text="Destroy target creature. If it had suspend, its controller may cast it without paying its mana cost.",
-    resolve=_tmh_resolve_fate_unwritten,
 )
 
 ECHO_OF_DEATH = make_creature(
@@ -4682,7 +2364,6 @@ STOLEN_MOMENT = make_instant(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="Target creature gets -3/-3 until end of turn. You gain 3 life.",
-    resolve=_tmh_resolve_stolen_moment,
 )
 
 GRAVE_TIMELINE = make_sorcery(
@@ -4690,7 +2371,6 @@ GRAVE_TIMELINE = make_sorcery(
     mana_cost="{3}{B}",
     colors={Color.BLACK},
     text="Return up to two target creature cards from your graveyard to your hand. You lose 2 life.",
-    resolve=_tmh_resolve_grave_timeline,
 )
 
 ENTROPY_WALKER = make_creature(
@@ -4709,7 +2389,6 @@ TEMPORAL_TORMENT = make_sorcery(
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     text="Target opponent discards two cards. For each card discarded this way, put a time counter on target permanent you control.",
-    resolve=_tmh_resolve_temporal_torment,
 )
 
 FORGOTTEN_AGES = make_creature(
@@ -4767,7 +2446,6 @@ TEMPORAL_STORM = make_sorcery(
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
     text="Temporal Storm deals damage to each creature equal to the number of time counters on permanents you control.",
-    resolve=_tmh_resolve_temporal_storm,
 )
 
 RIFT_ELEMENTAL = make_creature(
@@ -4786,7 +2464,6 @@ SHATTERED_TIMELINE = make_instant(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Destroy target artifact. If it had time counters on it, Shattered Timeline deals damage to its controller equal to the number of time counters it had.",
-    resolve=_tmh_resolve_shattered_timeline,
 )
 
 CHRONO_FURY = make_instant(
@@ -4794,7 +2471,6 @@ CHRONO_FURY = make_instant(
     mana_cost="{R}",
     colors={Color.RED},
     text="Target creature gets +3/+1 and gains haste until end of turn.",
-    resolve=_tmh_resolve_chrono_fury,
 )
 
 BLAZE_THROUGH_TIME = make_sorcery(
@@ -4802,7 +2478,6 @@ BLAZE_THROUGH_TIME = make_sorcery(
     mana_cost="{X}{R}{R}",
     colors={Color.RED},
     text="Blaze Through Time deals X damage to any target. If X is 5 or more, you may cast target instant or sorcery card with mana value X or less from your graveyard without paying its mana cost.",
-    resolve=_tmh_resolve_blaze_through_time,
 )
 
 TEMPORAL_PHOENIX = make_creature(
@@ -4822,7 +2497,6 @@ ECHO_FLAMES = make_instant(
     mana_cost="{2}{R}",
     colors={Color.RED},
     text="Echo Flames deals 3 damage to any target. Echo {2}{R}.",
-    resolve=_tmh_resolve_echo_flames,
 )
 
 CHAOS_RIFT = make_enchantment(
@@ -4838,7 +2512,6 @@ ACCELERATE = make_instant(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Target creature gains haste until end of turn. Draw a card.",
-    resolve=_tmh_resolve_accelerate,
 )
 
 
@@ -4874,7 +2547,6 @@ TEMPORAL_GROWTH = make_sorcery(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     text="Put two +1/+1 counters on target creature. If that creature has a time counter on it, put four +1/+1 counters on it instead.",
-    resolve=_tmh_resolve_temporal_growth,
 )
 
 CYCLE_OF_ETERNITY = make_enchantment(
@@ -4920,7 +2592,6 @@ NATURE_RECLAIMS = make_instant(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Destroy target artifact or enchantment. Its controller may search their library for a basic land card, put it onto the battlefield tapped, then shuffle.",
-    resolve=_tmh_resolve_nature_reclaims,
 )
 
 CHRONICLE_BEAST = make_creature(
@@ -4939,7 +2610,6 @@ TEMPORAL_BLOOM = make_sorcery(
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
     text="Search your library for up to two basic land cards, put them onto the battlefield, then shuffle. Put a time counter on each land that entered this way.",
-    resolve=_tmh_resolve_temporal_bloom,
 )
 
 AGELESS_OAK = make_creature(
@@ -4958,7 +2628,6 @@ GROWTH_THROUGH_TIME = make_instant(
     mana_cost="{G}",
     colors={Color.GREEN},
     text="Put a +1/+1 counter on target creature. If it has a time counter on it, put two +1/+1 counters on it instead.",
-    resolve=_tmh_resolve_growth_through_time,
 )
 
 
@@ -5102,7 +2771,6 @@ CHRONO_COMPASS = make_artifact(
     name="Chrono Compass",
     mana_cost="{2}",
     text="{T}: Add {C}. {2}, {T}: Scry 2.",
-    setup_interceptors=_tmh_chrono_compass_setup,
 )
 
 # --- Temporal Blade: Helper-5 rewire ---------------------------------------
@@ -5166,7 +2834,6 @@ TIME_CAPSULE = make_artifact(
     name="Time Capsule",
     mana_cost="{2}",
     text="Time Capsule enters with three charge counters on it. {T}, Remove a charge counter: Add {C}{C}. When the last charge counter is removed, sacrifice Time Capsule and draw two cards.",
-    setup_interceptors=_tmh_time_capsule_setup,
 )
 
 SUSPENDED_RELIC = make_artifact(
@@ -5188,14 +2855,12 @@ RIFT_GENERATOR = make_artifact(
     name="Rift Generator",
     mana_cost="{3}",
     text="{2}, {T}: Exile target creature you control. Return it to the battlefield at the beginning of the next end step.",
-    setup_interceptors=_tmh_rift_generator_setup,
 )
 
 AEON_STONE = make_artifact(
     name="Aeon Stone",
     mana_cost="{1}",
     text="{T}: Add {C}. {1}, {T}, Sacrifice Aeon Stone: Draw a card.",
-    setup_interceptors=_tmh_aeon_stone_setup,
 )
 
 CHRONOLITH = make_artifact(
@@ -5222,31 +2887,26 @@ TIMELESS_CITADEL = make_land(
     name="Timeless Citadel",
     supertypes={"Legendary"},
     text="{T}: Add {C}. {T}: Add one mana of any color. Spend this mana only to cast spells with suspend or spells from exile.",
-    setup_interceptors=_tmh_timeless_citadel_setup,
 )
 
 TEMPORAL_NEXUS = make_land(
     name="Temporal Nexus",
     text="Temporal Nexus enters tapped. {T}: Add {U} or {R}. {3}, {T}: Exile the top card of your library. You may play it this turn.",
-    setup_interceptors=_tmh_temporal_nexus_setup,
 )
 
 DECAY_WASTES = make_land(
     name="Decay Wastes",
     text="Decay Wastes enters tapped. {T}: Add {B} or {G}. When Decay Wastes enters, mill two cards.",
-    setup_interceptors=_tmh_decay_wastes_setup,
 )
 
 ETERNAL_GROVE = make_land(
     name="Eternal Grove",
     text="Eternal Grove enters tapped. {T}: Add {G} or {W}. When Eternal Grove enters, you gain 1 life.",
-    setup_interceptors=_tmh_eternal_grove_setup,
 )
 
 RIFT_CHASM = make_land(
     name="Rift Chasm",
     text="Rift Chasm enters tapped. {T}: Add {R} or {B}. {4}, {T}, Sacrifice Rift Chasm: Draw two cards.",
-    setup_interceptors=_tmh_rift_chasm_setup,
 )
 
 SUSPENDED_ISLAND = make_land(
@@ -5259,25 +2919,21 @@ CHRONO_SPIRE = make_land(
     name="Chrono Spire",
     supertypes={"Legendary"},
     text="{T}: Add {C}. {T}: Add {W} or {U}. Activate only if you control a creature with a time counter on it.",
-    setup_interceptors=_tmh_chrono_spire_setup,
 )
 
 ENTROPY_POOL = make_land(
     name="Entropy Pool",
     text="Entropy Pool enters tapped. {T}: Add {U} or {B}. {2}, {T}: Target creature gets -1/-1 until end of turn.",
-    setup_interceptors=_tmh_entropy_pool_setup,
 )
 
 ACCELERATED_PLAINS = make_land(
     name="Accelerated Plains",
     text="Accelerated Plains enters tapped. {T}: Add {R} or {W}. When Accelerated Plains enters, target creature gains haste until end of turn.",
-    setup_interceptors=_tmh_accelerated_plains_setup,
 )
 
 ANCIENT_ARCHIVE = make_land(
     name="Ancient Archive",
     text="Ancient Archive enters tapped. {T}: Add {W} or {B}. {3}, {T}: Return target creature card with mana value 2 or less from your graveyard to your hand.",
-    setup_interceptors=_tmh_ancient_archive_setup,
 )
 
 
@@ -5823,7 +3479,6 @@ TIMELESS_SAPLING = make_creature(
     colors={Color.GREEN},
     subtypes={"Plant"},
     text="{T}: Add {G}. Timeless Sapling gets +1/+1 until end of turn.",
-    setup_interceptors=_tmh_timeless_sapling_setup,
 )
 
 PARADOX_STRIKE = make_instant(
@@ -5831,7 +3486,6 @@ PARADOX_STRIKE = make_instant(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     text="Return target creature to its owner's hand. Scry 1.",
-    resolve=_tmh_resolve_paradox_strike,
 )
 
 ENTROPY_BOLT = make_instant(
@@ -5839,7 +3493,6 @@ ENTROPY_BOLT = make_instant(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="Target creature gets -2/-2 until end of turn. If it dies this turn, draw a card.",
-    resolve=_tmh_resolve_entropy_bolt,
 )
 
 TEMPORAL_BLAST = make_instant(
@@ -5847,7 +3500,6 @@ TEMPORAL_BLAST = make_instant(
     mana_cost="{2}{R}",
     colors={Color.RED},
     text="Temporal Blast deals 3 damage to any target. If a permanent with a time counter is put into a graveyard this turn, draw a card.",
-    resolve=_tmh_resolve_temporal_blast,
 )
 
 CHRONICLE_GROWTH = make_instant(
@@ -5855,7 +3507,6 @@ CHRONICLE_GROWTH = make_instant(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Put two +1/+1 counters on target creature. It gains trample until end of turn.",
-    resolve=_tmh_resolve_chronicle_growth,
 )
 
 SEAL_OF_AGES = make_instant(
@@ -5870,7 +3521,6 @@ TIME_FRACTURE = make_sorcery(
     mana_cost="{3}{U}{U}",
     colors={Color.BLUE},
     text="Take an extra turn after this one. Skip your draw step on that turn.",
-    resolve=_tmh_resolve_time_fracture,
 )
 
 ENTROPY_CASCADE = make_sorcery(
@@ -5878,7 +3528,6 @@ ENTROPY_CASCADE = make_sorcery(
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
     text="Each creature gets -2/-2 until end of turn. Draw a card for each creature that dies this turn.",
-    resolve=_tmh_resolve_entropy_cascade,
 )
 
 TEMPORAL_INFERNO = make_sorcery(
@@ -5886,7 +3535,6 @@ TEMPORAL_INFERNO = make_sorcery(
     mana_cost="{4}{R}{R}",
     colors={Color.RED},
     text="Temporal Inferno deals 5 damage to each creature. Creatures dealt damage this way can't be regenerated.",
-    resolve=_tmh_resolve_temporal_inferno,
 )
 
 ETERNAL_BLOOM = make_sorcery(
@@ -5894,7 +3542,6 @@ ETERNAL_BLOOM = make_sorcery(
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
     text="Put a +1/+1 counter on each creature you control. Creatures you control gain trample until end of turn.",
-    resolve=_tmh_resolve_eternal_bloom,
 )
 
 DIVINE_CHRONICLE = make_sorcery(
@@ -5902,7 +3549,6 @@ DIVINE_CHRONICLE = make_sorcery(
     mana_cost="{4}{W}{W}",
     colors={Color.WHITE},
     text="Put a time counter on each creature you control. You gain 2 life for each creature you control.",
-    resolve=_tmh_resolve_divine_chronicle,
 )
 
 ECHO_DUPLICATION = make_instant(
@@ -5910,7 +3556,6 @@ ECHO_DUPLICATION = make_instant(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     text="Create a token that's a copy of target creature you control. Exile it at the beginning of the next end step.",
-    resolve=_tmh_resolve_echo_duplication,
 )
 
 TEMPORAL_AMBUSH = make_instant(
@@ -5918,7 +3563,6 @@ TEMPORAL_AMBUSH = make_instant(
     mana_cost="{1}{B}{G}",
     colors={Color.BLACK, Color.GREEN},
     text="Target creature you control fights target creature you don't control. If your creature dies, return it to your hand at the beginning of the next end step.",
-    resolve=_tmh_resolve_temporal_ambush,
 )
 
 CHRONO_SURGE = make_instant(
@@ -5926,7 +3570,6 @@ CHRONO_SURGE = make_instant(
     mana_cost="{R}{W}",
     colors={Color.RED, Color.WHITE},
     text="Untap all creatures you control. They gain vigilance and haste until end of turn.",
-    resolve=_tmh_resolve_chrono_surge,
 )
 
 RIFT_ERUPTION = make_sorcery(
@@ -5934,7 +3577,6 @@ RIFT_ERUPTION = make_sorcery(
     mana_cost="{2}{U}{R}",
     colors={Color.BLUE, Color.RED},
     text="Exile the top five cards of your library. You may play them until end of turn. At the beginning of the next end step, put any cards not played this way into your graveyard.",
-    resolve=_tmh_resolve_rift_eruption,
 )
 
 TEMPORAL_CONVERGENCE = make_sorcery(
@@ -5942,7 +3584,6 @@ TEMPORAL_CONVERGENCE = make_sorcery(
     mana_cost="{3}{W}{U}",
     colors={Color.WHITE, Color.BLUE},
     text="Return all creatures to their owners' hands. Each player may put a creature card from their hand onto the battlefield.",
-    resolve=_tmh_resolve_temporal_convergence,
 )
 
 ECHO_GOLEM = make_creature(
@@ -5975,7 +3616,6 @@ TEMPORAL_SHADE = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Shade"},
     text="Flying. {U}{B}: Temporal Shade gets +1/+1 until end of turn.",
-    setup_interceptors=_tmh_temporal_shade_setup,
 )
 
 AGELESS_WURM = make_creature(
@@ -6060,7 +3700,6 @@ TIME_SIPHON = make_instant(
     mana_cost="{2}{U}{B}",
     colors={Color.BLUE, Color.BLACK},
     text="Target opponent exiles the top four cards of their library. You may cast nonland cards from among them this turn, and mana of any type can be spent to cast them.",
-    resolve=_tmh_resolve_time_siphon,
 )
 
 ETERNAL_BLESSING = make_instant(
@@ -6068,7 +3707,6 @@ ETERNAL_BLESSING = make_instant(
     mana_cost="{1}{G}{W}",
     colors={Color.GREEN, Color.WHITE},
     text="Put a +1/+1 counter and a time counter on each creature you control. You gain 1 life for each creature you control.",
-    resolve=_tmh_resolve_eternal_blessing,
 )
 
 CHRONO_SHATTER = make_instant(
@@ -6076,7 +3714,6 @@ CHRONO_SHATTER = make_instant(
     mana_cost="{1}{R}{W}",
     colors={Color.RED, Color.WHITE},
     text="Destroy target artifact or enchantment. If it had time counters on it, Chrono-Shatter deals 3 damage to any target.",
-    resolve=_tmh_resolve_chrono_shatter,
 )
 
 TEMPORAL_GRASP = make_enchantment(
@@ -6084,7 +3721,6 @@ TEMPORAL_GRASP = make_enchantment(
     mana_cost="{2}{B}{G}",
     colors={Color.BLACK, Color.GREEN},
     text="At the beginning of your upkeep, return target creature card from your graveyard to your hand. You lose 1 life.",
-    setup_interceptors=_tmh_temporal_grasp_enchantment_setup,
 )
 
 RIFT_PORTAL = make_enchantment(
@@ -6092,7 +3728,6 @@ RIFT_PORTAL = make_enchantment(
     mana_cost="{3}{U}{R}",
     colors={Color.BLUE, Color.RED},
     text="At the beginning of your upkeep, exile the top card of your library. You may play it this turn. Spells you cast from exile cost {1} less to cast.",
-    setup_interceptors=_tmh_rift_portal_enchantment_setup,
 )
 
 ETERNAL_CYCLE = make_enchantment(
@@ -6100,7 +3735,6 @@ ETERNAL_CYCLE = make_enchantment(
     mana_cost="{2}{G}{W}",
     colors={Color.GREEN, Color.WHITE},
     text="Whenever a creature you control dies, you may exile it with two time counters. At the beginning of each upkeep, remove a time counter from each card exiled with Eternal Cycle. When the last is removed, return that card to the battlefield.",
-    setup_interceptors=_tmh_eternal_cycle_enchantment_setup,
 )
 
 HOURGLASS_WARRIORS = make_creature(
@@ -6152,7 +3786,6 @@ TEMPORAL_MIST = make_instant(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     text="Tap up to two target creatures. Those creatures don't untap during their controllers' next untap steps.",
-    resolve=_tmh_resolve_temporal_mist,
 )
 
 DECAY_TOUCH = make_instant(
@@ -6160,7 +3793,6 @@ DECAY_TOUCH = make_instant(
     mana_cost="{B}",
     colors={Color.BLACK},
     text="Target creature gets -2/-2 until end of turn.",
-    resolve=_tmh_resolve_decay_touch,
 )
 
 ACCELERATED_STRIKE = make_instant(
@@ -6168,7 +3800,6 @@ ACCELERATED_STRIKE = make_instant(
     mana_cost="{R}",
     colors={Color.RED},
     text="Target creature gets +2/+0 and gains first strike until end of turn.",
-    resolve=_tmh_resolve_accelerated_strike,
 )
 
 TIMELESS_VIGOR = make_instant(
@@ -6176,7 +3807,6 @@ TIMELESS_VIGOR = make_instant(
     mana_cost="{G}",
     colors={Color.GREEN},
     text="Target creature gets +2/+2 until end of turn. If it has a time counter on it, it gets +4/+4 instead.",
-    resolve=_tmh_resolve_timeless_vigor,
 )
 
 MOMENT_PRESERVED = make_instant(
@@ -6184,7 +3814,6 @@ MOMENT_PRESERVED = make_instant(
     mana_cost="{W}",
     colors={Color.WHITE},
     text="Target creature gains indestructible until end of turn. Put a time counter on it.",
-    resolve=_tmh_resolve_moment_preserved,
 )
 
 TIME_WARDEN = make_creature(
@@ -6228,7 +3857,6 @@ GROVE_TENDER = make_creature(
     colors={Color.GREEN},
     subtypes={"Elf", "Druid"},
     text="{T}: Add {G}. {T}: Put a +1/+1 counter on target creature.",
-    setup_interceptors=_tmh_grove_tender_setup,
 )
 
 MONASTERY_ELDER = make_creature(
@@ -6239,7 +3867,6 @@ MONASTERY_ELDER = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Monk"},
     text="Whenever you cast a spell from exile, you gain 2 life.",
-    setup_interceptors=_tmh_monastery_elder_setup,
 )
 
 
@@ -6259,27 +3886,23 @@ TEMPORAL_DISRUPTION = make_instant(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     text="Counter target spell unless its controller pays {2}. If that spell is countered this way, exile it with a time counter on it instead of putting it into its owner's graveyard.",
-    resolve=_tmh_resolve_temporal_disruption,
 )
 
 ECHO_CHAMBER = make_artifact(
     name="Echo Chamber",
     mana_cost="{4}",
     text="{3}, {T}: Create a token that's a copy of target creature you control. Sacrifice it at the beginning of the next end step.",
-    setup_interceptors=_tmh_echo_chamber_setup,
 )
 
 CHRONO_TOWER = make_land(
     name="Chrono Tower",
     text="{T}: Add {C}. {3}, {T}: Put a time counter on target permanent you control.",
-    setup_interceptors=_tmh_chrono_tower_setup,
 )
 
 TIMELESS_FORTRESS = make_land(
     name="Timeless Fortress",
     supertypes={"Legendary"},
     text="{T}: Add {C}. {T}: Add {W}. Activate only if you control a creature with a time counter on it. {5}, {T}: Creatures you control gain indestructible until end of turn.",
-    setup_interceptors=_tmh_timeless_fortress_setup,
 )
 
 ECHO_STRIKE = make_instant(
@@ -6287,7 +3910,6 @@ ECHO_STRIKE = make_instant(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Echo Strike deals 2 damage to any target. Echo {1}{R}.",
-    resolve=_tmh_resolve_echo_strike,
 )
 
 TEMPORAL_REBIRTH = make_sorcery(
@@ -6295,7 +3917,6 @@ TEMPORAL_REBIRTH = make_sorcery(
     mana_cost="{3}{W}{B}",
     colors={Color.WHITE, Color.BLACK},
     text="Return all creature cards from your graveyard to the battlefield. They gain haste until end of turn. Exile them at the beginning of the next end step.",
-    resolve=_tmh_resolve_temporal_rebirth,
 )
 
 SUSPENDED_HORROR = make_creature(
@@ -6325,7 +3946,6 @@ TEMPORAL_HARVEST = make_sorcery(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     text="Search your library for up to two basic land cards, reveal them, put them into your hand, then shuffle. Put a time counter on target permanent you control.",
-    resolve=_tmh_resolve_temporal_harvest,
 )
 
 AGELESS_ARMY = make_sorcery(
@@ -6333,7 +3953,6 @@ AGELESS_ARMY = make_sorcery(
     mana_cost="{4}{W}",
     colors={Color.WHITE},
     text="Create three 1/1 white Soldier creature tokens. Put a time counter on each of them.",
-    resolve=_tmh_resolve_ageless_army,
 )
 
 RIFT_BOLT = make_instant(
@@ -6341,7 +3960,6 @@ RIFT_BOLT = make_instant(
     mana_cost="{R}",
     colors={Color.RED},
     text="Rift Bolt deals 3 damage to any target. Suspend 1 — {R}.",
-    resolve=_tmh_resolve_rift_bolt,
 )
 
 ENTROPY_WAVE = make_sorcery(
@@ -6349,7 +3967,6 @@ ENTROPY_WAVE = make_sorcery(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     text="Each creature gets -1/-1 until end of turn. Draw a card.",
-    resolve=_tmh_resolve_entropy_wave,
 )
 
 
@@ -6384,7 +4001,6 @@ TEMPORAL_BLESSING = make_instant(
     mana_cost="{W}",
     colors={Color.WHITE},
     text="Target creature gets +2/+2 until end of turn. If it has a time counter, you gain 2 life.",
-    resolve=_tmh_resolve_temporal_blessing,
 )
 
 CHRONICLE_KEEPER = make_creature(
@@ -6411,7 +4027,6 @@ TIMELESS_PRAYER = make_instant(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="You gain 5 life. If you control a creature with a time counter, draw a card.",
-    resolve=_tmh_resolve_timeless_prayer,
 )
 
 DAWN_WATCHER = make_creature(
@@ -6457,7 +4072,6 @@ SUSPENDED_WISDOM = make_sorcery(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     text="Draw two cards. Suspend 2 — {U}.",
-    resolve=_tmh_resolve_suspended_wisdom,
 )
 
 TEMPORAL_CLONE = make_instant(
@@ -6465,7 +4079,6 @@ TEMPORAL_CLONE = make_instant(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     text="Create a token that's a copy of target creature. Exile that token at the beginning of the next end step.",
-    resolve=_tmh_resolve_temporal_clone,
 )
 
 ECHO_SAVANT = make_creature(
@@ -6495,7 +4108,6 @@ TIMELINE_MANIPULATION = make_sorcery(
     mana_cost="{4}{U}{U}",
     colors={Color.BLUE},
     text="Take an extra turn after this one.",
-    resolve=_tmh_resolve_timeline_manipulation,
 )
 
 TEMPORAL_INSIGHT = make_instant(
@@ -6503,7 +4115,6 @@ TEMPORAL_INSIGHT = make_instant(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     text="Draw two cards, then discard a card.",
-    resolve=_tmh_resolve_temporal_insight,
 )
 
 CHRONO_DRAKE = make_creature(
@@ -6538,7 +4149,6 @@ TEMPORAL_DRAIN = make_instant(
     mana_cost="{1}{B}{B}",
     colors={Color.BLACK},
     text="Target creature gets -4/-4 until end of turn. You gain 2 life.",
-    resolve=_tmh_resolve_temporal_drain,
 )
 
 ECHO_OF_DESPAIR = make_creature(
@@ -6579,7 +4189,6 @@ ENTROPY_PLAGUE = make_sorcery(
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     text="All creatures get -3/-3 until end of turn.",
-    resolve=_tmh_resolve_entropy_plague,
 )
 
 LIFE_DRAIN = make_instant(
@@ -6587,7 +4196,6 @@ LIFE_DRAIN = make_instant(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     text="Target opponent loses 3 life and you gain 3 life.",
-    resolve=_tmh_resolve_life_drain,
 )
 
 TEMPORAL_HORROR = make_creature(
@@ -6614,7 +4222,6 @@ RIFT_RUNNER = make_creature(
     colors={Color.RED},
     subtypes={"Human", "Warrior"},
     text="Haste.",
-    setup_interceptors=_tmh_rift_runner_setup,
 )
 
 TEMPORAL_FURY = make_instant(
@@ -6622,7 +4229,6 @@ TEMPORAL_FURY = make_instant(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Target creature gets +3/+0 and gains haste until end of turn.",
-    resolve=_tmh_resolve_temporal_fury,
 )
 
 ECHO_OF_RAGE = make_creature(
@@ -6641,7 +4247,6 @@ SUSPENDED_LIGHTNING = make_instant(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Suspended Lightning deals 3 damage to any target. Suspend 1 — {R}.",
-    resolve=_tmh_resolve_suspended_lightning,
 )
 
 CHRONO_GOBLIN = make_creature(
@@ -6652,7 +4257,6 @@ CHRONO_GOBLIN = make_creature(
     colors={Color.RED},
     subtypes={"Goblin"},
     text="Haste. {R}: Chrono Goblin gets +1/+0 until end of turn.",
-    setup_interceptors=_tmh_chrono_goblin_setup,
 )
 
 RIFT_HAMMER = make_instant(
@@ -6660,7 +4264,6 @@ RIFT_HAMMER = make_instant(
     mana_cost="{2}{R}",
     colors={Color.RED},
     text="Rift Hammer deals 4 damage to target creature.",
-    resolve=_tmh_resolve_rift_hammer,
 )
 
 ACCELERATED_ASSAULT = make_sorcery(
@@ -6668,7 +4271,6 @@ ACCELERATED_ASSAULT = make_sorcery(
     mana_cost="{3}{R}",
     colors={Color.RED},
     text="Creatures you control get +2/+0 and gain haste until end of turn.",
-    resolve=_tmh_resolve_accelerated_assault,
 )
 
 ECHO_DRAGON = make_creature(
@@ -6704,7 +4306,6 @@ TEMPORAL_ROOTS = make_enchantment(
     colors={Color.GREEN},
     subtypes={"Aura"},
     text="Enchant land. Enchanted land has '{T}: Add two mana of any one color.'",
-    setup_interceptors=_tmh_temporal_roots_enchantment_setup,
 )
 
 ECHO_OF_NATURE = make_creature(
@@ -6745,7 +4346,6 @@ PRIMAL_ECHO = make_sorcery(
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
     text="Create two 3/3 green Beast creature tokens.",
-    resolve=_tmh_resolve_primal_echo,
 )
 
 GROWTH_SURGE = make_instant(
@@ -6753,7 +4353,6 @@ GROWTH_SURGE = make_instant(
     mana_cost="{G}",
     colors={Color.GREEN},
     text="Put a +1/+1 counter on target creature.",
-    resolve=_tmh_resolve_growth_surge,
 )
 
 AGELESS_BEHEMOTH = make_creature(
@@ -6835,7 +4434,6 @@ ACCELERATED_ASSAULT_CREATURE = make_creature(
     colors={Color.RED, Color.GREEN},
     subtypes={"Human", "Warrior"},
     text="Haste, trample.",
-    setup_interceptors=_tmh_accelerated_striker_setup,
 )
 
 DECAY_HERALD = make_creature(
@@ -6869,14 +4467,12 @@ TIME_CRYSTAL = make_artifact(
     name="Time Crystal",
     mana_cost="{1}",
     text="{T}: Add {C}. {2}, {T}, Sacrifice Time Crystal: Draw a card.",
-    setup_interceptors=_tmh_time_crystal_setup,
 )
 
 CHRONO_LENS = make_artifact(
     name="Chrono Lens",
     mana_cost="{2}",
     text="{1}, {T}: Scry 1. {3}, {T}: Scry 2.",
-    setup_interceptors=_tmh_chrono_lens_setup,
 )
 
 SUSPENDED_GOLEM = make_creature(
@@ -6894,7 +4490,6 @@ TEMPORAL_PRISM = make_artifact(
     name="Temporal Prism",
     mana_cost="{3}",
     text="{2}, {T}: Choose a color. Add two mana of that color.",
-    setup_interceptors=_tmh_temporal_prism_setup,
 )
 
 ECHO_ARMOR = make_artifact(
@@ -6909,7 +4504,6 @@ RIFT_KEY = make_artifact(
     name="Rift Key",
     mana_cost="{2}",
     text="{T}: Add {C}. {3}, {T}: Exile the top card of your library. You may play it this turn.",
-    setup_interceptors=_tmh_rift_key_setup,
 )
 
 TIMELESS_CROWN = make_artifact(
@@ -6939,51 +4533,43 @@ ENTROPY_ORB = make_artifact(
 TIMELESS_GROVE = make_land(
     name="Timeless Grove",
     text="Timeless Grove enters tapped. {T}: Add {G}. {3}{G}, {T}: Put a +1/+1 counter on target creature.",
-    setup_interceptors=_tmh_timeless_grove_setup,
 )
 
 ENTROPY_MARSH = make_land(
     name="Entropy Marsh",
     text="Entropy Marsh enters tapped. {T}: Add {B}. When Entropy Marsh enters, each player mills one card.",
-    setup_interceptors=_tmh_entropy_marsh_setup,
 )
 
 ACCELERATED_PEAK = make_land(
     name="Accelerated Peak",
     text="Accelerated Peak enters tapped. {T}: Add {R}. {2}{R}, {T}: Target creature gains haste until end of turn.",
-    setup_interceptors=_tmh_accelerated_peak_setup,
 )
 
 SUSPENDED_SANCTUARY = make_land(
     name="Suspended Sanctuary",
     text="{T}: Add {C}. {4}, {T}: Exile target creature you control. Return it to the battlefield at the beginning of the next end step.",
-    setup_interceptors=_tmh_suspended_sanctuary_setup,
 )
 
 RIFT_NEXUS = make_land(
     name="Rift Nexus",
     supertypes={"Legendary"},
     text="{T}: Add {C}. {T}: Add one mana of any color. Spend this mana only to cast spells from exile.",
-    setup_interceptors=_tmh_rift_nexus_setup,
 )
 
 TEMPORAL_OASIS = make_land(
     name="Temporal Oasis",
     text="Temporal Oasis enters tapped. {T}: Add {G} or {U}. When Temporal Oasis enters, scry 1.",
-    setup_interceptors=_tmh_temporal_oasis_setup,
 )
 
 DECAY_TEMPLE = make_land(
     name="Decay Temple",
     text="Decay Temple enters tapped. {T}: Add {B} or {R}. {4}, {T}: Target creature gets -2/-2 until end of turn.",
-    setup_interceptors=_tmh_decay_temple_setup,
 )
 
 ETERNAL_CATHEDRAL = make_land(
     name="Eternal Cathedral",
     supertypes={"Legendary"},
     text="{T}: Add {C}. {T}: Add {W}. Activate only if you control a creature with a time counter. {5}{W}, {T}: You gain 5 life.",
-    setup_interceptors=_tmh_eternal_cathedral_setup,
 )
 
 
@@ -7051,7 +4637,6 @@ TEMPORAL_STRIKE = make_instant(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Exile target attacking or blocking creature. Return it to the battlefield at the beginning of the next end step under its owner's control.",
-    resolve=_tmh_resolve_temporal_strike,
 )
 
 RIFT_BOLT_SPELL = make_instant(
@@ -7059,7 +4644,6 @@ RIFT_BOLT_SPELL = make_instant(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     text="Return target nonland permanent to its owner's hand.",
-    resolve=_tmh_resolve_rift_surge,
 )
 
 ENTROPY_TOUCH = make_instant(
@@ -7067,7 +4651,6 @@ ENTROPY_TOUCH = make_instant(
     mana_cost="{B}",
     colors={Color.BLACK},
     text="Target creature gets -1/-1 until end of turn. You gain 1 life.",
-    resolve=_tmh_resolve_entropys_touch,
 )
 
 CHRONO_SPARK = make_instant(
@@ -7075,7 +4658,6 @@ CHRONO_SPARK = make_instant(
     mana_cost="{R}",
     colors={Color.RED},
     text="Chrono-Spark deals 2 damage to any target.",
-    resolve=_tmh_resolve_chrono_spark,
 )
 
 GROWTH_PULSE = make_instant(
@@ -7083,7 +4665,6 @@ GROWTH_PULSE = make_instant(
     mana_cost="{G}",
     colors={Color.GREEN},
     text="Target creature gets +2/+2 until end of turn.",
-    resolve=_tmh_resolve_growth_pulse,
 )
 
 SUSPENDED_SCOUT = make_creature(
@@ -7094,7 +4675,6 @@ SUSPENDED_SCOUT = make_creature(
     colors={Color.WHITE},
     subtypes={"Human", "Scout"},
     text="Flying. Suspend 1 — {W}.",
-    setup_interceptors=_tmh_suspended_scout_setup,
 )
 
 TEMPORAL_FAMILIAR = make_creature(
@@ -7138,7 +4718,6 @@ TIMELESS_SEEDLING = make_creature(
     colors={Color.GREEN},
     subtypes={"Plant"},
     text="{T}: Add {G}.",
-    setup_interceptors=_tmh_timeless_seedling_setup,
 )
 
 
@@ -7233,7 +4812,6 @@ ENTROPY_CRAWLER = make_creature(
     colors={Color.BLACK},
     subtypes={"Insect"},
     text="Deathtouch.",
-    setup_interceptors=_tmh_entropy_crawler_setup,
 )
 
 RIFT_HUNTER = make_creature(
@@ -7263,7 +4841,6 @@ TEMPORAL_WARD = make_instant(
     mana_cost="{W}",
     colors={Color.WHITE},
     text="Target creature gains hexproof until end of turn.",
-    resolve=_tmh_resolve_temporal_ward,
 )
 
 RIFT_DENIAL = make_instant(
@@ -7271,7 +4848,6 @@ RIFT_DENIAL = make_instant(
     mana_cost="{U}{U}",
     colors={Color.BLUE},
     text="Counter target spell.",
-    resolve=_tmh_resolve_rift_denial,
 )
 
 ENTROPY_GRASP = make_instant(
@@ -7279,7 +4855,6 @@ ENTROPY_GRASP = make_instant(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="Target creature gets -2/-2 until end of turn. If it dies this turn, you draw a card.",
-    resolve=_tmh_resolve_entropy_grasp,
 )
 
 CHRONO_BLAST = make_instant(
@@ -7287,7 +4862,6 @@ CHRONO_BLAST = make_instant(
     mana_cost="{2}{R}",
     colors={Color.RED},
     text="Chrono-Blast deals 4 damage to target creature or planeswalker.",
-    resolve=_tmh_resolve_chrono_blast,
 )
 
 TIMELESS_GROWTH = make_instant(
@@ -7295,7 +4869,6 @@ TIMELESS_GROWTH = make_instant(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Put two +1/+1 counters on target creature.",
-    resolve=_tmh_resolve_timeless_growth,
 )
 
 SUSPENDED_ARMY = make_sorcery(
@@ -7303,7 +4876,6 @@ SUSPENDED_ARMY = make_sorcery(
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     text="Create three 1/1 white Soldier creature tokens. Suspend 2 — {W}{W}.",
-    resolve=_tmh_resolve_suspended_army,
 )
 
 TEMPORAL_VISION = make_sorcery(
@@ -7311,7 +4883,6 @@ TEMPORAL_VISION = make_sorcery(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     text="Draw three cards, then discard a card.",
-    resolve=_tmh_resolve_temporal_vision,
 )
 
 ENTROPY_RITUAL = make_sorcery(
@@ -7319,7 +4890,6 @@ ENTROPY_RITUAL = make_sorcery(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     text="Each player sacrifices a creature. You draw a card for each creature sacrificed this way.",
-    resolve=_tmh_resolve_entropy_ritual,
 )
 
 ACCELERATED_CHARGE = make_sorcery(
@@ -7327,7 +4897,6 @@ ACCELERATED_CHARGE = make_sorcery(
     mana_cost="{2}{R}",
     colors={Color.RED},
     text="Creatures you control get +1/+0 and gain haste until end of turn.",
-    resolve=_tmh_resolve_accelerated_charge,
 )
 
 PRIMAL_GROWTH = make_sorcery(
@@ -7335,7 +4904,6 @@ PRIMAL_GROWTH = make_sorcery(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     text="Search your library for a basic land card, put it onto the battlefield, then shuffle.",
-    resolve=_tmh_resolve_primal_growth,
 )
 
 TEMPORAL_BRIDGE = make_enchantment(
@@ -7374,7 +4942,6 @@ TEMPORAL_MONUMENT = make_artifact(
     name="Temporal Monument",
     mana_cost="{4}",
     text="{T}: Add {C}{C}. {4}, {T}: Put a time counter on target permanent.",
-    setup_interceptors=_tmh_temporal_monument_setup,
 )
 
 CHRONO_AMULET = make_artifact(
@@ -7396,7 +4963,6 @@ ACCELERATED_BOOTS = make_artifact(
     mana_cost="{2}",
     subtypes={"Equipment"},
     text="Equipped creature gets +1/+0 and has haste. Equip {1}",
-    setup_interceptors=_tmh_accelerated_boots_setup,
 )
 
 CHRONO_GATE = make_land(
@@ -7427,7 +4993,6 @@ DECAY_GATEWAY = make_land(
 TEMPORAL_LANDS = make_land(
     name="Temporal Haven",
     text="{T}: Add {C}. {1}, {T}: Put a time counter on target creature you control.",
-    setup_interceptors=_tmh_temporal_haven_setup,
 )
 
 SUSPENDED_CITADEL = make_land(
@@ -7435,14 +5000,12 @@ SUSPENDED_CITADEL = make_land(
     supertypes={"Legendary"},
     text="{T}: Add {C}. Suspend 3 — {0}. When Suspended Citadel enters, each player gains 5 life.",
     # Note: Lands don't have setup_interceptors in make_land, would need etb trigger added differently,
-    setup_interceptors=_tmh_suspended_citadel_setup,
 )
 
 ETERNAL_NEXUS = make_land(
     name="Eternal Nexus",
     supertypes={"Legendary"},
     text="{T}: Add {C}. {5}, {T}: Draw two cards.",
-    setup_interceptors=_tmh_eternal_nexus_setup,
 )
 
 RIFT_HAVEN = make_land(
@@ -7469,7 +5032,6 @@ ENTROPY_SHADE = make_creature(
     colors={Color.BLACK},
     subtypes={"Shade"},
     text="{B}: Entropy Shade gets +1/+1 until end of turn.",
-    setup_interceptors=_tmh_entropy_shade_setup,
 )
 
 
