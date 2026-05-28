@@ -5,7 +5,7 @@ Test the AI engine, strategies, and evaluator.
 """
 
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
+sys.path.insert(0, __import__("pathlib").Path(__file__).resolve().parents[1].as_posix())
 
 from src.engine import (
     Game, GameState, Event, EventType, ZoneType, CardType,

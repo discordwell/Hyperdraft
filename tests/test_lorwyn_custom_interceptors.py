@@ -14,7 +14,7 @@ event type (e.g. card says "destroy" but trigger emits SCRY); compare
 expected vs emitted in the assertion message to diagnose.
 """
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/HYPERDRAFT')
+sys.path.insert(0, __import__("pathlib").Path(__file__).resolve().parents[1].as_posix())
 
 from src.engine import Game, Event, EventType, ZoneType
 from src.cards.custom.lorwyn_custom import LORWYN_CUSTOM_CARDS

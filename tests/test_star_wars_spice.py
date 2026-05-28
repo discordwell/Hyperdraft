@@ -6,7 +6,7 @@ Phase A: cards built with existing engine helpers only.
 """
 
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/HYPERDRAFT')
+sys.path.insert(0, __import__("pathlib").Path(__file__).resolve().parents[1].as_posix())
 
 from src.engine import (
     Game, Event, EventType, ZoneType, CardType, Color, Characteristics,

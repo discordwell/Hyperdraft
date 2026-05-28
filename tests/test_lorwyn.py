@@ -3,7 +3,7 @@ Test Lorwyn Eclipsed cards
 """
 
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
+sys.path.insert(0, __import__("pathlib").Path(__file__).resolve().parents[1].as_posix())
 
 from src.engine import Game, Event, EventType, ZoneType, get_power, get_toughness
 from src.cards.custom.lorwyn_custom import LORWYN_CUSTOM_CARDS

@@ -4,7 +4,7 @@ Verifies issues with mana dorks, X spells, targeting, combat keywords, etc.
 """
 
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
+sys.path.insert(0, __import__("pathlib").Path(__file__).resolve().parents[1].as_posix())
 
 from src.engine import GameState, CardType, ManaCost, ActionType, LegalAction
 from src.ai import AIEngine, BoardEvaluator

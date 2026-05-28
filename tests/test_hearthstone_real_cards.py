@@ -11,7 +11,7 @@ Test actual Hearthstone cards with complex mechanics:
 
 import asyncio
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
+sys.path.insert(0, __import__("pathlib").Path(__file__).resolve().parents[1].as_posix())
 
 from src.engine.game import Game
 from src.engine.types import EventType, CardType, Event, ZoneType

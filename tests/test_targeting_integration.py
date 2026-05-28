@@ -5,7 +5,7 @@ Tests for the TARGET_REQUIRED event handler and targeted trigger helpers.
 """
 
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/Hyperdraft')
+sys.path.insert(0, __import__("pathlib").Path(__file__).resolve().parents[1].as_posix())
 
 from src.engine import (
     Game, Event, EventType, ZoneType, CardType, Color,

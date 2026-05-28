@@ -6,7 +6,7 @@ Validates the 8 PKH spice cards added after Wave-22 R4 revealed PKH at
 """
 
 import sys
-sys.path.insert(0, '/Users/discordwell/Projects/HYPERDRAFT')
+sys.path.insert(0, __import__("pathlib").Path(__file__).resolve().parents[1].as_posix())
 
 from src.engine import (
     Game, Event, EventType, ZoneType, CardType, Color, Characteristics,
