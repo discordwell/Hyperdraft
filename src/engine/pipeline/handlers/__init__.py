@@ -13,6 +13,7 @@ from ...types import EventType
 from .damage import (
     _handle_damage,
     _handle_life_change,
+    _handle_ygo_lp_change,
     _handle_armor_gain,
     _handle_weapon_equip,
 )
@@ -78,6 +79,7 @@ from ...library_search import _handle_search_library_event
 EVENT_HANDLERS = {
     EventType.DAMAGE: _handle_damage,
     EventType.LIFE_CHANGE: _handle_life_change,
+    EventType.YGO_LP_CHANGE: _handle_ygo_lp_change,
     EventType.DRAW: _handle_draw,
     EventType.OBJECT_CREATED: _handle_object_created,
     EventType.ZONE_CHANGE: _handle_zone_change,

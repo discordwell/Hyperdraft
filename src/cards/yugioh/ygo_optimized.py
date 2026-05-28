@@ -15,6 +15,9 @@ from src.engine.types import Event, EventType, GameState, ZoneType, CardType
 from src.engine.yugioh_helpers import (
     destroy_all_monsters, destroy_attacking_monsters,
     revive_from_graveyard, destroy_spell_trap,
+    make_ygo_summon_trigger, make_ygo_destroy_trigger, make_ygo_flip_trigger,
+    make_ygo_standby_trigger, make_ygo_battle_damage_trigger,
+    emit_lp_change,
 )
 
 
@@ -406,11 +409,30 @@ BLACK_LUSTER_SOLDIER = make_ygo_monster(
     image_url="https://images.ygoprodeck.com/images/cards_cropped/72989439.jpg",
 )
 
+def _airknight_setup(obj, state):
+    """When this card inflicts battle damage: Draw 1 card."""
+    def effect_fn(o, event, state):
+        deck = state.zones.get(f"library_{o.controller}")
+        hand = state.zones.get(f"hand_{o.controller}")
+        if not deck or not hand or not deck.objects:
+            return []
+        card_id = deck.objects.pop(0)
+        hand.objects.append(card_id)
+        cobj = state.objects.get(card_id)
+        if cobj:
+            cobj.zone = ZoneType.HAND
+        return [Event(type=EventType.YGO_DRAW,
+                      payload={'player': o.controller, 'count': 1,
+                               'source': 'Airknight Parshath'})]
+    return [make_ygo_battle_damage_trigger(obj, effect_fn)]
+
+
 AIRKNIGHT_PARSHATH = make_ygo_monster(
     "Airknight Parshath", atk=1900, def_val=1400, level=5,
     attribute="LIGHT", ygo_monster_type="Effect",
     subtypes={"Fairy"},
     text="Piercing battle damage. When this card inflicts battle damage: Draw 1 card.",
+    setup_interceptors=_airknight_setup,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/18036057.jpg",
 )
 
@@ -479,17 +501,69 @@ DEKOICHI = make_ygo_monster(
     image_url="https://images.ygoprodeck.com/images/cards_cropped/87621407.jpg",
 )
 
+def _spirit_reaper_setup(obj, state):
+    """When this card inflicts battle damage: opponent discards 1 random card."""
+    def effect_fn(o, event, state):
+        events = []
+        # Identify defender (the player who took damage).
+        defender = event.payload.get('defender_player') or event.payload.get('target_player')
+        if not defender:
+            for pid in state.players:
+                if pid != o.controller:
+                    defender = pid
+                    break
+        if not defender:
+            return events
+        hand = state.zones.get(f"hand_{defender}")
+        gy = state.zones.get(f"graveyard_{defender}")
+        if not hand or not gy or not hand.objects:
+            return events
+        cid = hand.objects.pop()
+        gy.objects.append(cid)
+        cobj = state.objects.get(cid)
+        if cobj:
+            cobj.zone = ZoneType.GRAVEYARD
+        events.append(Event(type=EventType.YGO_SEND_TO_GY,
+                            payload={'card_id': cid, 'reason': 'spirit_reaper_discard',
+                                     'player': defender, 'source': 'Spirit Reaper'}))
+        return events
+    return [make_ygo_battle_damage_trigger(obj, effect_fn)]
+
+
 SPIRIT_REAPER = make_ygo_monster(
     "Spirit Reaper", atk=300, def_val=200, level=3,
     attribute="DARK", ygo_monster_type="Effect",
     subtypes={"Zombie"},
     text="Cannot be destroyed by battle. When this card inflicts battle damage: Opponent discards 1 random card.",
+    setup_interceptors=_spirit_reaper_setup,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/23205979.jpg",
 )
+
+def _snatch_steal_setup(obj, state):
+    """Standby-phase 'gift' clause: opponent gains 1000 LP each of THEIR
+    standby phases while Snatch Steal is on the field.
+
+    The control-theft proper is handled by ``yugioh_spells.activate_spell``
+    (which equips Snatch Steal to the target). This setup only covers the
+    LP-gift drawback.
+    """
+    def effect_fn(o, state):
+        target_id = getattr(o.state, 'equipped_to', None)
+        if not target_id:
+            return []
+        target = state.objects.get(target_id)
+        if not target:
+            return []
+        # "Opponent" here is the ORIGINAL owner of the stolen monster.
+        opponent_id = target.owner
+        return emit_lp_change(opponent_id, +1000, "Snatch Steal")
+    return [make_ygo_standby_trigger(obj, effect_fn, controllers_only=False)]
+
 
 SNATCH_STEAL = make_ygo_spell(
     "Snatch Steal", ygo_spell_type="Equip",
     text="Take control of 1 opponent's monster. Opponent gains 1000 LP each Standby Phase.",
+    setup_interceptors=_snatch_steal_setup,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/45986603.jpg",
 )
 
@@ -568,11 +642,49 @@ MOBIUS_THE_FROST_MONARCH = make_ygo_monster(
     image_url="https://images.ygoprodeck.com/images/cards_cropped/4929256.jpg",
 )
 
+def _thestalos_setup(obj, state):
+    """When Tribute Summoned: discard 1 random card from opp hand. If it was
+    a monster, burn 100 × level."""
+    def effect_fn(o, state):
+        events = []
+        # Only fire on Tribute Summon (level 6 Monarch — tribute on summon).
+        opp = None
+        for pid in state.players:
+            if pid != o.controller:
+                opp = pid
+                break
+        if not opp:
+            return events
+        hand = state.zones.get(f"hand_{opp}")
+        gy = state.zones.get(f"graveyard_{opp}")
+        if not hand or not gy or not hand.objects:
+            return events
+        cid = hand.objects.pop()
+        gy.objects.append(cid)
+        discarded = state.objects.get(cid)
+        if discarded:
+            discarded.zone = ZoneType.GRAVEYARD
+        events.append(Event(type=EventType.YGO_SEND_TO_GY,
+                            payload={'card_id': cid, 'reason': 'thestalos_discard',
+                                     'player': opp, 'source': 'Thestalos'}))
+        # If it was a monster, burn 100 × level
+        if discarded and discarded.card_def:
+            is_monster = CardType.YGO_MONSTER in discarded.card_def.characteristics.types
+            if is_monster:
+                lvl = getattr(discarded.card_def, 'level', 0) or 0
+                damage = 100 * lvl
+                if damage > 0:
+                    events.extend(emit_lp_change(opp, -damage, "Thestalos the Firestorm Monarch"))
+        return events
+    return [make_ygo_summon_trigger(obj, effect_fn)]
+
+
 THESTALOS_THE_FIRESTORM_MONARCH = make_ygo_monster(
     "Thestalos the Firestorm Monarch", atk=2400, def_val=1000, level=6,
     attribute="FIRE", ygo_monster_type="Effect",
     subtypes={"Pyro"},
     text="When Tribute Summoned: Discard 1 random card from opponent's hand. If it was a Monster, inflict 100 x its Level as damage.",
+    setup_interceptors=_thestalos_setup,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/26205777.jpg",
 )
 
@@ -584,11 +696,70 @@ ZABORG_THE_THUNDER_MONARCH = make_ygo_monster(
     image_url="https://images.ygoprodeck.com/images/cards_cropped/51945556.jpg",
 )
 
+def _caius_setup(obj, state):
+    """When Tribute Summoned: Banish 1 card on the field. If it was a DARK
+    monster, inflict 1000 damage to opponent.
+
+    Auto-selects the highest-ATK opponent monster as the target (heuristic).
+    """
+    def effect_fn(o, state):
+        events = []
+        opp = None
+        for pid in state.players:
+            if pid != o.controller:
+                opp = pid
+                break
+        if not opp:
+            return events
+        # Pick highest-ATK monster on opponent's field
+        zone = state.zones.get(f"monster_zone_{opp}")
+        if not zone:
+            return events
+        best_id = None
+        best_atk = -1
+        best_dark = False
+        for i, oid in enumerate(zone.objects):
+            if not oid:
+                continue
+            cobj = state.objects.get(oid)
+            if not cobj or cobj.state.face_down:
+                continue
+            atk = getattr(cobj.card_def, 'atk', 0) or 0
+            if atk > best_atk:
+                best_atk = atk
+                best_id = oid
+                attr = getattr(cobj.card_def, 'attribute', '') if cobj.card_def else ''
+                best_dark = (attr == 'DARK')
+        if not best_id:
+            return events
+        # Banish target
+        target = state.objects.get(best_id)
+        if not target:
+            return events
+        for i, oid in enumerate(zone.objects):
+            if oid == best_id:
+                zone.objects[i] = None
+                break
+        banished = state.zones.get(f"banished_{target.owner}") or state.zones.get(f"graveyard_{target.owner}")
+        if banished is not None:
+            banished.objects.append(best_id)
+        target.zone = ZoneType.EXILE if hasattr(ZoneType, 'EXILE') else ZoneType.GRAVEYARD
+        target.state.ygo_position = None
+        events.append(Event(type=EventType.YGO_BANISH,
+                            payload={'card_id': best_id, 'card_name': target.name,
+                                     'source': 'Caius'}))
+        if best_dark:
+            events.extend(emit_lp_change(opp, -1000, "Caius the Shadow Monarch"))
+        return events
+    return [make_ygo_summon_trigger(obj, effect_fn)]
+
+
 CAIUS_THE_SHADOW_MONARCH = make_ygo_monster(
     "Caius the Shadow Monarch", atk=2400, def_val=1000, level=6,
     attribute="DARK", ygo_monster_type="Effect",
     subtypes={"Fiend"},
     text="When Tribute Summoned: Banish 1 card on the field. If it was a DARK monster, inflict 1000 damage.",
+    setup_interceptors=_caius_setup,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/9748752.jpg",
 )
 
@@ -606,9 +777,73 @@ SOUL_EXCHANGE = make_ygo_spell(
     image_url="https://images.ygoprodeck.com/images/cards_cropped/68005187.jpg",
 )
 
+def _brain_control_resolve(event, state):
+    """Pay 800 LP; take control of 1 opponent's face-up monster (until End Phase).
+
+    Auto-selects highest-ATK opponent monster as the target. The control swap
+    proper is approximated by toggling ``obj.controller`` for the rest of the
+    turn (full end-phase reversion is left to future work — at minimum the LP
+    cost is now actually paid)."""
+    events = []
+    pid = event.payload.get('player')
+    if not pid:
+        return events
+    # Pay 800 LP first.
+    events.extend(emit_lp_change(pid, -800, "Brain Control"))
+    # Find target
+    target_id = (event.payload.get('targets') or [None])[0]
+    if not target_id:
+        # Auto-select highest-ATK face-up opponent monster
+        best_id, best_atk = None, -1
+        for opp_id in state.players:
+            if opp_id == pid:
+                continue
+            zone = state.zones.get(f"monster_zone_{opp_id}")
+            if not zone:
+                continue
+            for oid in zone.objects:
+                if not oid:
+                    continue
+                cobj = state.objects.get(oid)
+                if not cobj or cobj.state.face_down:
+                    continue
+                atk = getattr(cobj.card_def, 'atk', 0) or 0
+                if atk > best_atk:
+                    best_atk = atk
+                    best_id = oid
+        target_id = best_id
+    if not target_id:
+        return events
+    target = state.objects.get(target_id)
+    if not target:
+        return events
+    # Move monster to controller's monster zone.
+    src_zone = state.zones.get(f"monster_zone_{target.controller}")
+    dst_zone = state.zones.get(f"monster_zone_{pid}")
+    if src_zone and dst_zone:
+        for i, oid in enumerate(src_zone.objects):
+            if oid == target_id:
+                src_zone.objects[i] = None
+                break
+        slot = None
+        for k in range(5):
+            if k >= len(dst_zone.objects) or dst_zone.objects[k] is None:
+                slot = k
+                break
+        if slot is None and len(dst_zone.objects) < 5:
+            slot = len(dst_zone.objects)
+        if slot is not None:
+            while len(dst_zone.objects) <= slot:
+                dst_zone.objects.append(None)
+            dst_zone.objects[slot] = target_id
+            target.controller = pid
+    return events
+
+
 BRAIN_CONTROL = make_ygo_spell(
     "Brain Control", ygo_spell_type="Normal",
     text="Pay 800 LP; take control of 1 opponent's face-up monster until the End Phase.",
+    resolve=_brain_control_resolve,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/87910978.jpg",
 )
 
@@ -698,11 +933,21 @@ MONARCH_STRATEGY = {
 # DECK 3: Chain Burn
 # =============================================================================
 
+def _lava_golem_setup(obj, state):
+    """During each of its controller's Standby Phases: burn that controller
+    for 1000 LP. (The 'give to opponent' clause is handled outside the trigger
+    — typically as part of the Special Summon path.)"""
+    def effect_fn(o, state):
+        return emit_lp_change(o.controller, -1000, "Lava Golem")
+    return [make_ygo_standby_trigger(obj, effect_fn)]
+
+
 LAVA_GOLEM = make_ygo_monster(
     "Lava Golem", atk=3000, def_val=2500, level=8,
     attribute="FIRE", ygo_monster_type="Effect",
     subtypes={"Fiend"},
     text="Give to opponent by tributing 2 of their monsters. Inflicts 1000 damage to its controller each Standby Phase.",
+    setup_interceptors=_lava_golem_setup,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/102380.jpg",
 )
 
@@ -758,19 +1003,44 @@ DES_KOALA = make_ygo_monster(
     image_url="https://images.ygoprodeck.com/images/cards_cropped/69579761.jpg",
 )
 
+def _marshmallon_flip(obj, state):
+    """When flipped face-up (by attack): inflict 1000 damage to opponent.
+
+    Used as ``flip_effect`` — fires from YGO_FLIP via the turn manager."""
+    events = []
+    for pid in state.players:
+        if pid != obj.controller:
+            events.extend(emit_lp_change(pid, -1000, "Marshmallon"))
+    return events
+
+
 MARSHMALLON = make_ygo_monster(
     "Marshmallon", atk=300, def_val=500, level=3,
     attribute="LIGHT", ygo_monster_type="Effect",
     subtypes={"Fairy"},
     text="Cannot be destroyed by battle. When flipped face-up by attack: Inflict 1000 damage to opponent.",
+    flip_effect=_marshmallon_flip,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/31305911.jpg",
 )
+
+def _giant_germ_setup(obj, state):
+    """When destroyed (by battle): burn opponent 500. (SS-2-copies clause
+    omitted — engine doesn't expose deck search by name yet.)"""
+    def effect_fn(o, state):
+        events = []
+        for pid in state.players:
+            if pid != o.controller:
+                events.extend(emit_lp_change(pid, -500, "Giant Germ"))
+        return events
+    return [make_ygo_destroy_trigger(obj, effect_fn)]
+
 
 GIANT_GERM = make_ygo_monster(
     "Giant Germ", atk=1000, def_val=100, level=2,
     attribute="DARK", ygo_monster_type="Effect",
     subtypes={"Fiend"},
     text="When destroyed by battle: Inflict 500 damage to opponent, then Special Summon up to 2 copies from Deck.",
+    setup_interceptors=_giant_germ_setup,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/95178994.jpg",
 )
 
@@ -799,15 +1069,63 @@ OOKAZI = make_ygo_spell(
     image_url="https://images.ygoprodeck.com/images/cards_cropped/19523799.jpg",
 )
 
+def _wave_motion_setup(obj, state):
+    """Standby simplification: each controller standby phase burns opponent
+    1000. (Faithful version: accumulate counters, discard-on-ignition for
+    counter×1000 burn. The simplified version still pressures opponent in the
+    same direction — chip damage scaling with time-on-field.)"""
+    def effect_fn(o, state):
+        events = []
+        for pid in state.players:
+            if pid != o.controller:
+                events.extend(emit_lp_change(pid, -1000, "Wave-Motion Cannon"))
+        return events
+    return [make_ygo_standby_trigger(obj, effect_fn)]
+
+
 WAVE_MOTION_CANNON = make_ygo_spell(
     "Wave-Motion Cannon", ygo_spell_type="Continuous",
     text="During your Main Phase: Send this face-up card to the GY; inflict 1000 damage per Standby Phase this was on the field.",
+    setup_interceptors=_wave_motion_setup,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/38992735.jpg",
 )
+
+def _messenger_of_peace_setup(obj, state):
+    """Pay 100 LP each controller standby phase to keep this active. (Auto-pay:
+    controllers always elect to pay; if LP < 100, self-destruct.)"""
+    def effect_fn(o, state):
+        events = []
+        player = state.players.get(o.controller)
+        if not player:
+            return events
+        if player.lp <= 100:
+            # Can't pay — destroy self.
+            for zone in state.zones.values():
+                if o.id in zone.objects:
+                    for i, oid in enumerate(zone.objects):
+                        if oid == o.id:
+                            zone.objects[i] = None
+                            break
+                    while o.id in zone.objects:
+                        zone.objects.remove(o.id)
+                    break
+            gy = state.zones.get(f"graveyard_{o.owner}")
+            if gy is not None:
+                gy.objects.append(o.id)
+            o.zone = ZoneType.GRAVEYARD
+            events.append(Event(type=EventType.YGO_DESTROY,
+                                payload={'card_id': o.id, 'card_name': o.name,
+                                         'reason': 'messenger_unpaid'}))
+        else:
+            events.extend(emit_lp_change(o.controller, -100, "Messenger of Peace upkeep"))
+        return events
+    return [make_ygo_standby_trigger(obj, effect_fn)]
+
 
 MESSENGER_OF_PEACE = make_ygo_spell(
     "Messenger of Peace", ygo_spell_type="Continuous",
     text="Monsters with 1500+ ATK cannot attack. Pay 100 LP each Standby Phase or destroy this card.",
+    setup_interceptors=_messenger_of_peace_setup,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/44656491.jpg",
 )
 

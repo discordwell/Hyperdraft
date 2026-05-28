@@ -307,6 +307,18 @@ class EventType(Enum):
     YGO_SEARCH_DECK = auto()          # Tutor: search deck/GY/banish for a card matching predicate
                                       # payload: {'player', 'card_id', 'filter_desc'?, 'destination': 'hand'|'field'}
                                       # Always emit a YGO_DRAW follow-up so generic draw-reactive triggers fire.
+    YGO_LP_CHANGE = auto()            # Life Points change (request).
+                                      # payload: {
+                                      #   'player': pid, 'amount': int (positive=gain, negative=burn),
+                                      #   'source': str (card name for log),
+                                      #   '_engine_apply': bool (True = pipeline mutates LP; False/missing
+                                      #     = caller already mutated, this event is informational only)
+                                      # }
+    YGO_LP_CHANGED = auto()           # Follow-up: LP delta has been applied.
+                                      # payload: {'player': pid, 'amount': int, 'new_lp': int, 'source': str}
+    YGO_GAME_OVER = auto()            # LP-zero (or other) loss condition triggered.
+                                      # payload: {'player': pid (loser), 'reason': str}
+    YGO_DRAW = auto()                 # Draw Phase draw
     YGO_ACTIVATE_MONSTER_EFFECT = auto()  # Activate a monster's Ignition/Quick Effect
                                           # payload: {'monster_id', 'effect_index', 'player', 'targets'}
 

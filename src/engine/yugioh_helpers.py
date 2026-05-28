@@ -258,6 +258,96 @@ def revive_from_graveyard(state: GameState, player_id: str, card_id: str) -> lis
     return events
 
 
+def make_ygo_standby_trigger(obj: GameObject, effect_fn, *, controllers_only: bool = True):
+    """Trigger that fires once per (player) Standby Phase while ``obj`` is on
+    the field. Used by Continuous Spells like Wave-Motion Cannon and persistent
+    effects like Lava Golem, Snatch Steal, Messenger of Peace.
+
+    ``effect_fn(obj, state) -> list[Event]`` is called every time the
+    controller's Standby Phase is entered. If ``controllers_only=False`` it
+    fires on EITHER player's standby (used for Wave-Motion accumulator).
+    """
+    from .types import ZoneType
+
+    def _filter(event: Event, state: GameState) -> bool:
+        if obj.zone not in (ZoneType.MONSTER_ZONE, ZoneType.SPELL_TRAP_ZONE,
+                            ZoneType.FIELD_SPELL_ZONE):
+            return False
+        if event.type != EventType.PHASE_CHANGE:
+            return False
+        if event.payload.get('phase') != 'standby':
+            return False
+        if controllers_only and event.payload.get('player') != obj.controller:
+            return False
+        last_turn = getattr(obj.state, '_standby_trigger_turn', None)
+        return last_turn != state.turn_number
+
+    def _handler(event: Event, state: GameState) -> InterceptorResult:
+        obj.state._standby_trigger_turn = state.turn_number
+        events = effect_fn(obj, state) or []
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
+
+    return Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT, filter=_filter, handler=_handler,
+        duration='until_leaves',
+    )
+
+
+def make_ygo_battle_damage_trigger(obj: GameObject, effect_fn):
+    """Trigger that fires when this monster inflicts battle damage.
+
+    Filters on ``EventType.YGO_BATTLE_DAMAGE`` where the payload's ``source``
+    (the attacker) equals this object's id. Used by cards like Airknight
+    Parshath (draw on battle damage) and Spirit Reaper (force discard).
+    """
+    def _filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.YGO_BATTLE_DAMAGE:
+            return False
+        # The attacker may be in payload['attacker_id'] or payload['source'].
+        attacker = (event.payload.get('attacker_id')
+                    or event.payload.get('source')
+                    or event.source)
+        return attacker == obj.id
+
+    def _handler(event: Event, state: GameState) -> InterceptorResult:
+        events = effect_fn(obj, event, state) or []
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
+
+    return Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT, filter=_filter, handler=_handler,
+        duration='until_leaves',
+    )
+
+
+def emit_lp_change(player_id: str, amount: int, source: str = "") -> list[Event]:
+    """Build a declarative YGO_LP_CHANGE event for the pipeline to apply.
+
+    Use this for cards that want the engine to handle the LP mutation +
+    loss-condition check (rather than mutating ``player.lp`` inline). The
+    handler (``pipeline.handlers.damage._handle_ygo_lp_change``) does:
+
+    1. Clamps the new LP at 0 (cannot go negative).
+    2. Emits ``YGO_LP_CHANGED`` (so downstream interceptors can trigger on
+       the change — e.g. cards that say "when you gain LP" / "when you take
+       damage").
+    3. Sets ``has_lost = True`` and emits ``YGO_GAME_OVER`` if LP hit 0.
+
+    Positive ``amount`` = lifegain; negative ``amount`` = burn / payment.
+
+    NOTE: this is the modern, declarative path. The older pattern (mutate
+    ``player.lp`` inline, then emit YGO_LP_CHANGE as a notification) is still
+    supported by the same handler (omit ``_engine_apply``) — but new code
+    should prefer this helper.
+    """
+    return [Event(
+        type=EventType.YGO_LP_CHANGE,
+        payload={'player': player_id, 'amount': amount,
+                 'source': source, '_engine_apply': True},
+    )]
+
+
 def destroy_spell_trap(state: GameState, card_id: str) -> list[Event]:
     """Destroy a Spell/Trap card (MST effect)."""
     events = []

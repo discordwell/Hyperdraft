@@ -107,6 +107,61 @@ def _handle_life_change(event: Event, state: GameState):
             obj.state.damage += abs(amount)
 
 
+def _handle_ygo_lp_change(event: Event, state: GameState):
+    """Handle YGO_LP_CHANGE event.
+
+    Two modes:
+    - **Declarative** (``payload['_engine_apply'] == True``): the engine mutates
+      ``player.lp`` here. Cards just emit a YGO_LP_CHANGE event with the
+      desired delta and the pipeline takes care of clamping / loss detection /
+      follow-up events. This is the path new cards should use via
+      :func:`yugioh_helpers.emit_lp_change`.
+    - **Legacy / notification** (no flag, default): the caller has already
+      mutated ``player.lp`` themselves. The handler only runs the loss check
+      and emits the follow-up ``YGO_LP_CHANGED`` / ``YGO_GAME_OVER`` events.
+      This preserves backward compatibility with the ~30 existing card
+      definitions that pre-mutate LP before emitting (see Audit 2026-05).
+
+    Either way, emits ``YGO_LP_CHANGED`` (informational, for downstream
+    triggers) and, if ``player.lp <= 0``, ``YGO_GAME_OVER`` plus
+    ``player.has_lost = True`` so :meth:`YugiohTurnManager._check_game_over`
+    picks it up.
+    """
+    from ...types import Event, EventType
+
+    player_id = event.payload.get('player')
+    amount = int(event.payload.get('amount', 0))
+    source = event.payload.get('source', '')
+    apply_in_engine = bool(event.payload.get('_engine_apply', False))
+
+    if player_id not in state.players:
+        return None
+
+    player = state.players[player_id]
+
+    if apply_in_engine and amount != 0:
+        # Clamp at 0 on burn; no upper cap in YGO (Numerons / Exodia variants
+        # aside, but those are explicit overrides).
+        player.lp = max(0, player.lp + amount)
+
+    new_lp = player.lp
+    follow_ups: list[Event] = [
+        Event(type=EventType.YGO_LP_CHANGED,
+              payload={'player': player_id, 'amount': amount,
+                       'new_lp': new_lp, 'source': source})
+    ]
+
+    if new_lp <= 0 and not player.has_lost:
+        player.has_lost = True
+        follow_ups.append(Event(
+            type=EventType.YGO_GAME_OVER,
+            payload={'player': player_id, 'reason': 'lp_zero',
+                     'source': source}
+        ))
+
+    return follow_ups
+
+
 def _handle_armor_gain(event: Event, state: GameState):
     """Handle ARMOR_GAIN event — increment player's armor."""
     player_id = event.payload.get('player')

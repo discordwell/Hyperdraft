@@ -12,6 +12,7 @@ from src.engine.types import Event, EventType, GameState, ZoneType
 from src.engine.yugioh_helpers import (
     destroy_all_monsters, destroy_attacking_monsters,
     revive_from_graveyard, destroy_spell_trap,
+    emit_lp_change,
 )
 
 
@@ -84,11 +85,21 @@ BUSTER_BLADER = make_ygo_monster(
     image_url="https://images.ygoprodeck.com/images/cards_cropped/78193831.jpg",
 )
 
+def _marshmallon_classic_flip(obj, state):
+    """1000 damage to opponent when flipped."""
+    events = []
+    for pid in state.players:
+        if pid != obj.controller:
+            events.extend(emit_lp_change(pid, -1000, "Marshmallon"))
+    return events
+
+
 MARSHMALLON = make_ygo_monster(
     "Marshmallon", atk=300, def_val=500, level=3,
     attribute="LIGHT", ygo_monster_type="Effect",
     subtypes={"Fairy"},
     text="Cannot be destroyed by battle. 1000 damage to opponent when flipped.",
+    flip_effect=_marshmallon_classic_flip,
     image_url="https://images.ygoprodeck.com/images/cards_cropped/31305911.jpg",
 )
 
