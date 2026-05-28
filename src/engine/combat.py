@@ -566,6 +566,10 @@ class CombatManager:
             return False
 
         # Check evasion abilities
+        if (has_ability(attacker, 'unblockable', self.state) or
+                has_ability(attacker, 'cant_be_blocked', self.state)):
+            return False
+
         if has_ability(attacker, 'flying', self.state):
             # Can only be blocked by flying or reach
             if not (has_ability(blocker, 'flying', self.state) or

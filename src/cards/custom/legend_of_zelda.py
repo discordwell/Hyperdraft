@@ -397,8 +397,39 @@ def _zld_count_allies_by_type(state: GameState, controller_id: str, cardtype: Ca
 
 # --- Equipment ETB helpers (12) -----------------------------------------------
 
+# Granted-activated-ability effect_fns. ``o`` is the *equipped creature*
+# (where the granted descriptor lives), so damage source is the bearer.
+def _heros_bow_shoot(o: GameObject, state: GameState, targets) -> list[Event]:
+    """{T}: equipped creature deals 2 damage to target creature with flying."""
+    if not targets:
+        return []
+    t = targets[0]
+    tid = t.object_id if hasattr(t, 'object_id') else (t.id if hasattr(t, 'id') else t)
+    return [Event(type=EventType.DAMAGE,
+                  payload={'target': tid, 'amount': 2, 'source': o.id},
+                  source=o.id)]
+
+
+def _ancient_bow_shoot(o: GameObject, state: GameState, targets) -> list[Event]:
+    """{T}: equipped creature deals 3 damage to any target."""
+    if not targets:
+        return []
+    t = targets[0]
+    tid = t.object_id if hasattr(t, 'object_id') else (t.id if hasattr(t, 'id') else t)
+    return [Event(type=EventType.DAMAGE,
+                  payload={'target': tid, 'amount': 3, 'source': o.id},
+                  source=o.id)]
+
+
+def _deku_mask_mana(o: GameObject, state: GameState, targets) -> list[Event]:
+    """{T}: Add {G} (granted to equipped creature)."""
+    return [Event(type=EventType.MANA_PRODUCED,
+                  payload={'player': o.controller, 'color': Color.GREEN, 'amount': 1},
+                  source=o.id, controller=o.controller)]
+
+
 def heros_bow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 life per artifact ally (precision arrows)."""
+    """Grants '{T}: deal 2 to flyer' (static). ETB: scry 1 + each opp -1 per artifact."""
     def effect_fn(event: Event, st: GameState) -> list[Event]:
         n_arts = _zld_count_allies_by_type(st, obj.controller, CardType.ARTIFACT)
         events = [Event(type=EventType.SCRY,
@@ -413,7 +444,15 @@ def heros_bow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id, controller=obj.controller,
             ))
         return events
-    return [make_etb_trigger(obj, effect_fn)]
+    static = make_equipment_setup(
+        equip_cost="{1}",
+        granted_activated_abilities={
+            "cost": "{T}", "effect_fn": _heros_bow_shoot,
+            "description": "This creature deals 2 damage to target creature with flying",
+            "targets_required": 1, "target_kind": "creature",
+        },
+    )(obj, state)
+    return static + [make_etb_trigger(obj, effect_fn)]
 
 
 def biggorons_sword_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -432,11 +471,35 @@ def biggorons_sword_setup(obj: GameObject, state: GameState) -> list[Interceptor
                 source=obj.id, controller=obj.controller,
             ))
         return events
-    return [make_etb_trigger(obj, effect_fn)]
+    static = make_equipment_setup(power_mod=5, toughness_mod=0,
+                                  keywords=["trample", "cant_block"], equip_cost="{3}")(obj, state)
+    return static + [make_etb_trigger(obj, effect_fn)]
+
+
+def _mirror_shield_damaged_filter(event: Event, state: GameState, target_id: str) -> bool:
+    # Equipped creature (target_id) is dealt damage by some source.
+    if event.type != EventType.DAMAGE:
+        return False
+    if event.payload.get('target') != target_id:
+        return False
+    return bool(event.payload.get('source')) and event.payload.get('amount', 0) > 0
+
+
+def _mirror_shield_reflect_effect(target_obj: GameObject, event: Event, state: GameState) -> list[Event]:
+    # That source's controller loses that much life.
+    amount = event.payload.get('amount', 0)
+    src_id = event.payload.get('source')
+    src = state.objects.get(src_id) if src_id else None
+    controller = src.controller if src else None
+    if controller is None or amount <= 0:
+        return []
+    return [Event(type=EventType.LIFE_CHANGE,
+                  payload={'player': controller, 'amount': -amount},
+                  source=target_obj.id)]
 
 
 def mirror_shield_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + heal per Knight ally + each opp -1 (reflected light)."""
+    """Equipped: +1/+2 (static) + reflect damage to source's controller. ETB: scry 1 + heal per Knight + each opp -1."""
     def effect_fn(event: Event, st: GameState) -> list[Event]:
         n_knights = _zld_count_allies_by_subtype(st, obj.controller, 'Knight')
         events = [
@@ -457,7 +520,15 @@ def mirror_shield_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id, controller=obj.controller,
             ))
         return events
-    return [make_etb_trigger(obj, effect_fn)]
+    static = make_equipment_setup(
+        power_mod=1, toughness_mod=2, equip_cost="{2}",
+        granted_triggered_abilities={
+            "event_filter": _mirror_shield_damaged_filter,
+            "effect_fn": _mirror_shield_reflect_effect,
+            "description": "Damaged → that source's controller loses that much life",
+        },
+    )(obj, state)
+    return static + [make_etb_trigger(obj, effect_fn)]
 
 
 def ancient_bow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -476,11 +547,19 @@ def ancient_bow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id, controller=obj.controller,
             ))
         return events
-    return [make_etb_trigger(obj, effect_fn)]
+    static = make_equipment_setup(
+        power_mod=1, toughness_mod=1, equip_cost="{2}",
+        granted_activated_abilities={
+            "cost": "{T}", "effect_fn": _ancient_bow_shoot,
+            "description": "This creature deals 3 damage to any target",
+            "targets_required": 1, "target_kind": "any",
+        },
+    )(obj, state)
+    return static + [make_etb_trigger(obj, effect_fn)]
 
 
 def kokiri_sword_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Kokiri ally (child's blade)."""
+    """Equipped creature gets +1/+1 (static). ETB: scry 1 + each opp -1 per Kokiri."""
     def effect_fn(event: Event, st: GameState) -> list[Event]:
         n_kokiri = _zld_count_allies_by_subtype(st, obj.controller, 'Kokiri')
         events = [Event(type=EventType.SCRY,
@@ -495,11 +574,12 @@ def kokiri_sword_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id, controller=obj.controller,
             ))
         return events
-    return [make_etb_trigger(obj, effect_fn)]
+    static = make_equipment_setup(power_mod=1, toughness_mod=1, equip_cost="{1}")(obj, state)
+    return static + [make_etb_trigger(obj, effect_fn)]
 
 
 def majoras_mask_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + each opp discards 1 per Mask ally (cursed influence)."""
+    """Equipped: +3/+3, menace (static). Upkeep: lose 1 life. ETB: scry 2 + each opp discards per Mask."""
     def effect_fn(event: Event, st: GameState) -> list[Event]:
         n_masks = _zld_count_allies_by_subtype(st, obj.controller, 'Mask')
         events = [Event(type=EventType.SCRY,
@@ -514,7 +594,15 @@ def majoras_mask_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id, controller=obj.controller,
             ))
         return events
-    return [make_etb_trigger(obj, effect_fn)]
+
+    def upkeep_fn(event: Event, st: GameState) -> list[Event]:
+        return [Event(type=EventType.LIFE_CHANGE,
+                      payload={'player': obj.controller, 'amount': -1},
+                      source=obj.id)]
+    static = make_equipment_setup(power_mod=3, toughness_mod=3,
+                                  keywords=["menace"], equip_cost="{2}")(obj, state)
+    return static + [make_etb_trigger(obj, effect_fn),
+                     make_upkeep_trigger(obj, upkeep_fn)]
 
 
 def fierce_deity_mask_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -547,11 +635,13 @@ def fierce_deity_mask_setup(obj: GameObject, state: GameState) -> list[Intercept
                 source=obj.id, controller=obj.controller,
             ))
         return events
-    return [make_etb_trigger(obj, effect_fn)]
+    static = make_equipment_setup(power_mod=4, toughness_mod=4,
+                                  keywords=["double_strike"], equip_cost="{3}")(obj, state)
+    return static + [make_etb_trigger(obj, effect_fn)]
 
 
 def deku_mask_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: gain 1 life per Plant ally + each opp -1 (forest mask)."""
+    """Grants Plant + '{T}: Add {G}' (static). ETB: gain life per Plant + each opp -1."""
     def effect_fn(event: Event, st: GameState) -> list[Event]:
         n_plant = _zld_count_allies_by_subtype(st, obj.controller, 'Plant')
         events = [Event(type=EventType.LIFE_CHANGE,
@@ -566,7 +656,14 @@ def deku_mask_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id, controller=obj.controller,
             ))
         return events
-    return [make_etb_trigger(obj, effect_fn)]
+    static = make_equipment_setup(
+        subtypes_to_add={"Plant"}, equip_cost="{1}",
+        granted_activated_abilities={
+            "cost": "{T}", "effect_fn": _deku_mask_mana,
+            "description": "Add {G}",
+        },
+    )(obj, state)
+    return static + [make_etb_trigger(obj, effect_fn)]
 
 
 def goron_mask_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -585,7 +682,10 @@ def goron_mask_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id, controller=obj.controller,
             ))
         return events
-    return [make_etb_trigger(obj, effect_fn)]
+    static = make_equipment_setup(power_mod=2, toughness_mod=2,
+                                  keywords=["trample"], subtypes_to_add={"Goron"},
+                                  equip_cost="{2}")(obj, state)
+    return static + [make_etb_trigger(obj, effect_fn)]
 
 
 def zora_mask_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -604,7 +704,10 @@ def zora_mask_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id, controller=obj.controller,
             ))
         return events
-    return [make_etb_trigger(obj, effect_fn)]
+    static = make_equipment_setup(power_mod=1, toughness_mod=2,
+                                  keywords=["unblockable"], subtypes_to_add={"Zora"},
+                                  equip_cost="{2}")(obj, state)
+    return static + [make_etb_trigger(obj, effect_fn)]
 
 
 def bunny_hood_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -624,7 +727,9 @@ def bunny_hood_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id, controller=obj.controller,
             ))
         return events
-    return [make_etb_trigger(obj, effect_fn)]
+    static = make_equipment_setup(power_mod=1, toughness_mod=0,
+                                  keywords=["haste"], equip_cost="{1}")(obj, state)
+    return static + [make_etb_trigger(obj, effect_fn)]
 
 
 def stone_mask_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -644,13 +749,113 @@ def stone_mask_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id, controller=obj.controller,
             ))
         return events
-    return [make_etb_trigger(obj, effect_fn)]
+    static = make_equipment_setup(
+        keywords=["hexproof", "cant_attack", "cant_block"], equip_cost="{1}")(obj, state)
+    return static + [make_etb_trigger(obj, effect_fn)]
 
 
 # --- Artifact ETB helpers (7) -------------------------------------------------
 
+# Activated-ability effect_fns for the artifacts whose ORIGINAL ability clause
+# (the slice-8D retrofit appended an ETB pulse and wired only that). ``o`` is
+# the artifact itself; ``targets`` is the chosen target list (engine-supplied).
+def _tid(t):
+    return t.object_id if hasattr(t, 'object_id') else (t.id if hasattr(t, 'id') else t)
+
+
+def _ocarina_modal(o: GameObject, state: GameState, targets) -> list[Event]:
+    """Choose one — bounce target creature / untap all your creatures / scry 3.
+    No modal UI yet: bounce if a target was supplied, else untap-all + scry 3."""
+    if targets:
+        tid = _tid(targets[0])
+        tgt = state.objects.get(tid)
+        if tgt is not None:
+            return [Event(type=EventType.ZONE_CHANGE,
+                          payload={'object_id': tid,
+                                   'from_zone_type': ZoneType.BATTLEFIELD,
+                                   'to_zone_type': ZoneType.HAND,
+                                   'to_zone': f'hand_{tgt.owner}'},
+                          source=o.id)]
+    events = []
+    bf = state.zones.get('battlefield')
+    if bf:
+        for oid in bf.objects:
+            c = state.objects.get(oid)
+            if (c and c.controller == o.controller
+                    and CardType.CREATURE in (c.characteristics.types or set())
+                    and getattr(c.state, 'tapped', False)):
+                events.append(Event(type=EventType.UNTAP,
+                                    payload={'object_id': oid}, source=o.id))
+    events.append(Event(type=EventType.SCRY,
+                        payload={'player': o.controller, 'amount': 3}, source=o.id))
+    return events
+
+
+def _bomb_bag_blast(o: GameObject, state: GameState, targets) -> list[Event]:
+    """{2}, {T}: Bomb Bag deals 2 damage to any target."""
+    if not targets:
+        return []
+    return [Event(type=EventType.DAMAGE,
+                  payload={'target': _tid(targets[0]), 'amount': 2, 'source': o.id},
+                  source=o.id)]
+
+
+def _magic_boomerang_tap(o: GameObject, state: GameState, targets) -> list[Event]:
+    """{1}, {T}: Tap target creature; it doesn't untap next untap step."""
+    if not targets:
+        return []
+    tid = _tid(targets[0])
+    tgt = state.objects.get(tid)
+    if tgt is not None:
+        tgt.state.skip_next_untap = True
+    return [Event(type=EventType.TAP,
+                  payload={'object_id': tid, 'forced': True}, source=o.id)]
+
+
+def _hookshot_pull(o: GameObject, state: GameState, targets) -> list[Event]:
+    """{2}, {T}: Put target creature you control on top of its library; draw a card."""
+    events = []
+    if targets:
+        tid = _tid(targets[0])
+        tgt = state.objects.get(tid)
+        if tgt is not None and tgt.controller == o.controller:
+            events.append(Event(type=EventType.ZONE_CHANGE,
+                                payload={'object_id': tid,
+                                         'from_zone_type': ZoneType.BATTLEFIELD,
+                                         'to_zone_type': ZoneType.LIBRARY,
+                                         'to_zone': f'library_{tgt.owner}',
+                                         'to_top': True},
+                                source=o.id))
+    events.append(Event(type=EventType.DRAW,
+                        payload={'player': o.controller, 'amount': 1}, source=o.id))
+    return events
+
+
+def _lens_of_truth_look(o: GameObject, state: GameState, targets) -> list[Event]:
+    """{1}, {T}: Look at target player's hand."""
+    pid = None
+    if targets:
+        t = targets[0]
+        pid = t if isinstance(t, str) and t in state.players else _tid(t)
+    return [Event(type=EventType.REVEAL_HAND,
+                  payload={'player': pid, 'reason': 'lens_of_truth', 'to_controller': o.controller},
+                  source=o.id)]
+
+
+def _sheikah_slate_scry(o: GameObject, state: GameState, targets) -> list[Event]:
+    """{1}, {T}: Scry 2 (the first '{T}: look at top' ability is a peek = scry 1)."""
+    return [Event(type=EventType.SCRY,
+                  payload={'player': o.controller, 'amount': 2}, source=o.id)]
+
+
+def _fairy_bottle_heal(o: GameObject, state: GameState, targets) -> list[Event]:
+    """Sacrifice Fairy Bottle: You gain 5 life."""
+    return [Event(type=EventType.LIFE_CHANGE,
+                  payload={'player': o.controller, 'amount': 5}, source=o.id)]
+
+
 def ocarina_of_time_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + each opp -1 (mystical melody bends time)."""
+    """Activated modal (bounce/untap-all/scry 3) (static). ETB: scry 2 + each opp -1."""
     def effect_fn(event: Event, st: GameState) -> list[Event]:
         n_legendary = 0
         bf = st.zones.get('battlefield')
@@ -673,11 +878,16 @@ def ocarina_of_time_setup(obj: GameObject, state: GameState) -> list[Interceptor
                 source=obj.id, controller=obj.controller,
             ))
         return events
+    make_activated_ability(
+        obj, cost="{2}, {T}", effect_fn=_ocarina_modal,
+        description="Choose one — bounce target creature; untap all your creatures; or scry 3",
+        targets_required=0, target_kind="creature",
+    )
     return [make_etb_trigger(obj, effect_fn)]
 
 
 def sheikah_slate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + each opp -1 per Sheikah ally (ancient tablet)."""
+    """Activated '{1},{T}: Scry 2' + '{T}: look at top' (static). ETB: scry 2 + each opp -1 per Sheikah."""
     def effect_fn(event: Event, st: GameState) -> list[Event]:
         n_sheikah = _zld_count_allies_by_subtype(st, obj.controller, 'Sheikah')
         events = [Event(type=EventType.SCRY,
@@ -692,11 +902,15 @@ def sheikah_slate_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id, controller=obj.controller,
             ))
         return events
+    make_activated_ability(
+        obj, cost="{1}, {T}", effect_fn=_sheikah_slate_scry,
+        description="Scry 2 (also '{T}: look at top card of your library')",
+    )
     return [make_etb_trigger(obj, effect_fn)]
 
 
 def bomb_bag_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: each opp takes 1 dmg per artifact ally (explosive cache)."""
+    """Activated '{2},{T}: 2 damage to any target' (static). ETB: scry 1 + each opp dmg per artifact."""
     def effect_fn(event: Event, st: GameState) -> list[Event]:
         n_arts = _zld_count_allies_by_type(st, obj.controller, CardType.ARTIFACT)
         events = [Event(type=EventType.SCRY,
@@ -711,11 +925,16 @@ def bomb_bag_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id, controller=obj.controller,
             ))
         return events
+    make_activated_ability(
+        obj, cost="{2}, {T}", effect_fn=_bomb_bag_blast,
+        description="Bomb Bag deals 2 damage to any target",
+        targets_required=1, target_kind="any",
+    )
     return [make_etb_trigger(obj, effect_fn)]
 
 
 def fairy_bottle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: heal per Fairy + each opp -1 (bottled spirit)."""
+    """Activated 'Sacrifice: gain 5 life' (static). ETB: heal per Fairy + each opp -1."""
     def effect_fn(event: Event, st: GameState) -> list[Event]:
         n_fairy = _zld_count_allies_by_subtype(st, obj.controller, 'Fairy')
         events = [Event(type=EventType.LIFE_CHANGE,
@@ -730,11 +949,15 @@ def fairy_bottle_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id, controller=obj.controller,
             ))
         return events
+    make_activated_ability(
+        obj, cost="Sacrifice Fairy Bottle", effect_fn=_fairy_bottle_heal,
+        description="You gain 5 life",
+    )
     return [make_etb_trigger(obj, effect_fn)]
 
 
 def magic_boomerang_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: each opp -1 + scry 1 (returning blade)."""
+    """Activated '{1},{T}: tap target, no untap' (static). ETB: scry 1 + each opp -1 per artifact."""
     def effect_fn(event: Event, st: GameState) -> list[Event]:
         n_arts = _zld_count_allies_by_type(st, obj.controller, CardType.ARTIFACT)
         events = [Event(type=EventType.SCRY,
@@ -749,11 +972,16 @@ def magic_boomerang_setup(obj: GameObject, state: GameState) -> list[Interceptor
                 source=obj.id, controller=obj.controller,
             ))
         return events
+    make_activated_ability(
+        obj, cost="{1}, {T}", effect_fn=_magic_boomerang_tap,
+        description="Tap target creature; it doesn't untap during its controller's next untap step",
+        targets_required=1, target_kind="creature",
+    )
     return [make_etb_trigger(obj, effect_fn)]
 
 
 def hookshot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 (grapple foresight)."""
+    """Activated '{2},{T}: put your creature on top of library, draw' (static). ETB: scry 1 + each opp -1."""
     def effect_fn(event: Event, st: GameState) -> list[Event]:
         n_creatures = _zld_count_allies_by_type(st, obj.controller, CardType.CREATURE)
         events = [Event(type=EventType.SCRY,
@@ -768,11 +996,16 @@ def hookshot_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id, controller=obj.controller,
             ))
         return events
+    make_activated_ability(
+        obj, cost="{2}, {T}", effect_fn=_hookshot_pull,
+        description="Put target creature you control on top of its owner's library. Draw a card",
+        targets_required=1, target_kind="creature",
+    )
     return [make_etb_trigger(obj, effect_fn)]
 
 
 def lens_of_truth_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 2 + each opp reveals hand (truth-seer)."""
+    """Activated '{1},{T}: look at target player's hand' (static). ETB: scry 2 + each opp reveal + -1."""
     def effect_fn(event: Event, st: GameState) -> list[Event]:
         events = [Event(type=EventType.SCRY,
                         payload={'player': obj.controller, 'amount': 2,
@@ -792,13 +1025,86 @@ def lens_of_truth_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id, controller=obj.controller,
             ))
         return events
+    make_activated_ability(
+        obj, cost="{1}, {T}", effect_fn=_lens_of_truth_look,
+        description="Look at target player's hand",
+        targets_required=1, target_kind="player",
+    )
     return [make_etb_trigger(obj, effect_fn)]
 
 
 # --- Land ETB helpers (~15) ---------------------------------------------------
 
+# Activated-ability effect_fns for utility lands. The slice-8D retrofit added
+# an ETB info-pulse setup but left these original "{cost},{T}: …" abilities
+# unwired (they predate the retrofit and were never registered). ``o`` is the
+# land; ``targets`` is the engine-supplied target list.
+def _hyrule_castle_token(o: GameObject, state: GameState, targets) -> list[Event]:
+    """{2}, {T}: Create a 1/1 white Soldier creature token."""
+    return [Event(type=EventType.CREATE_TOKEN,
+                  payload={'controller': o.controller, 'name': 'Soldier',
+                           'power': 1, 'toughness': 1, 'types': {CardType.CREATURE},
+                           'subtypes': {'Soldier'}, 'colors': {Color.WHITE}, 'is_token': True},
+                  source=o.id)]
+
+
+def _zoras_domain_unblockable(o: GameObject, state: GameState, targets) -> list[Event]:
+    """{2}, {T}: Target creature can't be blocked this turn."""
+    if not targets:
+        return []
+    return [Event(type=EventType.GRANT_KEYWORD,
+                  payload={'object_id': _tid(targets[0]), 'keyword': 'unblockable',
+                           'duration': 'end_of_turn'}, source=o.id)]
+
+
+def _lake_hylia_loot(o: GameObject, state: GameState, targets) -> list[Event]:
+    """{2}, {T}: Draw a card, then discard a card."""
+    return [Event(type=EventType.DRAW, payload={'player': o.controller, 'amount': 1}, source=o.id),
+            Event(type=EventType.DISCARD, payload={'player': o.controller, 'amount': 1}, source=o.id)]
+
+
+def _shadow_temple_shrink(o: GameObject, state: GameState, targets) -> list[Event]:
+    """{1}{B}, {T}: Target creature gets -1/-1 until end of turn."""
+    if not targets:
+        return []
+    return [Event(type=EventType.PT_MODIFICATION,
+                  payload={'object_id': _tid(targets[0]), 'power_mod': -1,
+                           'toughness_mod': -1, 'duration': 'end_of_turn'}, source=o.id)]
+
+
+def _fire_temple_burn(o: GameObject, state: GameState, targets) -> list[Event]:
+    """{1}{R}, {T}: Fire Temple deals 1 damage to any target."""
+    if not targets:
+        return []
+    return [Event(type=EventType.DAMAGE,
+                  payload={'target': _tid(targets[0]), 'amount': 1, 'source': o.id}, source=o.id)]
+
+
+def _water_temple_tap(o: GameObject, state: GameState, targets) -> list[Event]:
+    """{1}{U}, {T}: Tap target creature."""
+    if not targets:
+        return []
+    return [Event(type=EventType.TAP, payload={'object_id': _tid(targets[0]), 'forced': True}, source=o.id)]
+
+
+def _forest_temple_pump(o: GameObject, state: GameState, targets) -> list[Event]:
+    """{1}{G}, {T}: Target creature gets +1/+1 until end of turn."""
+    if not targets:
+        return []
+    return [Event(type=EventType.PT_MODIFICATION,
+                  payload={'object_id': _tid(targets[0]), 'power_mod': 1,
+                           'toughness_mod': 1, 'duration': 'end_of_turn'}, source=o.id)]
+
+
+def _spirit_temple_exile_gy(o: GameObject, state: GameState, targets) -> list[Event]:
+    """{2}, {T}: Exile target card from a graveyard."""
+    if not targets:
+        return []
+    return [Event(type=EventType.EXILE, payload={'object_id': _tid(targets[0])}, source=o.id)]
+
+
 def hyrule_castle_land_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp -1 per Knight ally (royal seat)."""
+    """Activated '{2},{T}: 1/1 Soldier token' (static). ETB: scry 1 + each opp -1 per Knight."""
     def effect_fn(event: Event, st: GameState) -> list[Event]:
         n_knights = _zld_count_allies_by_subtype(st, obj.controller, 'Knight')
         events = [Event(type=EventType.SCRY,
@@ -813,6 +1119,10 @@ def hyrule_castle_land_setup(obj: GameObject, state: GameState) -> list[Intercep
                 source=obj.id, controller=obj.controller,
             ))
         return events
+    make_activated_ability(
+        obj, cost="{2}, {T}", effect_fn=_hyrule_castle_token,
+        description="Create a 1/1 white Soldier creature token",
+    )
     return [make_etb_trigger(obj, effect_fn)]
 
 
@@ -851,6 +1161,11 @@ def zoras_domain_land_setup(obj: GameObject, state: GameState) -> list[Intercept
                 source=obj.id, controller=obj.controller,
             ))
         return events
+    make_activated_ability(
+        obj, cost="{2}, {T}", effect_fn=_zoras_domain_unblockable,
+        description="Target creature can't be blocked this turn",
+        targets_required=1, target_kind="creature",
+    )
     return [make_etb_trigger(obj, effect_fn)]
 
 
@@ -935,6 +1250,10 @@ def lake_hylia_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id, controller=obj.controller,
             ))
         return events
+    make_activated_ability(
+        obj, cost="{2}, {T}", effect_fn=_lake_hylia_loot,
+        description="Draw a card, then discard a card",
+    )
     return [make_etb_trigger(obj, effect_fn)]
 
 
@@ -977,13 +1296,21 @@ def faron_woods_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def eldin_volcano_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: each opp 1 dmg per Goron (volcanic homeland)."""
+    """Enters tapped unless you control a Goron (static). ETB: scry 1 + each opp dmg per Goron."""
     def effect_fn(event: Event, st: GameState) -> list[Event]:
         n_goron = _zld_count_allies_by_subtype(st, obj.controller, 'Goron')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1,
-                                 'zone': ZoneType.LIBRARY, 'reason': 'eldin_volcano_etb'},
-                        source=obj.id, controller=obj.controller)]
+        events = []
+        # "Enters tapped unless you control a Goron." Goron count includes
+        # this card only if it were a Goron (it is a land), so a separate
+        # creature must already be on the battlefield to enter untapped.
+        if n_goron == 0:
+            events.append(Event(type=EventType.TAP,
+                                payload={'object_id': obj.id, 'reason': 'enters_tapped'},
+                                source=obj.id))
+        events.append(Event(type=EventType.SCRY,
+                            payload={'player': obj.controller, 'amount': 1,
+                                     'zone': ZoneType.LIBRARY, 'reason': 'eldin_volcano_etb'},
+                            source=obj.id, controller=obj.controller))
         for opp_id in all_opponents(obj, st):
             events.append(Event(
                 type=EventType.DAMAGE,
@@ -996,13 +1323,18 @@ def eldin_volcano_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def lanayru_wetlands_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """ETB: scry 1 + each opp mills 1 per Zora ally (Zora wetlands)."""
+    """Enters tapped unless you control a Zora (static). ETB: scry 1 + each opp mills per Zora."""
     def effect_fn(event: Event, st: GameState) -> list[Event]:
         n_zora = _zld_count_allies_by_subtype(st, obj.controller, 'Zora')
-        events = [Event(type=EventType.SCRY,
-                        payload={'player': obj.controller, 'amount': 1,
-                                 'zone': ZoneType.LIBRARY, 'reason': 'lanayru_wetlands_etb'},
-                        source=obj.id, controller=obj.controller)]
+        events = []
+        if n_zora == 0:
+            events.append(Event(type=EventType.TAP,
+                                payload={'object_id': obj.id, 'reason': 'enters_tapped'},
+                                source=obj.id))
+        events.append(Event(type=EventType.SCRY,
+                            payload={'player': obj.controller, 'amount': 1,
+                                     'zone': ZoneType.LIBRARY, 'reason': 'lanayru_wetlands_etb'},
+                            source=obj.id, controller=obj.controller))
         for opp_id in all_opponents(obj, st):
             events.append(Event(
                 type=EventType.MILL,
@@ -1049,6 +1381,11 @@ def shadow_temple_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id, controller=obj.controller,
             ))
         return events
+    make_activated_ability(
+        obj, cost="{1}{B}, {T}", effect_fn=_shadow_temple_shrink,
+        description="Target creature gets -1/-1 until end of turn",
+        targets_required=1, target_kind="creature",
+    )
     return [make_etb_trigger(obj, effect_fn)]
 
 
@@ -1068,6 +1405,11 @@ def fire_temple_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id, controller=obj.controller,
             ))
         return events
+    make_activated_ability(
+        obj, cost="{1}{R}, {T}", effect_fn=_fire_temple_burn,
+        description="Fire Temple deals 1 damage to any target",
+        targets_required=1, target_kind="any",
+    )
     return [make_etb_trigger(obj, effect_fn)]
 
 
@@ -1087,6 +1429,11 @@ def water_temple_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id, controller=obj.controller,
             ))
         return events
+    make_activated_ability(
+        obj, cost="{1}{U}, {T}", effect_fn=_water_temple_tap,
+        description="Tap target creature",
+        targets_required=1, target_kind="creature",
+    )
     return [make_etb_trigger(obj, effect_fn)]
 
 
@@ -1106,6 +1453,11 @@ def forest_temple_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id, controller=obj.controller,
             ))
         return events
+    make_activated_ability(
+        obj, cost="{1}{G}, {T}", effect_fn=_forest_temple_pump,
+        description="Target creature gets +1/+1 until end of turn",
+        targets_required=1, target_kind="creature",
+    )
     return [make_etb_trigger(obj, effect_fn)]
 
 
@@ -1125,6 +1477,11 @@ def spirit_temple_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 source=obj.id, controller=obj.controller,
             ))
         return events
+    make_activated_ability(
+        obj, cost="{2}, {T}", effect_fn=_spirit_temple_exile_gy,
+        description="Exile target card from a graveyard",
+        targets_required=1, target_kind="card_in_graveyard",
+    )
     return [make_etb_trigger(obj, effect_fn)]
 # =============================================================================
 # Slice-8C median-lift helpers (2026-05-19, Hyrule Green + Black)
@@ -2755,8 +3112,8 @@ def volvagia_fire_dragon_setup(obj: GameObject, state: GameState) -> list[Interc
         events = []
         dmg = 2 + max(0, n_dragons - 1)
         for opp_id in all_opponents(obj, state):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp_id, 'amount': -dmg},
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': dmg, 'source': obj.id},
                                 source=obj.id))
         # Volvagia surveys the lava — surveil 1.
         events.append(Event(type=EventType.SURVEIL,
@@ -2780,8 +3137,8 @@ def goron_warrior_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         events = []
         dmg = 1 + (1 if n_gorons >= 3 else 0)
         for opp_id in all_opponents(obj, state):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp_id, 'amount': -dmg},
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': dmg, 'source': obj.id},
                                 source=obj.id))
         return events
     return [make_attack_trigger(obj, effect_fn)]
@@ -2804,8 +3161,8 @@ def goron_smith_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                                 payload={'player': obj.controller, 'amount': 1},
                                 source=obj.id))
         for opp_id in all_opponents(obj, state):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp_id, 'amount': -1},
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': 1, 'source': obj.id},
                                 source=obj.id))
         return events
     return [make_etb_trigger(obj, effect_fn)]
@@ -2825,8 +3182,8 @@ def dodongo_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         events = []
         dmg = 1 + (1 if n_lizards >= 2 else 0)
         for opp_id in all_opponents(obj, state):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp_id, 'amount': -dmg},
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': dmg, 'source': obj.id},
                                 source=obj.id))
         return events
     return [make_etb_trigger(obj, effect_fn)]
@@ -2846,8 +3203,8 @@ def fire_keese_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         events = []
         dmg = 1 + (1 if n_bats >= 2 else 0)
         for opp_id in all_opponents(obj, state):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp_id, 'amount': -dmg},
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': dmg, 'source': obj.id},
                                 source=obj.id))
         return events
     return [make_attack_trigger(obj, effect_fn)]
@@ -2867,8 +3224,8 @@ def lizalfos_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         events = []
         dmg = 1 + (1 if n_lizards >= 2 else 0)
         for opp_id in all_opponents(obj, state):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp_id, 'amount': -dmg},
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': dmg, 'source': obj.id},
                                 source=obj.id))
         return events
     return [make_attack_trigger(obj, effect_fn)]
@@ -2888,8 +3245,8 @@ def lynel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         events = []
         dmg = 2 + max(0, n_beasts - 1)
         for opp_id in all_opponents(obj, state):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp_id, 'amount': -dmg},
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': dmg, 'source': obj.id},
                                 source=obj.id))
         return events
     return [make_etb_trigger(obj, effect_fn)]
@@ -2933,8 +3290,8 @@ def hinox_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         events = []
         dmg = 2 + (1 if n_giants >= 2 else 0)
         for opp_id in all_opponents(obj, state):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp_id, 'amount': -dmg},
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': dmg, 'source': obj.id},
                                 source=obj.id))
         return events
     return [make_etb_trigger(obj, effect_fn)]
@@ -2980,8 +3337,8 @@ def fire_spirit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         events = []
         dmg = 1 + (1 if n_kin >= 2 else 0)
         for opp_id in all_opponents(obj, state):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp_id, 'amount': -dmg},
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': dmg, 'source': obj.id},
                                 source=obj.id))
         return events
     return [make_etb_trigger(obj, effect_fn)]
@@ -3001,8 +3358,8 @@ def fire_temple_goron_setup(obj: GameObject, state: GameState) -> list[Intercept
         events = []
         dmg = 1 + (1 if n_gorons >= 3 else 0)
         for opp_id in all_opponents(obj, state):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp_id, 'amount': -dmg},
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': dmg, 'source': obj.id},
                                 source=obj.id))
         return events
     return [make_attack_trigger(obj, effect_fn)]
@@ -3022,8 +3379,8 @@ def volcanic_keese_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         events = []
         dmg = 1 + (1 if n_bats >= 2 else 0)
         for opp_id in all_opponents(obj, state):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp_id, 'amount': -dmg},
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': dmg, 'source': obj.id},
                                 source=obj.id))
         return events
     return [make_attack_trigger(obj, effect_fn)]
@@ -3044,8 +3401,8 @@ def stone_talus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         events = []
         dmg = 2 + max(0, n_kin - 1)
         for opp_id in all_opponents(obj, state):
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp_id, 'amount': -dmg},
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': dmg, 'source': obj.id},
                                 source=obj.id))
         return events
     return [make_etb_trigger(obj, effect_fn)]
@@ -3068,8 +3425,8 @@ def goron_strength_enchantment_setup(obj: GameObject, state: GameState) -> list[
             events.append(Event(type=EventType.REVEAL_HAND,
                                 payload={'player': opp_id},
                                 source=obj.id))
-            events.append(Event(type=EventType.LIFE_CHANGE,
-                                payload={'player': opp_id, 'amount': -dmg},
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': opp_id, 'amount': dmg, 'source': obj.id},
                                 source=obj.id))
         return events
     return [make_etb_trigger(obj, effect_fn)]
@@ -5899,11 +6256,36 @@ FOREST_BLESSING = make_sorcery(
 )
 
 
+def _natures_fury_resolve(targets: list, state: GameState) -> list[Event]:
+    """Creatures you control get +2/+2 and gain trample until end of turn."""
+    caster_id = getattr(state, 'active_player', None)
+    if not caster_id and state.players:
+        caster_id = next(iter(state.players))
+    if caster_id is None:
+        return []
+    events: list[Event] = []
+    bf = state.zones.get('battlefield')
+    if bf:
+        for oid in bf.objects:
+            o = state.objects.get(oid)
+            if (o and o.controller == caster_id and o.characteristics
+                    and CardType.CREATURE in (o.characteristics.types or set())):
+                events.append(Event(type=EventType.PT_MODIFICATION,
+                                    payload={'object_id': oid, 'power_mod': 2,
+                                             'toughness_mod': 2, 'duration': 'end_of_turn'},
+                                    source=None))
+                events.append(Event(type=EventType.GRANT_KEYWORD,
+                                    payload={'object_id': oid, 'keyword': 'trample',
+                                             'duration': 'end_of_turn'}, source=None))
+    return events
+
+
 NATURES_FURY = make_sorcery(
     name="Nature's Fury",
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
-    text="Creatures you control get +2/+2 and gain trample until end of turn."
+    text="Creatures you control get +2/+2 and gain trample until end of turn.",
+    resolve=_natures_fury_resolve,
 )
 
 
