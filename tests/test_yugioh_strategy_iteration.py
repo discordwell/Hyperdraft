@@ -363,7 +363,9 @@ def test_ygo_draw_spells_use_library_zone():
     assert drawn_a.id in hand
     assert drawn_b.id in hand
     assert pot.id in graveyard
-    assert len([event for event in events if event.type.name == "DRAW"]) == 2
+    # YGO draws emit the canonical YGO_DRAW event (the YGO_DRAW effect-family
+    # migration replaced the generic DRAW event; nothing in YGO reacts to DRAW).
+    assert len([event for event in events if event.type.name == "YGO_DRAW"]) == 2
 
 
 def test_ygo_spell_activation_preserves_targets():
