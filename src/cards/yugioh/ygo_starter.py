@@ -272,7 +272,9 @@ MONSTER_REBORN = make_ygo_spell(
 # Ritual Spell
 def _ritual_resolve(event, state):
     """Placeholder: actual ritual logic handled by summon manager."""
-    return []
+    return [Event(type=EventType.YGO_CHAIN_LINK,
+                  payload={'effect': 'ritual_summon_marker',
+                           'controller': event.payload.get('player')})]
 
 BLACK_ILLUSION_RITUAL = make_ygo_spell(
     "Black Illusion Ritual", ygo_spell_type="Ritual",
@@ -334,11 +336,20 @@ CALL_OF_THE_HAUNTED = make_ygo_trap(
 def _solemn_judgment_resolve(event, state):
     """Negate a summon or spell/trap activation (pay half LP)."""
     player_id = event.payload.get('player')
-    if player_id:
-        player = state.players.get(player_id)
-        if player:
-            player.lp = player.lp // 2
-    return []
+    if not player_id:
+        return []
+    player = state.players.get(player_id)
+    if not player:
+        return []
+    old_lp = player.lp
+    paid = old_lp // 2
+    player.lp = old_lp - paid
+    return [
+        Event(type=EventType.YGO_LP_CHANGE,
+              payload={'player': player_id, 'amount': -paid, 'source': 'Solemn Judgment'}),
+        Event(type=EventType.YGO_CHAIN_LINK,
+              payload={'effect': 'negate_activation', 'controller': player_id}),
+    ]
 
 SOLEMN_JUDGMENT = make_ygo_trap(
     "Solemn Judgment", ygo_trap_type="Counter",

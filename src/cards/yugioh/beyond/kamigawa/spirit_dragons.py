@@ -1198,13 +1198,17 @@ def _awakening_hour_resolve(event, state):
     zone = state.zones.get(f"monster_zone_{controller}")
     if not zone:
         return []
+    events = []
     for oid in zone.objects:
         if not oid:
             continue
         obj = state.objects.get(oid)
         if obj and _is_spirit(obj):
             obj.state.battle_indestructible_eot = True
-    return []
+            events.append(Event(type=EventType.YGO_CHAIN_LINK,
+                                payload={'effect': 'awakening_hour_protect',
+                                         'card_id': obj.id}))
+    return events
 
 
 AWAKENING_HOUR = make_ygo_spell(
@@ -1431,7 +1435,9 @@ def _trial_of_the_moonless_night_resolve(event, state):
         return []
     # Signal end-of-turn — the engine watches for this flag during phase transitions.
     state.end_turn_requested = True
-    return []
+    return [Event(type=EventType.YGO_CHAIN_LINK,
+                  payload={'effect': 'force_end_turn',
+                           'controller': controller, 'attrs_count': len(attrs)})]
 
 
 TRIAL_OF_THE_MOONLESS_NIGHT = make_ygo_trap(

@@ -36,7 +36,9 @@ DARK_MAGICIAN_GIRL = make_ygo_monster(
 
 def _kuriboh_resolve(event, state):
     """Discard from hand: reduce battle damage to 0."""
-    return []
+    return [Event(type=EventType.YGO_CHAIN_LINK,
+                  payload={'effect': 'kuriboh_negate_battle_damage',
+                           'controller': event.payload.get('player')})]
 
 KURIBOH = make_ygo_monster(
     "Kuriboh", atk=300, def_val=200, level=1,
@@ -321,7 +323,60 @@ POLYMERIZATION = make_ygo_spell(
 
 def _flute_resolve(event, state):
     """Special Summon up to 2 Dragons from hand while Lord of D. is on field."""
-    return []  # Simplified
+    controller = event.payload.get('player')
+    if not controller:
+        return []
+    # Verify Lord of D. is on field for controller
+    monster_zone = state.zones.get(f"monster_zone_{controller}")
+    if not monster_zone:
+        return []
+    has_lord_of_d = False
+    for oid in monster_zone.objects:
+        if not oid:
+            continue
+        obj = state.objects.get(oid)
+        if obj and obj.name == "Lord of D.":
+            has_lord_of_d = True
+            break
+    if not has_lord_of_d:
+        return []
+
+    # Find up to 2 Dragons in hand, SS them
+    hand = state.zones.get(f"hand_{controller}")
+    if not hand:
+        return []
+    summoned = 0
+    events = []
+    for cid in list(hand.objects):
+        if summoned >= 2:
+            break
+        obj = state.objects.get(cid)
+        if not obj or not obj.card_def:
+            continue
+        subtypes = obj.card_def.characteristics.subtypes or set()
+        if "Dragon" not in subtypes:
+            continue
+        # Find empty monster slot
+        slot = None
+        for i in range(5):
+            if i >= len(monster_zone.objects) or monster_zone.objects[i] is None:
+                slot = i
+                break
+        if slot is None:
+            break
+        while len(monster_zone.objects) <= slot:
+            monster_zone.objects.append(None)
+        hand.objects.remove(cid)
+        monster_zone.objects[slot] = cid
+        obj.zone = ZoneType.MONSTER_ZONE
+        obj.state.face_down = False
+        obj.state.ygo_position = 'face_up_atk'
+        events.append(Event(type=EventType.YGO_SPECIAL_SUMMON,
+                            payload={'player': controller, 'card_id': cid,
+                                     'card_name': obj.name,
+                                     'summon_type': 'flute'}))
+        summoned += 1
+    return events
 
 FLUTE_OF_SUMMONING_DRAGON = make_ygo_spell(
     "Flute of Summoning Dragon", ygo_spell_type="Normal",
@@ -348,7 +403,9 @@ COST_DOWN = make_ygo_spell(
 
 def _negate_attack_resolve(event, state):
     """Negate an attack and end the Battle Phase."""
-    return []
+    return [Event(type=EventType.YGO_CHAIN_LINK,
+                  payload={'effect': 'negate_attack_end_battle',
+                           'controller': event.payload.get('player')})]
 
 NEGATE_ATTACK = make_ygo_trap(
     "Negate Attack", ygo_trap_type="Counter",

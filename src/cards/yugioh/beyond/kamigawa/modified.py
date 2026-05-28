@@ -993,6 +993,9 @@ def _cogwork_ambush_resolve(event, state):
     target = state.objects.get(target_id)
     if target:
         target.state.atk_bonus_eot = getattr(target.state, 'atk_bonus_eot', 0) + 1500
+        return [Event(type=EventType.YGO_CHAIN_LINK,
+                      payload={'effect': 'cogwork_ambush_buff',
+                               'card_id': target.id, 'amount': 1500})]
     return []
 
 

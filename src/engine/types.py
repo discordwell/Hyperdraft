@@ -301,7 +301,12 @@ class EventType(Enum):
     YGO_BANISH = auto()               # Card banished
     YGO_EQUIP = auto()                # Equip card to monster
     YGO_LP_CHANGE = auto()            # Life Points changed
-    YGO_DRAW = auto()                 # Draw Phase draw
+    YGO_DRAW = auto()                 # Draw Phase draw OR effect-induced draw / search-to-hand
+                                      # payload: {'player', 'card_id'?, 'count'?, 'source'?}
+                                      # source values: None|'draw'|'search'|'recovery'|'add_to_hand'
+    YGO_SEARCH_DECK = auto()          # Tutor: search deck/GY/banish for a card matching predicate
+                                      # payload: {'player', 'card_id', 'filter_desc'?, 'destination': 'hand'|'field'}
+                                      # Always emit a YGO_DRAW follow-up so generic draw-reactive triggers fire.
     YGO_ACTIVATE_MONSTER_EFFECT = auto()  # Activate a monster's Ignition/Quick Effect
                                           # payload: {'monster_id', 'effect_index', 'player', 'targets'}
 

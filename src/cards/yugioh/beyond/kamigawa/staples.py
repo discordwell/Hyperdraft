@@ -820,6 +820,7 @@ FORCE_SPIKE = make_ygo_trap(
 
 def _sword_and_shield_resolve(event, state):
     """All face-up monsters' ATK and DEF swap until end of turn."""
+    events = []
     for obj in state.objects.values():
         if obj.zone != ZoneType.MONSTER_ZONE or obj.state.face_down:
             continue
@@ -830,7 +831,10 @@ def _sword_and_shield_resolve(event, state):
         defv = getattr(obj.card_def, 'def_val', 0) or 0
         obj.state.atk_bonus_eot = getattr(obj.state, 'atk_bonus_eot', 0) + (defv - atk)
         obj.state.def_bonus_eot = getattr(obj.state, 'def_bonus_eot', 0) + (atk - defv)
-    return []
+        events.append(Event(type=EventType.YGO_CHAIN_LINK,
+                            payload={'effect': 'swap_atk_def_eot',
+                                     'card_id': obj.id, 'amount': defv - atk}))
+    return events
 
 
 SWORD_AND_SHIELD = make_ygo_trap(

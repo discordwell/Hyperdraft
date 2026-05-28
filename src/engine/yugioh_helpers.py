@@ -286,3 +286,185 @@ def destroy_spell_trap(state: GameState, card_id: str) -> list[Event]:
         payload={'card_id': card_id, 'card_name': obj.name}
     ))
     return events
+
+
+# =============================================================================
+# Draw / Search / Hand Recovery — centralized helpers
+# =============================================================================
+#
+# Yu-Gi-Oh "draw N", "search for a card with X subtype/name", and "add from GY
+# to hand" are the most common card effects. Each of these helpers does the
+# zone-move atomically and emits a ``YGO_DRAW`` event so generic draw-reactive
+# triggers (e.g. Howling Mine reactions, archetype lord effects) still fire.
+#
+# Search effects ALSO emit a ``YGO_SEARCH_DECK`` event before the ``YGO_DRAW``
+# so cards that specifically react to deck-search (e.g. "Maxx C", anti-search
+# tech) can fire.
+
+def draw_cards(state: GameState, player_id: str, count: int = 1) -> list[Event]:
+    """Move N cards from the top of ``player_id``'s deck to their hand.
+
+    Emits one ``YGO_DRAW`` event per card with ``source='draw'``. Caps at deck
+    size; emits nothing for empty deck (deck-out handled by turn manager).
+
+    Returns the list of emitted events.
+    """
+    library = state.zones.get(f"library_{player_id}")
+    hand = state.zones.get(f"hand_{player_id}")
+    if not library or not hand:
+        return []
+    events: list[Event] = []
+    for _ in range(count):
+        if not library.objects:
+            break
+        card_id = library.objects.pop(0)
+        hand.objects.append(card_id)
+        obj = state.objects.get(card_id)
+        if obj is not None:
+            obj.zone = ZoneType.HAND
+        events.append(Event(
+            type=EventType.YGO_DRAW,
+            payload={'player': player_id, 'card_id': card_id,
+                     'count': 1, 'source': 'draw'},
+        ))
+    return events
+
+
+def search_deck(state: GameState, player_id: str, predicate,
+                *, filter_desc: str | None = None,
+                destination: str = 'hand') -> list[Event]:
+    """Search ``player_id``'s deck for the first card matching ``predicate``.
+
+    ``predicate(GameObject) -> bool`` is evaluated on each card in the library
+    until one matches; that card is moved to the destination zone (default:
+    hand). Library order is preserved (we remove the matched card in place).
+
+    Emits two events on success:
+      1. ``YGO_SEARCH_DECK`` — for anti-search tech.
+      2. ``YGO_DRAW`` with ``source='search'`` — for generic draw-reactive
+         triggers.
+
+    Emits nothing on miss. Caller is responsible for shuffling the deck
+    afterwards (per YGO rules, but most modern decks don't shuffle on a
+    failed search — we don't auto-shuffle to keep state deterministic).
+    """
+    library = state.zones.get(f"library_{player_id}")
+    hand = state.zones.get(f"hand_{player_id}")
+    if not library or not hand:
+        return []
+
+    matched_id: str | None = None
+    for cid in list(library.objects):
+        obj = state.objects.get(cid)
+        if obj is None or obj.card_def is None:
+            continue
+        try:
+            if predicate(obj):
+                matched_id = cid
+                break
+        except Exception:
+            continue
+
+    if matched_id is None:
+        return []
+
+    library.objects.remove(matched_id)
+    obj = state.objects.get(matched_id)
+    if destination == 'hand':
+        hand.objects.append(matched_id)
+        if obj is not None:
+            obj.zone = ZoneType.HAND
+    elif destination == 'field':
+        # Caller must position the card; we still emit the search event so
+        # the caller can chain it. (Modern engines special-summon directly,
+        # so leave that to the calling card.)
+        pass
+
+    events: list[Event] = [Event(
+        type=EventType.YGO_SEARCH_DECK,
+        payload={'player': player_id, 'card_id': matched_id,
+                 'card_name': obj.name if obj else '',
+                 'filter_desc': filter_desc or '',
+                 'destination': destination},
+    )]
+    events.append(Event(
+        type=EventType.YGO_DRAW,
+        payload={'player': player_id, 'card_id': matched_id,
+                 'card_name': obj.name if obj else '',
+                 'count': 1, 'source': 'search'},
+    ))
+    return events
+
+
+def add_from_gy_to_hand(state: GameState, player_id: str,
+                        card_id: str) -> list[Event]:
+    """Move a specific card from ``player_id``'s GY (or anywhere else) to hand.
+
+    Emits a single ``YGO_DRAW`` event with ``source='recovery'``. Returns
+    empty list if the card isn't found.
+    """
+    obj = state.objects.get(card_id)
+    if obj is None:
+        return []
+    moved = False
+    for z in state.zones.values():
+        if card_id in z.objects:
+            for i, oid in enumerate(z.objects):
+                if oid == card_id:
+                    z.objects[i] = None
+                    moved = True
+                    break
+            while card_id in z.objects:
+                z.objects.remove(card_id)
+    hand = state.zones.get(f"hand_{player_id}")
+    if hand is None:
+        return []
+    hand.objects.append(card_id)
+    obj.zone = ZoneType.HAND
+    obj.state.face_down = False
+    obj.state.ygo_position = None
+    if not moved:
+        return []
+    return [Event(
+        type=EventType.YGO_DRAW,
+        payload={'player': player_id, 'card_id': card_id,
+                 'card_name': obj.name, 'count': 1, 'source': 'recovery'},
+    )]
+
+
+def search_deck_by_subtype(state: GameState, player_id: str,
+                           subtype: str,
+                           *, max_level: int | None = None,
+                           exclude_id: str | None = None) -> list[Event]:
+    """Convenience: search deck for a monster with the given subtype.
+
+    Optional level cap (e.g. "Level 4 or lower Moonfolk"). Excludes a given
+    card_id from matches (so a searcher doesn't find a copy of itself if the
+    deck contains one).
+    """
+    def _pred(card_obj: GameObject) -> bool:
+        if exclude_id is not None and card_obj.id == exclude_id:
+            return False
+        cd = card_obj.card_def
+        if cd is None:
+            return False
+        subtypes = cd.characteristics.subtypes or set()
+        if subtype not in subtypes:
+            return False
+        if max_level is not None:
+            level = getattr(cd, 'level', None) or 99
+            if level > max_level:
+                return False
+        return True
+
+    desc = f"{subtype}" + (f" (Level <={max_level})" if max_level else "")
+    return search_deck(state, player_id, _pred, filter_desc=desc)
+
+
+def search_deck_by_name(state: GameState, player_id: str,
+                        card_name: str) -> list[Event]:
+    """Convenience: search deck for a card with exact name match."""
+    def _pred(card_obj: GameObject) -> bool:
+        return (card_obj.card_def is not None and
+                card_obj.card_def.name == card_name)
+    return search_deck(state, player_id, _pred, filter_desc=f"name='{card_name}'")

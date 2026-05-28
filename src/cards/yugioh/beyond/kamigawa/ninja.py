@@ -859,6 +859,9 @@ def _mistblades_cunning_resolve(event, state):
         target.state.atk_bonus_eot = (
             getattr(target.state, 'atk_bonus_eot', 0) + 1500
         )
+        return [Event(type=EventType.YGO_CHAIN_LINK,
+                      payload={'effect': 'mistblades_cunning_buff',
+                               'card_id': target.id, 'amount': 1500})]
     return []
 
 
@@ -1167,6 +1170,10 @@ def _cloak_and_dagger_resolve(event, state):
     if target and _is_ninja(target):
         target.state.face_down = True
         target.state.ygo_position = 'face_down_def'
+        return [Event(type=EventType.YGO_POSITION_CHANGE,
+                      payload={'card_id': target.id,
+                               'position': 'face_down_def',
+                               'effect': 'cloak_and_dagger'})]
     return []
 
 

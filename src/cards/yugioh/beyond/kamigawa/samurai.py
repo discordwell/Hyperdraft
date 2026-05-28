@@ -1041,6 +1041,9 @@ def _splice_bushido_resolve(event, state):
     target = state.objects.get(targets[0])
     if target and _is_samurai(target):
         target.state.atk_bonus_eot = getattr(target.state, 'atk_bonus_eot', 0) + 1000
+        return [Event(type=EventType.YGO_CHAIN_LINK,
+                      payload={'effect': 'splice_bushido_buff',
+                               'card_id': target.id, 'amount': 1000})]
     return []
 
 
@@ -1251,11 +1254,27 @@ def _reciprocate_resolve(event, state):
     """Target Samurai gains 1000 ATK and is indestructible by battle this turn."""
     targets = event.payload.get('targets') or []
     if not targets:
+        # Auto-target: first Samurai you control
+        controller = event.payload.get('player')
+        if controller:
+            zone = state.zones.get(f"monster_zone_{controller}")
+            if zone:
+                for oid in zone.objects:
+                    if not oid:
+                        continue
+                    cobj = state.objects.get(oid)
+                    if cobj and _is_samurai(cobj):
+                        targets = [oid]
+                        break
+    if not targets:
         return []
     target = state.objects.get(targets[0])
     if target and _is_samurai(target):
         target.state.atk_bonus_eot = getattr(target.state, 'atk_bonus_eot', 0) + 1000
         target.state.battle_indestructible_eot = True
+        return [Event(type=EventType.YGO_CHAIN_LINK,
+                      payload={'effect': 'reciprocate_buff',
+                               'card_id': target.id, 'amount': 1000})]
     return []
 
 
@@ -1619,11 +1638,27 @@ def _bushido_honor_resolve(event, state):
     targets = event.payload.get('targets') or []
     target_id = targets[0] if targets else event.payload.get('attacker_id')
     if not target_id:
+        # Auto-target: first Samurai you control
+        controller = event.payload.get('player')
+        if controller:
+            zone = state.zones.get(f"monster_zone_{controller}")
+            if zone:
+                for oid in zone.objects:
+                    if not oid:
+                        continue
+                    cobj = state.objects.get(oid)
+                    if cobj and _is_samurai(cobj):
+                        target_id = oid
+                        break
+    if not target_id:
         return []
     target = state.objects.get(target_id)
     if target and _is_samurai(target):
         target.state.atk_bonus_eot = getattr(target.state, 'atk_bonus_eot', 0) + 1000
         target.state.def_bonus_eot = getattr(target.state, 'def_bonus_eot', 0) + 1000
+        return [Event(type=EventType.YGO_CHAIN_LINK,
+                      payload={'effect': 'bushido_honor_buff',
+                               'card_id': target.id, 'amount': 1000})]
     return []
 
 

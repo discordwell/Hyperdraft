@@ -24,23 +24,11 @@ from src.engine.yugioh_helpers import (
 
 def _pot_of_greed_resolve(event, state):
     """Draw 2 cards."""
-    events = []
+    from src.engine.yugioh_helpers import draw_cards
     pid = event.payload.get('player')
     if not pid:
-        return events
-    deck = state.zones.get(f"library_{pid}")
-    hand = state.zones.get(f"hand_{pid}")
-    if not deck or not hand:
-        return events
-    for _ in range(min(2, len(deck.objects))):
-        card_id = deck.objects.pop(0)
-        hand.objects.append(card_id)
-        obj = state.objects.get(card_id)
-        if obj:
-            obj.zone = ZoneType.HAND
-        events.append(Event(type=EventType.DRAW,
-                            payload={'player': pid, 'card_id': card_id}))
-    return events
+        return []
+    return draw_cards(state, pid, 2)
 
 POT_OF_GREED = make_ygo_spell(
     "Pot of Greed", ygo_spell_type="Normal",
@@ -58,6 +46,7 @@ def _graceful_charity_resolve(event, state):
     answers); AI heuristic preserves the old "last 2 drawn" behavior.
     """
     from src.engine.pending_choice_helpers import create_choice_and_resolve
+    from src.engine.yugioh_helpers import draw_cards
 
     events = []
     pid = event.payload.get('player')
@@ -67,17 +56,9 @@ def _graceful_charity_resolve(event, state):
     hand = state.zones.get(f"hand_{pid}")
     if not deck or not hand:
         return events
-    # Draw 3
-    drawn = []
-    for _ in range(min(3, len(deck.objects))):
-        card_id = deck.objects.pop(0)
-        hand.objects.append(card_id)
-        obj = state.objects.get(card_id)
-        if obj:
-            obj.zone = ZoneType.HAND
-        drawn.append(card_id)
-        events.append(Event(type=EventType.DRAW,
-                            payload={'player': pid, 'card_id': card_id}))
+    # Draw 3 — emits YGO_DRAW per card so triggers fire
+    draw_events = draw_cards(state, pid, 3)
+    events.extend(draw_events)
 
     # Discard 2 — true player choice. Hand may be smaller than 2 after draws
     # (small decks / mid-game), so cap.
