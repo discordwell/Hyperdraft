@@ -248,8 +248,46 @@ def destroy_attacking_monsters(state: GameState, controller_id: str) -> list[Eve
     return events
 
 
+def _reregister_setup_interceptors(state: GameState, obj: GameObject) -> None:
+    """Re-run setup_interceptors for a revived/special-summoned monster.
+
+    On-field triggers like ``make_ygo_summon_trigger`` register with
+    ``duration='until_leaves'`` and get cleaned up by the pipeline when the
+    object leaves the field. Re-running setup_interceptors at SS time re-arms
+    them so revived monsters can fire their on-summon effects.
+
+    Idempotent: clears any stale interceptor_ids still bound to ``obj`` before
+    re-registering (rare, but safe).
+    """
+    if not obj.card_def or not obj.card_def.setup_interceptors:
+        return
+
+    # Purge stale interceptor ids — anything still bound to this obj from a
+    # previous on-field stint must be cleared so we don't double-register.
+    for int_id in list(obj.interceptor_ids):
+        if int_id in state.interceptors:
+            del state.interceptors[int_id]
+    obj.interceptor_ids = []
+
+    interceptors = obj.card_def.setup_interceptors(obj, state) or []
+    for interceptor in interceptors:
+        ts = getattr(state, 'next_timestamp', None)
+        if callable(ts):
+            interceptor.timestamp = state.next_timestamp()
+        state.interceptors[interceptor.id] = interceptor
+        obj.interceptor_ids.append(interceptor.id)
+
+
 def revive_from_graveyard(state: GameState, player_id: str, card_id: str) -> list[Event]:
-    """Special Summon a monster from the GY (Monster Reborn effect)."""
+    """Special Summon a monster from the GY (Monster Reborn effect).
+
+    Re-arms ``setup_interceptors`` on the revived object so on-summon
+    triggers (``make_ygo_summon_trigger``) registered via the helper fire
+    against the emitted ``YGO_SPECIAL_SUMMON`` event. Previously this helper
+    only mutated zones — revived monsters never re-registered their triggers
+    because ``until_leaves`` interceptors had been cleaned up when the card
+    first hit the GY.
+    """
     events = []
     obj = state.objects.get(card_id)
     if not obj:
@@ -283,6 +321,10 @@ def revive_from_graveyard(state: GameState, player_id: str, card_id: str) -> lis
     obj.controller = player_id
     obj.state.ygo_position = 'face_up_atk'
     obj.state.face_down = False
+
+    # Re-arm interceptors so the revived monster's on-summon trigger fires
+    # against the YGO_SPECIAL_SUMMON event below.
+    _reregister_setup_interceptors(state, obj)
 
     events.append(Event(
         type=EventType.YGO_SPECIAL_SUMMON,

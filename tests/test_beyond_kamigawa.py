@@ -1346,6 +1346,123 @@ test_jugan_soulshift_mid_chain_does_not_corrupt_stack()
 
 
 # =============================================================================
+# Revive triggers on-summon (re-arms setup_interceptors)
+# =============================================================================
+#
+# Bug: revive_from_graveyard only mutated zones; on-summon triggers registered
+# with duration='until_leaves' had been cleaned up when the card hit the GY,
+# so revived monsters silently skipped their summon-trigger effects.
+# Fix: yugioh_helpers.revive_from_graveyard now re-runs setup_interceptors on
+# the revived obj so the triggers are re-armed before the YGO_SPECIAL_SUMMON
+# event fires through the pipeline.
+
+print("\n=== Revive triggers on-summon ===")
+
+from src.engine.yugioh_helpers import revive_from_graveyard
+from src.cards.yugioh.beyond.kamigawa.samurai import (
+    LIGHT_PAWS_EMPERORS_VOICE,
+)
+
+
+def test_revive_rearms_summon_interceptor():
+    """After revive, the revived monster has a fresh make_ygo_summon_trigger
+    registered (was missing prior to the fix)."""
+    g, a, _b = _new_test_game()
+    # Light-Paws has a summon trigger (search Equip Spell on SS).
+    # Stick it in GY first; its until_leaves interceptors are already gone.
+    ids = _stock_gy(g, a.id, [LIGHT_PAWS_EMPERORS_VOICE])
+    lp_id = ids[0]
+    lp_obj = g.state.objects[lp_id]
+    # Mimic the "card was on field and got destroyed" state: clear any
+    # interceptors still bound to the object (a fresh _stock_gy leaves them
+    # registered because create_object ran setup at GY-zone entry).
+    for int_id in list(lp_obj.interceptor_ids):
+        g.state.interceptors.pop(int_id, None)
+    lp_obj.interceptor_ids = []
+
+    pre_count = len(lp_obj.interceptor_ids)
+    events = revive_from_graveyard(g.state, a.id, lp_id)
+    post_count = len(lp_obj.interceptor_ids)
+
+    check("Revive: object moved to MONSTER_ZONE",
+          lp_obj.zone.name == "MONSTER_ZONE",
+          f"zone={lp_obj.zone}")
+    check("Revive: YGO_SPECIAL_SUMMON emitted",
+          any(e.type.name == "YGO_SPECIAL_SUMMON" for e in events))
+    check("Revive: setup_interceptors re-registered",
+          post_count > pre_count,
+          f"pre={pre_count} post={post_count}")
+
+
+def test_revive_on_summon_trigger_fires_through_pipeline():
+    """The re-armed on-summon trigger actually fires when the
+    YGO_SPECIAL_SUMMON event is emitted through the pipeline."""
+    from src.cards.yugioh.beyond.kamigawa.samurai import (
+        SWORD_OF_LIGHT_AND_SHADOW, GLISTENING_KATANA,
+    )
+    g, a, _b = _new_test_game()
+    # Stock library with an Equip Spell that Light-Paws can search.
+    _stock_library(g, a.id, [SWORD_OF_LIGHT_AND_SHADOW, GLISTENING_KATANA])
+    ids = _stock_gy(g, a.id, [LIGHT_PAWS_EMPERORS_VOICE])
+    lp_id = ids[0]
+    lp_obj = g.state.objects[lp_id]
+    # Wipe stale interceptors (simulating "was destroyed earlier").
+    for int_id in list(lp_obj.interceptor_ids):
+        g.state.interceptors.pop(int_id, None)
+    lp_obj.interceptor_ids = []
+
+    hand_before = set(g.state.zones[f"hand_{a.id}"].objects)
+    events = revive_from_graveyard(g.state, a.id, lp_id)
+    # Pipeline emit fires the on-summon trigger.
+    processed = []
+    for e in events:
+        processed.extend(g.pipeline.emit(e))
+    hand_after = set(g.state.zones[f"hand_{a.id}"].objects)
+
+    added = hand_after - hand_before
+    check("Revive on-summon trigger: 1 Equip Spell searched to hand",
+          len(added) == 1,
+          f"added={added}")
+
+
+def test_revive_idempotent_on_repeated_calls():
+    """If a monster is revived, destroyed, and revived again, interceptors
+    don't accumulate duplicates."""
+    from src.cards.yugioh.beyond.kamigawa.samurai import SWORD_OF_LIGHT_AND_SHADOW
+    g, a, _b = _new_test_game()
+    _stock_library(g, a.id, [SWORD_OF_LIGHT_AND_SHADOW])
+    ids = _stock_gy(g, a.id, [LIGHT_PAWS_EMPERORS_VOICE])
+    lp_id = ids[0]
+    lp_obj = g.state.objects[lp_id]
+    for int_id in list(lp_obj.interceptor_ids):
+        g.state.interceptors.pop(int_id, None)
+    lp_obj.interceptor_ids = []
+
+    # First revive
+    revive_from_graveyard(g.state, a.id, lp_id)
+    n1 = len(lp_obj.interceptor_ids)
+
+    # Move back to GY by hand
+    g.state.zones[f"monster_zone_{a.id}"].objects = [
+        oid for oid in g.state.zones[f"monster_zone_{a.id}"].objects if oid != lp_id
+    ]
+    g.state.zones[f"graveyard_{a.id}"].objects.append(lp_id)
+    lp_obj.zone = ZoneType.GRAVEYARD
+    # Second revive (without GY cleanup — confirms purge step inside helper)
+    revive_from_graveyard(g.state, a.id, lp_id)
+    n2 = len(lp_obj.interceptor_ids)
+
+    check("Revive idempotent: interceptor count stable across revives",
+          n1 == n2,
+          f"first={n1} second={n2}")
+
+
+test_revive_rearms_summon_interceptor()
+test_revive_on_summon_trigger_fires_through_pipeline()
+test_revive_idempotent_on_repeated_calls()
+
+
+# =============================================================================
 # Test 5: AI vs AI mirror (Samurai vs Samurai), short run
 # =============================================================================
 
