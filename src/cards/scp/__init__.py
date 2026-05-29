@@ -1351,7 +1351,7 @@ MNESTIC_RESET_DIVISION_NAMES = [
     "MNR Class-A Inoculated Agent", "MNR Mnestic-Coated Operative",
     "MNR Conference Attendee", "MNR D-Class (No Recall)",
     # Facilities (4)
-    "MNR Mnestic Ward", "MNR Antimemetic Quarantine Lab",
+    "MNR Retrograde Erasure Suite", "MNR Antimemetic Quarantine Lab",
     "MNR Pre-Amnestic Records", "MNR Cognitive Anchor Array",
     # Anomalies (5)
     "MNR Memory Reef", "MNR Personnel Drift", "MNR Missing Floor",

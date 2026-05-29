@@ -15,6 +15,7 @@ Composition (16 total):
 
 from __future__ import annotations
 
+from src.engine import scp
 from src.engine.types import CardDefinition, CardType
 
 from .helpers import _mnr_card
@@ -222,8 +223,85 @@ _BYSTANDER_LOUNGE = _mnr_card(
 )
 
 
+# ---------------------------------------------------------------------------
+# Signature bomb (verb-redesign Wave A): a modal "choose one" that flexes
+# between protecting your decaying antimemetic board and disrupting the
+# opponent — works vs any deck (Redact needs no opposing antimemes).
+# ---------------------------------------------------------------------------
+def _retrograde_reinforce(obj, state):
+    """Reset forget counters on your antimemes (protect the decaying board)."""
+    cleared = scp.reset_forget_counters(state, obj.controller)
+    return [scp.Event(
+        type=scp.EventType.SCP_INCIDENT_RESOLVED,
+        payload={"player": obj.controller, "reason": "retrograde_reinforce", "cleared": cleared},
+        source=obj.id,
+        controller=obj.controller,
+    )]
+
+
+def _retrograde_redact(obj, state):
+    """Redact 2 — opponent discards 2 (lowest red tape first)."""
+    game = getattr(state, "_game", None)
+    if game is None:
+        return []
+    return scp.redact_opposing(game, obj.controller, 2, source=obj.id)
+
+
+def _retrograde_reinforce_value(obj, state, _mode):
+    worst = 0
+    for aid in list(state.scp_anomalies.get(obj.controller, [])) + list(state.scp_contained.get(obj.controller, [])):
+        anom = state.objects.get(aid)
+        if anom is not None and int(getattr(anom.card_def, "scp_antimeme", 0) or 0) >= 1:
+            worst = max(worst, int(getattr(anom.state, "scp_forget_counters", 0) or 0))
+    return worst * 1.5  # high only when an antimeme is near forgetting
+
+
+def _retrograde_redact_value(obj, state, _mode):
+    opp = scp._first_opposing_player(state, obj.controller)
+    if opp is None:
+        return 0.0
+    hand = state.zones.get(f"hand_{opp}")
+    held = len(hand.objects) if hand is not None else 0
+    return min(held, 2) * 1.2
+
+
+def _retrograde_setup(obj, state):
+    from src.engine.scp_abilities import make_scp_activated_ability, SCPMode
+    from src.engine.scp_costs import SCPCost, SCPValueHint
+    make_scp_activated_ability(
+        obj,
+        cost=SCPCost(exhaust_self=True),
+        description="Choose one — reinforce your antimemes, or redact the witnesses",
+        modes=[
+            SCPMode("Reinforce: reset your antimemes' forget counters", _retrograde_reinforce,
+                    ("stabilize",), SCPValueHint(custom_value_fn=_retrograde_reinforce_value)),
+            SCPMode("Redact 2: opponent discards 2", _retrograde_redact,
+                    ("disrupt",), SCPValueHint(custom_value_fn=_retrograde_redact_value)),
+        ],
+    )
+    return []
+
+
+_RETROGRADE_ERASURE = _mnr_card(
+    "MNR Retrograde Erasure Suite",
+    CardType.SCP_FACILITY,
+    red_tape=2,
+    clearance=1,
+    subtypes={"Antimemetics", "Archive"},
+    text=(
+        "Exhaust, choose one: reset the forget counters on your antimemetic "
+        "anomalies, OR Redact 2 (the opponent discards 2). "
+        "The suite remembers so the file can be made to forget."
+    ),
+    rarity="mythic",
+    archetype="antimeme_decay",
+)
+_RETROGRADE_ERASURE.setup_interceptors = _retrograde_setup
+
+
 FACILITIES: list[CardDefinition] = [
     # Sample (kept)
+    _RETROGRADE_ERASURE,
     _BYSTANDER_BRIEFING_ROOM,
     # Mnestic Wards (6)
     _MNESTIC_WARD,

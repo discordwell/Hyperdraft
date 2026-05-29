@@ -486,5 +486,66 @@ def test_apollyon_convergence_bomb_fires_aw_and_self_breach():
     assert scp.site(game.state, p2.id)["breach"] > opp_b0, "Annihilation Wave did not fire on activation"
 
 
+# --------------------------------------------------------------------------- #
+# Wave A #2: MNR — Retrograde Erasure modal bomb + Mnestic Wake migration
+# --------------------------------------------------------------------------- #
+
+
+def test_mnr_retrograde_erasure_redact_mode():
+    game, p1, p2 = _setup()
+    fac = _bf_obj(game, p1, "MNR Retrograde Erasure Suite")
+    game.state.scp_facilities.setdefault(p1.id, []).append(fac.id)
+    assert getattr(fac.state, "activated_abilities", []), "Retrograde Erasure ability not registered"
+    cd = SCP_CARDS["Junior Researcher"]
+    game.create_object(name=cd.name, owner_id=p2.id, zone=ZoneType.HAND,
+                       characteristics=cd.characteristics, card_def=cd)
+    hand0 = len(game.state.zones[f"hand_{p2.id}"].objects)
+    ok, msg, _ev = scp.activate_ability(game, p1.id, fac.id, 0, mode=1)  # Redact 2
+    assert ok, msg
+    assert len(game.state.zones[f"hand_{p2.id}"].objects) < hand0, "Redact mode did not discard opp"
+
+
+def test_mnr_retrograde_erasure_reinforce_mode():
+    game, p1, p2 = _setup()
+    fac = _bf_obj(game, p1, "MNR Retrograde Erasure Suite")
+    game.state.scp_facilities.setdefault(p1.id, []).append(fac.id)
+    antimeme = next(c for c in SCP_CARDS.values() if int(getattr(c, "scp_antimeme", 0) or 0) >= 1)
+    an = game.create_object(name=antimeme.name, owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+                            characteristics=antimeme.characteristics, card_def=antimeme)
+    an.controller = p1.id
+    an.state.scp_status = "active"
+    an.state.scp_forget_counters = 2
+    scp.ensure_scp_state(game.state, p1.id)
+    game.state.scp_anomalies.setdefault(p1.id, []).append(an.id)
+    ok, _m, _e = scp.activate_ability(game, p1.id, fac.id, 0, mode=0)  # Reinforce
+    assert ok
+    assert an.state.scp_forget_counters == 0, "Reinforce did not reset forget counters"
+
+
+def test_mnestic_wake_migration_fires_and_pays_ethics():
+    from src.cards.scp.mnestic_reset.helpers import _mnestic_wake_ability
+    from src.engine.scp_abilities import is_scp_ability
+    game, p1, p2 = _setup()
+    cd = scp.make_scp_card("Test Bystander", CardType.SCP_PERSONNEL, text="", skills={"contain": 1})
+    obj = game.create_object(name=cd.name, owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+                             characteristics=cd.characteristics, card_def=cd)
+    obj.controller = p1.id
+    obj.state.scp_status = "active"
+    ability = _mnestic_wake_ability(obj, game.state, ethics_cost=1)
+    assert is_scp_ability(ability), "Mnestic Wake is no longer an SCP ability after migration"
+    scp.site(game.state, p1.id)["ethics_debt"] = 1
+    ok, _m, _e = scp.activate_ability(game, p1.id, obj.id, ability.ability_index)
+    assert ok
+    assert obj.state.scp_mnestic_gained is True, "Mnestic Wake did not grant Mnestic"
+    assert scp.site(game.state, p1.id)["ethics_debt"] == 0, "Mnestic Wake did not pay ethics"
+
+
+def test_mnr_deck_includes_retrograde_erasure():
+    from src.cards.scp import SCP_STARTER_DECKS
+    deck = SCP_STARTER_DECKS["mnestic_reset_division"]()
+    assert len(deck) == 25
+    assert "MNR Retrograde Erasure Suite" in {c.name for c in deck}
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

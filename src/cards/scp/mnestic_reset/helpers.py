@@ -181,44 +181,30 @@ def _mnestic_wake_ability(
 ):
     """Register the Mnestic Wake activated ability on a personnel.
 
-    Pattern: exhaust self + spend ``ethics_cost`` ethics_debt; the personnel
-    permanently gains the Mnestic tag (``state.scp_mnestic_gained = True``).
+    Pattern: pay ``ethics_cost`` (reduce ethics_debt) + exhaust self; the
+    personnel permanently gains the Mnestic tag (``state.scp_mnestic_gained``).
+    Once-per-game ("Exhaust"), so each personnel can only Wake once. Built on the
+    SCP-native ``make_scp_activated_ability`` (the cost is a real ``SCPCost``).
 
-    The activated-ability framework parses "Pay N life" as a life-cost step;
-    SCP has no life, so we read ``site["ethics_debt"]`` directly in the
-    effect_fn and validate via ``precondition_fn`` — there's no Mnestic Wake
-    ability text that maps neatly onto an MTG cost grammar. The ability is
-    once-per-game ("Exhaust") so each personnel can only Wake once.
-
-    Returns the registered ``ActivatedAbility`` descriptor.
+    Returns the registered ``SCPActivatedAbility`` descriptor.
     """
-    from src.cards.interceptor_helpers import make_activated_ability
+    from src.engine.scp_abilities import make_scp_activated_ability
+    from src.engine.scp_costs import SCPCost, SCPValueHint
 
     def precondition(o: GameObject, st: GameState) -> bool:
-        if o.zone.name != "BATTLEFIELD":
+        if o.zone.name != "BATTLEFIELD" or o.state.scp_status != "active":
             return False
-        if o.state.scp_status != "active":
-            return False
-        if o.state.scp_exhausted:
-            return False
+        # Already Mnestic (printed or previously woken) → nothing to gain.
         if bool(getattr(o.card_def, "scp_mnestic", False)):
-            return False  # Already Mnestic at print; nothing to gain.
+            return False
         if bool(getattr(o.state, "scp_mnestic_gained", False)):
             return False
-        s = scp.site(st, o.controller)
-        return s.get("ethics_debt", 0) >= ethics_cost
+        return True
 
-    def effect_fn(o: GameObject, st: GameState, targets: list) -> list[Event]:
-        s = scp.site(st, o.controller)
-        if s.get("ethics_debt", 0) < ethics_cost:
-            return []
-        s["ethics_debt"] -= ethics_cost
-        # Exhaust the personnel as part of the cost.
-        o.state.scp_exhausted = True
+    def effect_fn(o: GameObject, st: GameState) -> list[Event]:
         game = getattr(st, "_game", None)
         if game is None:
-            # Bare-test fallback: emit a synthesized event so the caller
-            # can still observe Mnestic Wake firing.
+            # Bare-test fallback (no game attached): synthesize the result.
             o.state.scp_mnestic_gained = True
             return [Event(
                 type=EventType.SCP_MNESTIC_ACTIVE,
@@ -228,20 +214,20 @@ def _mnestic_wake_ability(
             )]
         return scp.gain_mnestic(game, o.id, source=o.id)
 
-    # Cost text is empty — all real cost is in the effect_fn (because
-    # ethics_debt isn't a parser-known mana/life cost). once_per_game=True
-    # makes it an Exhaust-style ability, registered with a precondition.
-    cost_text = ""
     desc = description or f"Mnestic Wake: pay {ethics_cost} ethics, exhaust. Gain Mnestic."
-    return make_activated_ability(
+    # Migrated off the MTG make_activated_ability: that descriptor registered onto
+    # activated_abilities but SCP only dispatches is_scp_ability ones, so Mnestic
+    # Wake never actually fired (dead code, like the pilot's O5-3). The cost
+    # (reduce ethics_debt + exhaust) is now a real SCPCost; the value_hint makes
+    # the heuristic AI Wake toward the Mnestic Saturation alt-win.
+    return make_scp_activated_ability(
         obj,
-        cost=cost_text,
-        effect_fn=effect_fn,
-        description=desc,
+        cost=SCPCost(ethics=ethics_cost, exhaust_self=True),
         once_per_game=True,
-        targets_required=0,
-        target_kind="any",
+        description=desc,
+        effect_fn=effect_fn,
         precondition_fn=precondition,
+        value_hint=SCPValueHint(gains_mnestic=True),
     )
 
 
