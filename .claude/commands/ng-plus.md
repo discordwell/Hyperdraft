@@ -201,9 +201,12 @@ predicates pass, break early.
 ### P0 — Interceptor verification (LOAD-BEARING)
 
 **Why first**: catches the depths case (interceptor wired, effect_fn
-returns `[]`) before the deckbuilder and AI tuner waste hours
+returns `[]`) AND the text-mismatch case (effect_fn emits the wrong
+event — e.g. a "deal damage" card emitting an info-pulse — the slice-N
+median-lift signature) before the deckbuilder and AI tuner waste hours
 producing "the deck is bad" results that are really "the engine is
-broken." This is the single highest-leverage stage in polish.
+broken" or "the card does the wrong thing." This is the single
+highest-leverage stage in polish.
 
 **Feed-forward from prior iteration / prior pass**: if
 `docs/games/<game>_polish_punchlist.md` exists (from this loop's
@@ -220,7 +223,22 @@ previous pass flagged as broken or dead weight. Track:
   tuning.
 
 Invoke `/test-interceptors --game <game> --set <set_code>`. Read
-`.claude/commands/test-interceptors.md` and follow it.
+`.claude/commands/test-interceptors.md` and follow it **exactly** —
+that means firing each card's OWN canonical trigger (death→kill,
+attack→declare, etc., NOT a blanket ETB probe), asserting a
+**text-matching** event (a "deal damage" card must emit DAMAGE, not a
+generic SCRY/SURVEIL/MILL/LIFE_CHANGE info-pulse), and running under
+strict mode (`HYPERDRAFT_STRICT=1 HYPERDRAFT_STRICT_STACK=1`) so
+swallowed card-side errors surface. "Some event fired" is NOT a pass —
+the pass rate this gate reports is the *text-matching* pass rate.
+
+> ⛔ This gate is what would have caught the slice-N median-lift
+> disaster. A card emitting an info-pulse unrelated to its text is a P0
+> FAILURE, not a pass. If you see a batch of cards all emitting
+> SCRY/SURVEIL/MILL/LIFE_CHANGE regardless of text, the set was
+> retrofitted with `_<set>_s<N>_*` stubs — flag it loudly and revert
+> them (see `.claude/skills/spice-pass.md` FORBIDDEN section). Never
+> "repair" a failing card by stubbing it to emit filler.
 
 `<set_code>` = the first set in `src/cards/<game>/`. If the engine
 has multiple sets, run P0 against each (one invocation per set,
@@ -244,10 +262,19 @@ auto-repair pattern (§"Auto-repair pattern"):
    > Refer to `CLAUDE.md` for the interceptor patterns and
    > `interceptor_helpers.py` for available helpers. Fix root
    > causes — do NOT lower the threshold, mock the test, or
-   > delete failing cards. Re-run
-   > `python tests/test_<game>_interceptors.py` to confirm the
-   > pass rate improved. Report which cards you fixed and any
-   > you couldn't repair (with reasons).
+   > delete failing cards. **Critically: do NOT "fix" a card by
+   > stubbing its effect_fn to emit a generic
+   > SCRY/SURVEIL/MILL/LIFE_CHANGE info-pulse, and do NOT edit the
+   > card's printed text to match a convenient effect. The effect
+   > must implement what the text SAYS. A card whose text is
+   > keyword/stat-only should be left vanilla (no setup_interceptors)
+   > and added to SKIPPED_CARDS, not given a filler trigger. The
+   > `_<set>_s<N>_*` median-lift pattern is the prohibited
+   > anti-pattern this loop exists to prevent — see
+   > `.claude/skills/spice-pass.md` FORBIDDEN section.** Re-run
+   > `HYPERDRAFT_STRICT=1 HYPERDRAFT_STRICT_STACK=1 python tests/test_<game>_interceptors.py`
+   > to confirm the (text-matching) pass rate improved. Report
+   > which cards you fixed and any you couldn't repair (with reasons).
 3. Re-run `/test-interceptors`. If pass rate now ≥ 70%, delete the
    blocker file and log "P0 auto-repaired in iter <iter>: <X>% →
    <Y>%" to the iteration report. Continue to P1.
@@ -463,9 +490,12 @@ pattern (§"Auto-repair pattern"):
    > defs, but `<game>_adapter.py` and `<game>_BIAS_PRESETS` may
    > have shifted, and a P3 frontend pass occasionally touches
    > shared utility files). Either revert the breaking change or
-   > fix forward — fix root causes, don't gate the test off.
-   > Re-run `python tests/test_<game>_interceptors.py` and confirm
-   > parity with P0. Report what you changed.
+   > fix forward — fix root causes, don't gate the test off, and
+   > never stub a card with an info-pulse / median-lift effect or
+   > rewrite its text to match a stub (see `.claude/skills/spice-pass.md`
+   > FORBIDDEN section). Re-run
+   > `HYPERDRAFT_STRICT=1 HYPERDRAFT_STRICT_STACK=1 python tests/test_<game>_interceptors.py`
+   > and confirm parity with P0. Report what you changed.
 3. Re-run `/test-interceptors`. If pass rate now ≥ P0, delete the
    blocker file and log "P4 regression auto-repaired in iter
    <iter>" to the iteration report.
@@ -574,10 +604,11 @@ If browser automation isn't available, skip P5b with a logged note.
 
 ```
 PYTHONPATH=. python tests/test_<game>_smoke.py
-PYTHONPATH=. python tests/test_<game>_interceptors.py
+HYPERDRAFT_STRICT=1 HYPERDRAFT_STRICT_STACK=1 PYTHONPATH=. python tests/test_<game>_interceptors.py
 ```
 
-Both should pass. Any failure is a regression.
+Both should pass — and the interceptor run is the strict, text-matching
+one (info-pulse stubs fail it). Any failure is a regression.
 
 **P5d — Plan-vs-reality drift check**
 
@@ -631,7 +662,12 @@ fresh game data and the coach refines plans then.
 
 After P5 finishes, evaluate three predicates:
 
-1. **P0 pass rate this iter = 100%** (no failures).
+1. **P0 pass rate this iter = 100%** (no failures). This is the
+   *text-matching* pass rate from the strengthened `/test-interceptors`
+   (correct trigger per card, text-matching event asserted, strict mode).
+   Convergence — the loop's success state — therefore cannot be reached by
+   stubbing cards to emit filler info-pulse events; a stub fails the
+   text-match assertion and keeps P0 below 100%.
 2. **P5d drift flags = 0** (no plans with > 30% drift).
 3. **Punchlist clean**: P5a-2 wrote a punchlist with 0 zero-play, 0
    loss-only, 0 no-impact entries.
