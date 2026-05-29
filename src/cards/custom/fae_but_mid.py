@@ -2343,21 +2343,25 @@ ENRAGED_FLAMECASTER = make_creature(
 )
 
 # Explosive Prodigy - {1}{R} Creature — Elemental Sorcerer 1/1
+def _colors_among_permanents(obj: GameObject, state: GameState) -> int:
+    colors = set()
+    for o in state.objects.values():
+        if o.zone == ZoneType.BATTLEFIELD and o.controller == obj.controller:
+            colors.update(o.characteristics.colors)
+    return len(colors)
+
+
 def explosive_prodigy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "it deals X damage to target creature an opponent controls, where X is the
+    #  number of colors among permanents you control."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Count colors among permanents we control
-        colors = set()
-        battlefield = state.zones.get('battlefield')
-        if battlefield:
-            for obj_id in battlefield.objects:
-                perm = state.objects.get(obj_id)
-                if perm and perm.controller == obj.controller:
-                    colors.update(perm.characteristics.colors)
-        damage = len(colors)
-        if damage > 0:
-            # Would need target selection - simplified
-            return []
-        return []
+        damage = max(1, _colors_among_permanents(obj, state))
+        target = find_opponent_creature(obj, state)
+        payload = {'amount': damage, 'target_filter': 'opponent_creature'}
+        if target:
+            payload['target'] = target
+            payload['target_type'] = 'creature'
+        return [Event(type=EventType.DAMAGE, payload=payload, source=obj.id)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -2494,8 +2498,22 @@ GRISTLE_GLUTTON = make_creature(
 
 # Abigale, Eloquent First-Year - {W/B}{W/B} Legendary Creature 1/1
 def abigale_eloquent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "up to one other target creature loses all abilities and has base power and
+    #  toughness 1/1 until end of turn."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Requires targeting - handled by targeting system
+        target = find_any_creature(obj, state, exclude_self=True)
+        payload = {'duration': 'end_of_turn', 'set_base': True,
+                   'set_power': 1, 'set_toughness': 1, 'lose_all_abilities': True,
+                   'target_filter': 'other_creature', 'optional': True}
+        if target:
+            t = state.objects[target]
+            payload['object_id'] = target
+            payload['power_mod'] = 1 - (t.characteristics.power or 0)
+            payload['toughness_mod'] = 1 - (t.characteristics.toughness or 0)
+        else:
+            payload['power_mod'] = 0
+            payload['toughness_mod'] = 0
+        return [Event(type=EventType.PT_MODIFICATION, payload=payload, source=obj.id)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -2619,32 +2637,10 @@ def deepchannel_duelist_setup(obj: GameObject, state: GameState) -> list[Interce
     # "At the beginning of your end step, untap target Merfolk you control.
     #  It can't be blocked this turn."
     def end_step_effect(event: Event, state: GameState) -> list[Event]:
-        # Find Merfolk you control for targeting
-        legal_targets = []
-        battlefield = state.zones.get('battlefield')
-        if battlefield:
-            for obj_id in battlefield.objects:
-                perm = state.objects.get(obj_id)
-                if (perm and perm.controller == obj.controller and
-                    CardType.CREATURE in perm.characteristics.types and
-                    "Merfolk" in perm.characteristics.subtypes):
-                    legal_targets.append(perm.id)
-
-        if not legal_targets:
+        target = find_friendly_creature(obj, state, subtype="Merfolk", exclude_self=False)
+        if not target:
             return []
-
-        return [Event(
-            type=EventType.TARGET_REQUIRED,
-            payload={
-                'source': obj.id,
-                'controller': obj.controller,
-                'effect': 'untap',
-                'target_filter': 'creature',
-                'legal_targets_override': legal_targets,
-                'prompt': "Untap target Merfolk you control. It can't be blocked this turn."
-            },
-            source=obj.id
-        )]
+        return [Event(type=EventType.UNTAP, payload={'object_id': target}, source=obj.id)]
     return [make_end_step_trigger(obj, end_step_effect)]
 
 
@@ -2710,10 +2706,7 @@ DORAN_BESIEGED = make_creature(
 
 # Eclipsed Boggart - {B/R}{B/R}{B/R} Creature — Goblin Scout 2/3
 def eclipsed_boggart_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Look at top 4 cards, put a Goblin in hand
-        return []  # Would need library manipulation
-    return [make_etb_trigger(obj, etb_effect)]
+    return [make_etb_trigger(obj, _eclipsed_dig(obj, "Goblin"))]
 
 
 ECLIPSED_BOGGART = make_creature(
@@ -2728,10 +2721,18 @@ ECLIPSED_BOGGART = make_creature(
 )
 
 # Eclipsed Elf - {B/G}{B/G}{B/G} Creature — Elf Scout 3/2
-def eclipsed_elf_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+def _eclipsed_dig(obj: GameObject, tribe: str):
+    """Shared "look at top four, reveal a <tribe>, bottom the rest" ETB effect."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Requires library manipulation
-    return [make_etb_trigger(obj, etb_effect)]
+        return [Event(type=EventType.LOOK_AT_TOP,
+            payload={'player': obj.controller, 'amount': 4, 'put_in_hand': 1,
+                     'reveal_type': tribe, 'rest_to_bottom': True, 'optional': True},
+            source=obj.id)]
+    return etb_effect
+
+
+def eclipsed_elf_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_etb_trigger(obj, _eclipsed_dig(obj, "Elf"))]
 
 
 ECLIPSED_ELF = make_creature(
@@ -2747,9 +2748,7 @@ ECLIPSED_ELF = make_creature(
 
 # Eclipsed Flamekin - {1}{U/R}{U/R} Creature — Elemental Scout 1/4
 def eclipsed_flamekin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Requires library manipulation
-    return [make_etb_trigger(obj, etb_effect)]
+    return [make_etb_trigger(obj, _eclipsed_dig(obj, "Elemental"))]
 
 
 ECLIPSED_FLAMEKIN = make_creature(
@@ -2765,9 +2764,7 @@ ECLIPSED_FLAMEKIN = make_creature(
 
 # Eclipsed Kithkin - {G/W}{G/W} Creature — Kithkin Scout 2/1
 def eclipsed_kithkin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Requires library manipulation
-    return [make_etb_trigger(obj, etb_effect)]
+    return [make_etb_trigger(obj, _eclipsed_dig(obj, "Kithkin"))]
 
 
 ECLIPSED_KITHKIN = make_creature(
@@ -2783,9 +2780,7 @@ ECLIPSED_KITHKIN = make_creature(
 
 # Eclipsed Merrow - {W/U}{W/U}{W/U} Creature — Merfolk Scout 2/3
 def eclipsed_merrow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Requires library manipulation
-    return [make_etb_trigger(obj, etb_effect)]
+    return [make_etb_trigger(obj, _eclipsed_dig(obj, "Merfolk"))]
 
 
 ECLIPSED_MERROW = make_creature(
@@ -2968,7 +2963,14 @@ def reluctant_dounguard_setup(obj: GameObject, state: GameState) -> list[Interce
             )]
         )
 
+    def enters_with_counters(event: Event, state: GameState) -> list[Event]:
+        # "This creature enters with two -1/-1 counters on it."
+        return [Event(type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '-1/-1', 'amount': 2},
+            source=obj.id)]
+
     return [
+        make_etb_trigger(obj, enters_with_counters),
         Interceptor(
             id=new_id(),
             source=obj.id,
