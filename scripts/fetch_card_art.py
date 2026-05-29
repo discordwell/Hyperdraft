@@ -7,7 +7,7 @@ Art is stored locally in assets/card_art/ and only downloaded once.
 
 Usage:
     python scripts/fetch_card_art.py <set_name>
-    python scripts/fetch_card_art.py lorwyn_custom
+    python scripts/fetch_card_art.py fae_but_mid
     python scripts/fetch_card_art.py --list
     python scripts/fetch_card_art.py --all
 """

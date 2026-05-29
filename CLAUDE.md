@@ -183,7 +183,7 @@ Located in `src/cards/custom/`. ~4,400 cards with working interceptors for testi
 
 | Set | Cards | Notes |
 |-----|-------|-------|
-| Lorwyn Custom | 408 | Has interceptors, used by tests |
+| Fae but Mid | 408 | Has interceptors, used by tests (was "Lorwyn Custom") |
 | Temporal Horizons | 276 | Has interceptors |
 | + 16 crossover sets | ~3,700 | Star Wars, anime, games |
 
@@ -201,7 +201,7 @@ python scripts/fetch_scryfall_set.py <set_code> <module_name> "<Set Name>"
 
 ## Running Tests
 ```bash
-python tests/test_lorwyn.py
+python tests/test_fae_but_mid.py
 python tests/test_layer_nightmares.py
 python tests/test_degenerate.py
 ```

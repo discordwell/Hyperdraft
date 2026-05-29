@@ -5,8 +5,8 @@ Conspire never appears as printed text in this codebase — it's always *granted
 by a permanent ability ("Each <filtered> spell you cast has conspire."). The
 three cards exercising the grant in the codebase are:
     - lorwyn_eclipsed.RAIDING_SCHEMES (noncreature spells)
-    - lorwyn_custom.RAIDING_SCHEMES (noncreature spells)
-    - lorwyn_custom.WORT_THE_RAIDMOTHER (red-or-green instants/sorceries)
+    - fae_but_mid.RAIDING_SCHEMES (noncreature spells)
+    - fae_but_mid.WORT_THE_RAIDMOTHER (red-or-green instants/sorceries)
 
 Coverage
 --------
@@ -719,7 +719,7 @@ def test_conspire_auto_declines_when_no_human_handler():
 def test_wired_cards_register_grants():
     print("\n=== Test: wired cards register conspire grants on ETB ===")
     from src.cards.lorwyn_eclipsed import RAIDING_SCHEMES as ECLIPSED_RAIDING
-    from src.cards.custom.lorwyn_custom import (
+    from src.cards.custom.fae_but_mid import (
         RAIDING_SCHEMES as CUSTOM_RAIDING,
         WORT_THE_RAIDMOTHER,
     )

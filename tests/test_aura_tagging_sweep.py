@@ -166,37 +166,37 @@ def test_dbz_tag_super_saiyan_aura_is_aura():
 
 
 def test_lwn_tag_aquitects_defenses_is_aura():
-    from src.cards.custom.lorwyn_custom import AQUITECTS_DEFENSES
+    from src.cards.custom.fae_but_mid import AQUITECTS_DEFENSES
     assert "Aura" in AQUITECTS_DEFENSES.characteristics.subtypes
 
 
 def test_lwn_tag_blossombind_is_aura():
-    from src.cards.custom.lorwyn_custom import BLOSSOMBIND
+    from src.cards.custom.fae_but_mid import BLOSSOMBIND
     assert "Aura" in BLOSSOMBIND.characteristics.subtypes
 
 
 def test_lwn_tag_evershrikes_gift_is_aura():
-    from src.cards.custom.lorwyn_custom import EVERSHRIKES_GIFT
+    from src.cards.custom.fae_but_mid import EVERSHRIKES_GIFT
     assert "Aura" in EVERSHRIKES_GIFT.characteristics.subtypes
 
 
 def test_lwn_tag_gilt_leafs_embrace_is_aura():
-    from src.cards.custom.lorwyn_custom import GILT_LEAFS_EMBRACE
+    from src.cards.custom.fae_but_mid import GILT_LEAFS_EMBRACE
     assert "Aura" in GILT_LEAFS_EMBRACE.characteristics.subtypes
 
 
 def test_lwn_tag_pitiless_fists_is_aura():
-    from src.cards.custom.lorwyn_custom import PITILESS_FISTS
+    from src.cards.custom.fae_but_mid import PITILESS_FISTS
     assert "Aura" in PITILESS_FISTS.characteristics.subtypes
 
 
 def test_lwn_tag_shimmerwilds_growth_is_aura():
-    from src.cards.custom.lorwyn_custom import SHIMMERWILDS_GROWTH
+    from src.cards.custom.fae_but_mid import SHIMMERWILDS_GROWTH
     assert "Aura" in SHIMMERWILDS_GROWTH.characteristics.subtypes
 
 
 def test_lwn_tag_nettlevine_blight_is_aura():
-    from src.cards.custom.lorwyn_custom import NETTLEVINE_BLIGHT
+    from src.cards.custom.fae_but_mid import NETTLEVINE_BLIGHT
     assert "Aura" in NETTLEVINE_BLIGHT.characteristics.subtypes
 
 
@@ -375,7 +375,7 @@ def test_mha_explosive_power_zaps_on_attack():
 
 
 def test_lwn_morcants_eyes_draws_on_combat_dmg_to_player():
-    from src.cards.custom.lorwyn_custom import MORCANTS_EYES
+    from src.cards.custom.fae_but_mid import MORCANTS_EYES
     game, p1, p2 = _new_game()
     aura = _put_card(game, p1, MORCANTS_EYES)
     creature = _put_card(game, p1, _plain_creature("Bearer"))

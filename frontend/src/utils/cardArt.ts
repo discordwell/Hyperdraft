@@ -30,7 +30,7 @@ export const SET_CODE_TO_FOLDER: Record<string, { type: 'mtg' | 'custom'; folder
   SPMC: { type: 'custom', folder: 'man_of_pider' },
   FINC: { type: 'custom', folder: 'princess_catholicon' },
   TMH: { type: 'custom', folder: 'temporal_horizons' },
-  LRW: { type: 'custom', folder: 'lorwyn_custom' },
+  FBM: { type: 'custom', folder: 'fae_but_mid' },
   SWR: { type: 'custom', folder: 'star_wars' },
   DMS: { type: 'custom', folder: 'demon_slayer' },
   OPC: { type: 'custom', folder: 'one_piece' },

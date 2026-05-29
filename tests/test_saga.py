@@ -37,7 +37,7 @@ def _build_saga(text: str, chapter_handlers, name="Test Saga"):
 
 def _put_saga_on_battlefield(game, player, saga_def):
     """
-    Mirror the test_lorwyn helper: create the object in HAND without
+    Mirror the test_fae_but_mid helper: create the object in HAND without
     setup, then move it onto the battlefield via ZONE_CHANGE so
     interceptors get installed exactly once.
     """

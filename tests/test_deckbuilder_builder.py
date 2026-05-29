@@ -119,12 +119,12 @@ def test_build_two_color_wu_loaded_via_load_deck() -> None:
 
 
 def test_build_custom_set_mix_tmh_lrw_loads() -> None:
-    """Custom-set mix (Temporal Horizons + Lorwyn Custom) loads via load_deck."""
+    """Custom-set mix (Temporal Horizons + Fae but Mid) loads via load_deck."""
     deck = build_heuristic_deck(
         name="Custom Mix",
         archetype="Midrange",
         colors=["G"],
-        set_codes=["TMH", "LRW"],
+        set_codes=["TMH", "FBM"],
     )
     is_valid, errors = validate_deck(deck)
     assert is_valid, errors

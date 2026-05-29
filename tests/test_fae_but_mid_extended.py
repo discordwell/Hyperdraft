@@ -1,7 +1,7 @@
 """
-Extended tests for Lorwyn Custom cards.
+Extended tests for Fae but Mid cards.
 
-Tests additional cards beyond the basic test_lorwyn.py file.
+Tests additional cards beyond the basic test_fae_but_mid.py file.
 Focus on:
 - ETB (enters the battlefield) triggers
 - Static effects (lord effects, ability grants)
@@ -23,12 +23,12 @@ from src.engine import Game, Event, EventType, ZoneType, CardType, Color, get_po
 # Direct import to avoid circular import issues with custom/__init__.py
 import importlib.util
 _spec = importlib.util.spec_from_file_location(
-    'lorwyn_custom',
-    str(PROJECT_ROOT / "src/cards/custom/lorwyn_custom.py")
+    'fae_but_mid',
+    str(PROJECT_ROOT / "src/cards/custom/fae_but_mid.py")
 )
-_lorwyn_mod = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_lorwyn_mod)
-LORWYN_CUSTOM_CARDS = _lorwyn_mod.LORWYN_CUSTOM_CARDS
+_fbm_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_fbm_mod)
+FAE_BUT_MID_CARDS = _fbm_mod.FAE_BUT_MID_CARDS
 
 
 # =============================================================================
@@ -46,7 +46,7 @@ def create_creature_on_battlefield(game, player, card_name, emit_etb=True):
     When emit_etb=False, we create directly on battlefield with card_def
     (for static effects testing where we don't want ETB to fire).
     """
-    card_def = LORWYN_CUSTOM_CARDS[card_name]
+    card_def = FAE_BUT_MID_CARDS[card_name]
 
     if emit_etb:
         # Create in hand WITHOUT card_def to avoid premature interceptor setup
@@ -110,7 +110,7 @@ class TestETBTriggers:
         game = Game()
         p1 = game.add_player("Alice")
 
-        card_def = LORWYN_CUSTOM_CARDS["Clachan Festival"]
+        card_def = FAE_BUT_MID_CARDS["Clachan Festival"]
         enchantment = game.create_object(
             name="Clachan Festival",
             owner_id=p1.id,
@@ -243,7 +243,7 @@ class TestETBTriggers:
         game = Game()
         p1 = game.add_player("Alice")
 
-        card_def = LORWYN_CUSTOM_CARDS["Boggart Mischief"]
+        card_def = FAE_BUT_MID_CARDS["Boggart Mischief"]
         enchantment = game.create_object(
             name="Boggart Mischief",
             owner_id=p1.id,
@@ -341,7 +341,7 @@ class TestStaticEffects:
         p1 = game.add_player("Alice")
 
         # Create Moon-Vigil Adherents (base 0/0)
-        adherents_def = LORWYN_CUSTOM_CARDS["Moon-Vigil Adherents"]
+        adherents_def = FAE_BUT_MID_CARDS["Moon-Vigil Adherents"]
         adherents = game.create_object(
             name="Moon-Vigil Adherents",
             owner_id=p1.id,
@@ -652,7 +652,7 @@ class TestTribalLords:
         champion = create_creature_on_battlefield(game, p1, "Champion of the Clachan")
 
         # Create a Kithkin
-        kithkin_def = LORWYN_CUSTOM_CARDS["Goldmeadow Nomad"]
+        kithkin_def = FAE_BUT_MID_CARDS["Goldmeadow Nomad"]
         kithkin = game.create_object(
             name="Goldmeadow Nomad",
             owner_id=p1.id,
@@ -915,7 +915,7 @@ class TestSaplingNursery:
         game.state.active_player = p1.id
 
         # Create Sapling Nursery
-        card_def = LORWYN_CUSTOM_CARDS["Sapling Nursery"]
+        card_def = FAE_BUT_MID_CARDS["Sapling Nursery"]
         nursery = game.create_object(
             name="Sapling Nursery",
             owner_id=p1.id,
@@ -1139,7 +1139,7 @@ class TestFlaringCinder:
 def run_all_tests():
     """Run all tests with verbose output."""
     print("=" * 70)
-    print("LORWYN CUSTOM EXTENDED TESTS")
+    print("FAE BUT MID EXTENDED TESTS")
     print("=" * 70)
 
     # ETB Triggers
@@ -1301,7 +1301,7 @@ def run_all_tests():
     print("  [PASS] Flaring Cinder characteristics")
 
     print("\n" + "=" * 70)
-    print("ALL LORWYN EXTENDED TESTS PASSED!")
+    print("ALL FAE BUT MID EXTENDED TESTS PASSED!")
     print("=" * 70)
 
 

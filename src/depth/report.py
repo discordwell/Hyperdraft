@@ -416,7 +416,7 @@ _KNOWN_SETS: dict[str, tuple[str, str, str]] = {
     "SVS": ("pokemon", "src.cards.pokemon.sv_starter", "SV_STARTER_CARDS"),
     "ECL": ("mtg", "src.cards.lorwyn_eclipsed", "LORWYN_ECLIPSED_CARDS"),
     "TH": ("mtg", "src.cards.custom.temporal_horizons", "TEMPORAL_HORIZONS_CARDS"),
-    "LOR": ("mtg", "src.cards.custom.lorwyn_custom", "LORWYN_CUSTOM_CARDS"),
+    "LOR": ("mtg", "src.cards.custom.fae_but_mid", "FAE_BUT_MID_CARDS"),
     "WOE": ("mtg", "src.cards.wilds_of_eldraine", "WILDS_OF_ELDRAINE_CARDS"),
     "BLB": ("mtg", "src.cards.bloomburrow", "BLOOMBURROW_CARDS"),
     "DSK": ("mtg", "src.cards.duskmourn", "DUSKMOURN_CARDS"),

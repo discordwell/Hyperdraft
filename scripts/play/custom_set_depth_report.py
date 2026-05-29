@@ -175,10 +175,10 @@ SETS = {
     # All score against the MTG engine profile. Added 2026-05-18 so the v2
     # depth audit can reach every custom set in one CLI sweep.
     "mtg_lrw": DepthSet(
-        label="MTG Lorwyn Custom",
-        registry_path="src.cards.custom.lorwyn_custom:LORWYN_CUSTOM_CARDS",
-        import_path="src.cards.custom.lorwyn_custom",
-        registry_name="LORWYN_CUSTOM_CARDS",
+        label="MTG Fae but Mid",
+        registry_path="src.cards.custom.fae_but_mid:FAE_BUT_MID_CARDS",
+        import_path="src.cards.custom.fae_but_mid",
+        registry_name="FAE_BUT_MID_CARDS",
         engine="mtg",
     ),
     "mtg_tmh": DepthSet(

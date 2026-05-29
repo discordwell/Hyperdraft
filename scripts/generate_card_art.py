@@ -88,7 +88,7 @@ CUSTOM_SET_THEMES = {
     "my_hero_academia": {"style": "superhero academy, quirks, hero costumes", "palette": "UA blue, heroic primaries, villain purple"},
     "legend_of_zelda": {"style": "Hyrule adventure, dungeons, Master Sword, Triforce", "palette": "Hylian green, golden Triforce, royal blue"},
     "temporal_horizons": {"style": "time magic, temporal rifts, past and future colliding", "palette": "temporal gold, void purple, reality fractures"},
-    "lorwyn_custom": {"style": "Celtic fairy tale, tribal creatures, idyllic then dark", "palette": "autumn gold, twilight purple, fae green"},
+    "fae_but_mid": {"style": "Celtic fairy tale, tribal creatures, idyllic then dark", "palette": "autumn gold, twilight purple, fae green"},
 }
 
 def get_set_style(set_code: str = None, custom_set: str = None) -> tuple[str, str]:

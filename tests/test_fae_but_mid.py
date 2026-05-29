@@ -1,12 +1,12 @@
 """
-Test Lorwyn Eclipsed cards
+Test Fae but Mid cards
 """
 
 import sys
 sys.path.insert(0, __import__("pathlib").Path(__file__).resolve().parents[1].as_posix())
 
 from src.engine import Game, Event, EventType, ZoneType, get_power, get_toughness
-from src.cards.custom.lorwyn_custom import LORWYN_CUSTOM_CARDS
+from src.cards.custom.fae_but_mid import FAE_BUT_MID_CARDS
 
 
 def create_creature_on_battlefield(game, player, card_name):
@@ -17,7 +17,7 @@ def create_creature_on_battlefield(game, player, card_name):
     then moves to battlefield via ZONE_CHANGE event which properly sets up
     interceptors AND triggers ETB exactly once.
     """
-    card_def = LORWYN_CUSTOM_CARDS[card_name]
+    card_def = FAE_BUT_MID_CARDS[card_name]
 
     # Create in hand WITHOUT card_def to avoid premature interceptor setup
     creature = game.create_object(
@@ -75,7 +75,7 @@ def test_champion_of_clachan_lord():
     p1 = game.add_player("Alice")
 
     # Create Champion first (no ETB needed, just for static effect)
-    champion_def = LORWYN_CUSTOM_CARDS["Champion of the Clachan"]
+    champion_def = FAE_BUT_MID_CARDS["Champion of the Clachan"]
     champion = game.create_object(
         name="Champion of the Clachan",
         owner_id=p1.id,
@@ -85,7 +85,7 @@ def test_champion_of_clachan_lord():
     )
 
     # Create a Kithkin (no ETB needed, just for static effect test)
-    kithkin_def = LORWYN_CUSTOM_CARDS["Goldmeadow Nomad"]
+    kithkin_def = FAE_BUT_MID_CARDS["Goldmeadow Nomad"]
     kithkin = game.create_object(
         name="Goldmeadow Nomad",
         owner_id=p1.id,
@@ -169,7 +169,7 @@ def test_rooftop_percher_life_gain():
 
 def run_all_tests():
     print("=" * 60)
-    print("LORWYN ECLIPSED CARD TESTS")
+    print("FAE BUT MID CARD TESTS")
     print("=" * 60)
 
     test_burdened_stoneback_counters()
@@ -178,7 +178,7 @@ def run_all_tests():
     test_rooftop_percher_life_gain()
 
     print("\n" + "=" * 60)
-    print("ALL LORWYN TESTS PASSED!")
+    print("ALL FAE BUT MID TESTS PASSED!")
     print("=" * 60)
 
 

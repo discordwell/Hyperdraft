@@ -1,10 +1,8 @@
 """
-Lorwyn Custom - Custom Card Set
+Fae but Mid - Custom Card Set
 
-Custom/fan-made set with 408 cards inspired by the Lorwyn plane.
-
-NOTE: This is a custom set. The real "Lorwyn Eclipsed" MTG set was released
-after my knowledge cutoff and may have different cards.
+Custom/fan-made fae-tribal homebrew (408 cards); self-aware about its power level.
+(The real same-themed MTG set lives in src/cards/lorwyn_eclipsed.py.)
 """
 
 from src.cards.card_factories import (
@@ -178,7 +176,7 @@ def make_static_pt_boost(
 
 
 # =============================================================================
-# LORWYN ECLIPSED KEYWORD HELPERS
+# FAE BUT MID KEYWORD HELPERS
 # =============================================================================
 
 from src.cards.interceptor_helpers import (
@@ -201,7 +199,7 @@ def make_blight_death(source_obj: GameObject, counter_amount: int = 1) -> Interc
     """
     Blight — When this creature dies, put N -1/-1 counters on target creature.
 
-    The -1/-1 counter spreading mechanic of Lorwyn Eclipsed.
+    The -1/-1 counter spreading mechanic of Fae but Mid.
     """
     def blight_effect(event: Event, state: GameState) -> list[Event]:
         # Would target and create COUNTER_ADDED event
@@ -306,7 +304,7 @@ def make_tribal_lord(
     """
     Tribal lord — Other [type] creatures you control get +X/+Y and have [keywords].
 
-    Common pattern in Lorwyn for tribal synergies.
+    Common pattern in Fae but Mid for tribal synergies.
     """
     interceptors = []
 
@@ -406,7 +404,7 @@ def changeling_wayfinder_setup(obj: GameObject, state: GameState) -> list[Interc
 
 # REVISED (rebalance): {3} -> {2}. Library-search effect is stub; without it,
 # 1/2 for 3 was unplayable. 1/2 for 2 is a legitimate Changeling enabler that
-# triggers tribal payoffs across every Lorwyn type.
+# triggers tribal payoffs across every Fae but Mid type.
 CHANGELING_WAYFINDER = make_creature(
     name="Changeling Wayfinder",
     power=1,
@@ -7636,7 +7634,7 @@ WANDERBRINE_ROOTCUTTERS = make_creature(
 # =============================================================================
 # PHASE A1 SPICE PASS (2026-05-18)
 # =============================================================================
-# 4 new spice picks targeting the 5-tribe Lorwyn axis (Faerie / Kithkin /
+# 4 new spice picks targeting the 5-tribe Fae but Mid axis (Faerie / Kithkin /
 # Treefolk / Elf / Merfolk / Giant / Goblin / Elemental). Designed to break
 # out of the 35-card make_etb_trigger cluster by introducing distinct
 # helpers/events (saga, dynamic PT, upkeep tribal-count gate, equipment).
@@ -7648,12 +7646,12 @@ WANDERBRINE_ROOTCUTTERS = make_creature(
 
 # Spice 1 — Aurora of Five (NEW Mythic Legendary Enchantment)
 # {2}{W}{U}{B}{R}{G} — Pattern 11 build-around. At the beginning of your
-# upkeep, if you control creatures sharing 5 or more different Lorwyn tribes,
+# upkeep, if you control creatures sharing 5 or more different fae tribes,
 # take an extra turn after this one. Otherwise scry 2.
 # Helpers: make_upkeep_trigger + EXTRA_TURN + SCRY. Reads battlefield subtype
 # diversity (state coupling). The 7-mana 5-color cost is the steep gate; the
 # extra turn is the payoff for actually assembling 5 tribes.
-_LORWYN_TRIBES = ('Faerie', 'Kithkin', 'Treefolk', 'Elf', 'Merfolk',
+_FAE_TRIBES = ('Faerie', 'Kithkin', 'Treefolk', 'Elf', 'Merfolk',
                   'Giant', 'Goblin', 'Elemental')
 
 
@@ -7668,7 +7666,7 @@ def aurora_of_five_setup(obj: GameObject, state: GameState) -> list[Interceptor]
             if (o.controller == obj.controller and
                     o.zone == ZoneType.BATTLEFIELD and
                     CardType.CREATURE in o.characteristics.types):
-                for tribe in _LORWYN_TRIBES:
+                for tribe in _FAE_TRIBES:
                     if tribe in (o.characteristics.subtypes or set()):
                         seen.add(tribe)
         return len(seen)
@@ -7694,17 +7692,17 @@ AURORA_OF_FIVE = make_enchantment(
     mana_cost="{2}{W}{U}{B}{R}{G}",
     colors={Color.WHITE, Color.BLUE, Color.BLACK, Color.RED, Color.GREEN},
     supertypes={"Legendary"},
-    text="At the beginning of your upkeep, if you control creatures with five or more different Lorwyn tribes (Faerie, Kithkin, Treefolk, Elf, Merfolk, Giant, Goblin, Elemental), take an extra turn after this one. Otherwise, scry 2.",
+    text="At the beginning of your upkeep, if you control creatures with five or more different fae tribes (Faerie, Kithkin, Treefolk, Elf, Merfolk, Giant, Goblin, Elemental), take an extra turn after this one. Otherwise, scry 2.",
     setup_interceptors=aurora_of_five_setup,
 )
 
 
-# Spice 2 — Lorwyn Convocation (NEW Mythic Legendary Creature — Treefolk Druid)
+# Spice 2 — Faewild Convocation (NEW Mythic Legendary Creature — Treefolk Druid)
 # {3}{G}{W}{U} — 4/4 Treefolk Druid. Pattern 11 build-around. Self has +1/+1
 # for each different tribe (Faerie/Kithkin/Treefolk/Elf/Merfolk) you control
 # AND tutors a creature card to hand on ETB. The dynamic PT pumps the body in
 # a tribally-diverse deck while the tutor digs for the next tribe rep.
-def lorwyn_convocation_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+def faewild_convocation_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     from src.cards.interceptor_helpers import (
         make_etb_trigger as _ih_make_etb_trigger,
     )
@@ -7761,16 +7759,16 @@ def lorwyn_convocation_setup(obj: GameObject, state: GameState) -> list[Intercep
     ]
 
 
-LORWYN_CONVOCATION = make_creature(
-    name="Lorwyn Convocation",
+FAEWILD_CONVOCATION = make_creature(
+    name="Faewild Convocation",
     power=4,
     toughness=4,
     mana_cost="{3}{G}{W}{U}",
     colors={Color.GREEN, Color.WHITE, Color.BLUE},
     subtypes={"Treefolk", "Druid"},
     supertypes={"Legendary"},
-    text="When Lorwyn Convocation enters, search your library for a creature card, reveal it, put it into your hand, then shuffle. Lorwyn Convocation gets +1/+1 for each different tribe among Faerie, Kithkin, Treefolk, Elf, and Merfolk you control.",
-    setup_interceptors=lorwyn_convocation_setup,
+    text="When Faewild Convocation enters, search your library for a creature card, reveal it, put it into your hand, then shuffle. Faewild Convocation gets +1/+1 for each different tribe among Faerie, Kithkin, Treefolk, Elf, and Merfolk you control.",
+    setup_interceptors=faewild_convocation_setup,
 )
 
 
@@ -7948,7 +7946,7 @@ TREEFOLK_BOUGH_SPEAR = make_artifact(
 # REGISTRY
 # =============================================================================
 
-LORWYN_CUSTOM_CARDS = {
+FAE_BUT_MID_CARDS = {
     # WHITE CARDS
     "Changeling Wayfinder": CHANGELING_WAYFINDER,
     "Rooftop Percher": ROOFTOP_PERCHER,
@@ -8411,12 +8409,12 @@ LORWYN_CUSTOM_CARDS = {
 
     # PHASE A1 SPICE PASS (2026-05-18)
     "Aurora of Five": AURORA_OF_FIVE,
-    "Lorwyn Convocation": LORWYN_CONVOCATION,
+    "Faewild Convocation": FAEWILD_CONVOCATION,
     "The Aurora Cycle": THE_AURORA_CYCLE,
     "Treefolk-bough Spear": TREEFOLK_BOUGH_SPEAR,
 }
 
-print(f"Loaded {len(LORWYN_CUSTOM_CARDS)} Lorwyn Custom cards")
+print(f"Loaded {len(FAE_BUT_MID_CARDS)} Fae but Mid Custom cards")
 
 
 # =============================================================================
@@ -8836,7 +8834,7 @@ CARDS = [
     WANDERBRINE_ROOTCUTTERS,
     # PHASE A1 SPICE PASS (2026-05-18)
     AURORA_OF_FIVE,
-    LORWYN_CONVOCATION,
+    FAEWILD_CONVOCATION,
     THE_AURORA_CYCLE,
     TREEFOLK_BOUGH_SPEAR,
 ]

@@ -30,7 +30,7 @@ SET_FILE_PATHS = {
     "SPMC": "src/cards/custom/man_of_pider.py",
     "FINC": "src/cards/custom/princess_catholicon.py",
     "TMH":  "src/cards/custom/temporal_horizons.py",
-    "LRW":  "src/cards/custom/lorwyn_custom.py",
+    "FBM":  "src/cards/custom/fae_but_mid.py",
     "SWR":  "src/cards/custom/star_wars.py",
     "DMS":  "src/cards/custom/demon_slayer.py",
     "OPC":  "src/cards/custom/one_piece.py",

@@ -7,7 +7,7 @@ Requires `gh` CLI to be installed and authenticated.
 
 Usage:
     python scripts/upload_card_art.py                    # Upload all sets
-    python scripts/upload_card_art.py lorwyn_custom      # Upload specific set
+    python scripts/upload_card_art.py fae_but_mid      # Upload specific set
     python scripts/upload_card_art.py --list             # List sets to upload
 """
 

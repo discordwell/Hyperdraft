@@ -184,7 +184,7 @@ def _create_in_zone(game: Game, owner_id: str, card_def: CardDefinition,
     """Create an object in the requested zone *without* running setup yet.
 
     Setup will be triggered by the ZONE_CHANGE we emit shortly after. This
-    mirrors create_creature_on_battlefield from tests/test_lorwyn.py.
+    mirrors create_creature_on_battlefield from tests/test_fae_but_mid.py.
     """
     obj = game.create_object(
         name=card_def.name,

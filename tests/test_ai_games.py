@@ -18,30 +18,30 @@ from src.engine.turn import TurnState
 from src.ai import AIEngine
 from src.ai.strategies import AggroStrategy, ControlStrategy, MidrangeStrategy
 from src.ai.evaluator import BoardEvaluator
-from src.cards.custom.lorwyn_custom import LORWYN_CUSTOM_CARDS
+from src.cards.custom.fae_but_mid import FAE_BUT_MID_CARDS
 
 
 def get_cards_by_type(card_type: CardType) -> list:
-    """Get all cards of a specific type from Lorwyn Custom."""
+    """Get all cards of a specific type from Fae but Mid."""
     return [
-        card for card in LORWYN_CUSTOM_CARDS.values()
+        card for card in FAE_BUT_MID_CARDS.values()
         if card_type in card.characteristics.types
     ]
 
 
 def get_cards_by_color(color: Color) -> list:
-    """Get all cards with a specific color from Lorwyn Custom."""
+    """Get all cards with a specific color from Fae but Mid."""
     return [
-        card for card in LORWYN_CUSTOM_CARDS.values()
+        card for card in FAE_BUT_MID_CARDS.values()
         if color in (card.characteristics.colors or set())
     ]
 
 
 def get_cards_by_cmc(max_cmc: int) -> list:
-    """Get all cards with CMC <= max_cmc from Lorwyn Custom."""
+    """Get all cards with CMC <= max_cmc from Fae but Mid."""
     from src.engine.mana import ManaCost
     results = []
-    for card in LORWYN_CUSTOM_CARDS.values():
+    for card in FAE_BUT_MID_CARDS.values():
         if card.mana_cost:
             try:
                 cost = ManaCost.parse(card.mana_cost)
@@ -58,7 +58,7 @@ def build_kithkin_deck() -> list:
 
     # Get Kithkin creatures
     kithkin = [
-        card for card in LORWYN_CUSTOM_CARDS.values()
+        card for card in FAE_BUT_MID_CARDS.values()
         if 'Kithkin' in (card.characteristics.subtypes or set()) and CardType.CREATURE in card.characteristics.types
     ]
 
@@ -79,7 +79,7 @@ def build_kithkin_deck() -> list:
         deck.extend([card] * 2)  # 2 copies each = 30 creatures
 
     # Add Plains - 24 lands for 54 total is fine for testing
-    plains = LORWYN_CUSTOM_CARDS.get('Plains')
+    plains = FAE_BUT_MID_CARDS.get('Plains')
     if plains:
         deck.extend([plains] * 24)
 
@@ -92,7 +92,7 @@ def build_merfolk_deck() -> list:
 
     # Get Merfolk creatures
     merfolk = [
-        card for card in LORWYN_CUSTOM_CARDS.values()
+        card for card in FAE_BUT_MID_CARDS.values()
         if 'Merfolk' in (card.characteristics.subtypes or set()) and CardType.CREATURE in card.characteristics.types
     ]
 
@@ -110,7 +110,7 @@ def build_merfolk_deck() -> list:
     for card in merfolk[:15]:
         deck.extend([card] * 2)
 
-    island = LORWYN_CUSTOM_CARDS.get('Island')
+    island = FAE_BUT_MID_CARDS.get('Island')
     if island:
         deck.extend([island] * 24)
 
@@ -122,7 +122,7 @@ def build_goblin_deck() -> list:
     deck = []
 
     goblins = [
-        card for card in LORWYN_CUSTOM_CARDS.values()
+        card for card in FAE_BUT_MID_CARDS.values()
         if 'Goblin' in (card.characteristics.subtypes or set()) and CardType.CREATURE in card.characteristics.types
     ]
 
@@ -140,7 +140,7 @@ def build_goblin_deck() -> list:
     for card in goblins[:15]:
         deck.extend([card] * 2)
 
-    mountain = LORWYN_CUSTOM_CARDS.get('Mountain')
+    mountain = FAE_BUT_MID_CARDS.get('Mountain')
     if mountain:
         deck.extend([mountain] * 24)
 
@@ -152,7 +152,7 @@ def build_elf_deck() -> list:
     deck = []
 
     elves = [
-        card for card in LORWYN_CUSTOM_CARDS.values()
+        card for card in FAE_BUT_MID_CARDS.values()
         if 'Elf' in (card.characteristics.subtypes or set()) and CardType.CREATURE in card.characteristics.types
     ]
 
@@ -170,7 +170,7 @@ def build_elf_deck() -> list:
     for card in elves[:15]:
         deck.extend([card] * 2)
 
-    forest = LORWYN_CUSTOM_CARDS.get('Forest')
+    forest = FAE_BUT_MID_CARDS.get('Forest')
     if forest:
         deck.extend([forest] * 24)
 

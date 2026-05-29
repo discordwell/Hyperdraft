@@ -13,7 +13,7 @@ from .penultimate_avatar import AVATAR_TLA_CUSTOM_CARDS
 from .man_of_pider import SPIDER_MAN_CUSTOM_CARDS
 from .princess_catholicon import FINAL_FANTASY_CUSTOM_CARDS
 from .temporal_horizons import TEMPORAL_HORIZONS_CARDS
-from .lorwyn_custom import LORWYN_CUSTOM_CARDS
+from .fae_but_mid import FAE_BUT_MID_CARDS
 
 # Original custom/crossover sets
 from .star_wars import STAR_WARS_CARDS
@@ -44,7 +44,7 @@ CUSTOM_SETS: dict[str, dict] = {
     "SPMC": SPIDER_MAN_CUSTOM_CARDS,
     "FINC": FINAL_FANTASY_CUSTOM_CARDS,
     "TMH": TEMPORAL_HORIZONS_CARDS,
-    "LRW": LORWYN_CUSTOM_CARDS,
+    "FBM": FAE_BUT_MID_CARDS,
 
     # Original custom/crossover sets
     "SWR": STAR_WARS_CARDS,
@@ -100,7 +100,7 @@ __all__ = [
     'SPIDER_MAN_CUSTOM_CARDS',
     'FINAL_FANTASY_CUSTOM_CARDS',
     'TEMPORAL_HORIZONS_CARDS',
-    'LORWYN_CUSTOM_CARDS',
+    'FAE_BUT_MID_CARDS',
     # Original custom sets
     'STAR_WARS_CARDS',
     'DEMON_SLAYER_CARDS',

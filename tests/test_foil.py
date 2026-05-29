@@ -12,7 +12,7 @@ sys.path.insert(0, __import__("pathlib").Path(__file__).resolve().parents[1].as_
 
 from src.engine import Game
 from src.server.session import GameSession, FOIL_RATE
-from src.cards.custom.lorwyn_custom import LORWYN_CUSTOM_CARDS
+from src.cards.custom.fae_but_mid import FAE_BUT_MID_CARDS
 
 
 def _build_session(seed: int) -> tuple[GameSession, str]:
@@ -29,7 +29,7 @@ def test_foil_rate_in_distribution():
     session, pid = _build_session(seed=42)
 
     # Any card def works — foil is a per-instance flag, not per-card-name.
-    sample_card = next(iter(LORWYN_CUSTOM_CARDS.values()))
+    sample_card = next(iter(FAE_BUT_MID_CARDS.values()))
     deck = [sample_card] * 1000
     session.add_cards_to_deck(pid, deck)
 
@@ -58,7 +58,7 @@ def test_foil_count_is_deterministic_given_seed():
     is non-deterministic. The foil-roll RNG itself is seeded, so the number
     of foils rolled across N draws is deterministic.
     """
-    sample_card = next(iter(LORWYN_CUSTOM_CARDS.values()))
+    sample_card = next(iter(FAE_BUT_MID_CARDS.values()))
 
     def _foil_count(seed: int) -> int:
         session, pid = _build_session(seed=seed)
@@ -80,7 +80,7 @@ def test_foil_count_is_deterministic_given_seed():
 def test_foil_flows_through_serializer():
     """A foil GameObject should serialize with ``foil=True`` in CardData."""
     session, pid = _build_session(seed=42)
-    sample_card = next(iter(LORWYN_CUSTOM_CARDS.values()))
+    sample_card = next(iter(FAE_BUT_MID_CARDS.values()))
     session.add_cards_to_deck(pid, [sample_card] * 50)
 
     library = session.game.state.zones[f"library_{pid}"]

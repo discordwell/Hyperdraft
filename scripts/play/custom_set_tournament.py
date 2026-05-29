@@ -10,7 +10,7 @@ Usage:
     python scripts/play/custom_set_tournament.py                     # full tournament
     python scripts/play/custom_set_tournament.py --smoke             # 2 sets only
     python scripts/play/custom_set_tournament.py --games 10          # 10 games per pair
-    python scripts/play/custom_set_tournament.py --sets LRW,TMH,NRT  # specific sets
+    python scripts/play/custom_set_tournament.py --sets FBM,TMH,NRT  # specific sets
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ from src.ai.strategies import (  # noqa: E402
     ControlStrategy,
 )
 from src.cards.custom import CUSTOM_SETS  # noqa: E402
-from src.cards.custom.lorwyn_custom import LORWYN_CUSTOM_CARDS  # noqa: E402
+from src.cards.custom.fae_but_mid import FAE_BUT_MID_CARDS  # noqa: E402
 
 
 # ----------------------------------------------------------------------
@@ -57,11 +57,11 @@ from src.cards.custom.lorwyn_custom import LORWYN_CUSTOM_CARDS  # noqa: E402
 # ----------------------------------------------------------------------
 
 BASIC_LAND_BY_COLOR: dict[Color, Any] = {
-    Color.WHITE: LORWYN_CUSTOM_CARDS.get("Plains"),
-    Color.BLUE: LORWYN_CUSTOM_CARDS.get("Island"),
-    Color.BLACK: LORWYN_CUSTOM_CARDS.get("Swamp"),
-    Color.RED: LORWYN_CUSTOM_CARDS.get("Mountain"),
-    Color.GREEN: LORWYN_CUSTOM_CARDS.get("Forest"),
+    Color.WHITE: FAE_BUT_MID_CARDS.get("Plains"),
+    Color.BLUE: FAE_BUT_MID_CARDS.get("Island"),
+    Color.BLACK: FAE_BUT_MID_CARDS.get("Swamp"),
+    Color.RED: FAE_BUT_MID_CARDS.get("Mountain"),
+    Color.GREEN: FAE_BUT_MID_CARDS.get("Forest"),
 }
 
 
@@ -144,7 +144,7 @@ def build_set_deck(domain: str, cards_dict) -> tuple[list, dict]:
     + a few primary-color spells, sorted with creature preference and
     a CMC-3 sweet spot. 24 basic lands of the primary color.
 
-    Falls back to LORWYN basic lands when the set lacks them.
+    Falls back to Fae but Mid basic lands when the set lacks them.
     """
     primary = primary_color(cards_dict)
 
@@ -224,7 +224,7 @@ def build_set_deck(domain: str, cards_dict) -> tuple[list, dict]:
             idx += 1
             guard += 1
 
-    # Pick basic land: prefer set's own, fallback to Lorwyn
+    # Pick basic land: prefer set's own, fallback to Fae but Mid
     set_basic = None
     target_subtype = {
         Color.WHITE: "Plains",
@@ -237,7 +237,7 @@ def build_set_deck(domain: str, cards_dict) -> tuple[list, dict]:
         if CardType.LAND in card_types(cd) and target_subtype in (cd.characteristics.subtypes or set()):
             set_basic = cd
             break
-    basic_land = set_basic or BASIC_LAND_BY_COLOR.get(primary) or LORWYN_CUSTOM_CARDS.get("Forest")
+    basic_land = set_basic or BASIC_LAND_BY_COLOR.get(primary) or FAE_BUT_MID_CARDS.get("Forest")
 
     deck.extend([basic_land] * 24)
 
@@ -410,7 +410,7 @@ def build_set_deck_2color(
         n_primary = max(1, min(n_basic - 1, n_primary)) if n_basic >= 2 else n_primary
         n_secondary = n_basic - n_primary
 
-    # Pick basic lands (prefer set's own; fallback to Lorwyn).
+    # Pick basic lands (prefer set's own; fallback to Fae but Mid).
     def _basic_for(color: Color):
         target_subtype = {
             Color.WHITE: "Plains",
@@ -422,7 +422,7 @@ def build_set_deck_2color(
         for cd in cards_dict.values():
             if CardType.LAND in card_types(cd) and target_subtype in (cd.characteristics.subtypes or set()):
                 return cd
-        return BASIC_LAND_BY_COLOR.get(color) or LORWYN_CUSTOM_CARDS.get(target_subtype)
+        return BASIC_LAND_BY_COLOR.get(color) or FAE_BUT_MID_CARDS.get(target_subtype)
 
     primary_basic = _basic_for(primary)
     secondary_basic = _basic_for(secondary)
@@ -691,7 +691,7 @@ async def play_one_game(
 
     `p1_label` / `p2_label` are opaque strings stamped into the result and
     used as the prefix in `_card_ref`. They were originally the custom-set
-    domain code (e.g. "LRW", "TMH"); they are now any deck label, so a
+    domain code (e.g. "FBM", "TMH"); they are now any deck label, so a
     deck-object tournament can use names like "h_aggro", "std_red", etc.
     The GameResult dataclass keeps the historical field names
     (p1_domain / p2_domain / winner_domain) so the JSON output shape stays
@@ -1498,7 +1498,7 @@ def render_tier_report(agg: dict[str, Any]) -> str:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--smoke", action="store_true", help="2 sets only (LRW vs TMH)")
+    parser.add_argument("--smoke", action="store_true", help="2 sets only (FBM vs TMH)")
     parser.add_argument("--games", type=int, default=3, help="games per pair")
     parser.add_argument("--max-turns", type=int, default=20)
     parser.add_argument("--difficulty", default="hard")
@@ -1524,7 +1524,7 @@ def main():
     random.seed(args.seed)
 
     if args.smoke:
-        domains = ["LRW", "TMH"]
+        domains = ["FBM", "TMH"]
     elif args.sets:
         domains = [s.strip() for s in args.sets.split(",") if s.strip()]
     else:
