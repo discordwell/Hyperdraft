@@ -1484,6 +1484,88 @@ def spend_ethics(game, player_id: str, amount: int, *, mode: str, source: Option
     return True, "Ethics spent", events
 
 
+def activate_ability(
+    game,
+    player_id: str,
+    object_id: Optional[str],
+    ability_index: int,
+    *,
+    mode: Optional[int] = None,
+) -> tuple[bool, str, list[Event]]:
+    """Activate an SCP-native activated / modal ability registered on an object.
+
+    Synchronous: the cost is validated + paid here and the effect resolves
+    immediately, so both the human action loop and the AI's direct-call path
+    use the same code. Modal abilities require a valid ``mode`` index (the
+    legal-action surface enumerates one action per mode, so the caller — human
+    or AI — has already chosen). We deliberately do NOT wrap ``effect_fn`` in a
+    blanket ``except`` so card-side bugs surface under ``HYPERDRAFT_STRICT=1``.
+    """
+    from src.engine.scp_abilities import is_scp_ability
+    from src.engine.scp_costs import can_pay_scp_cost, pay_scp_cost
+
+    state = game.state
+    obj = state.objects.get(object_id) if object_id else None
+    if obj is None:
+        return False, "Object not found", []
+    if obj.controller != player_id:
+        return False, "Not your object", []
+    abilities = getattr(obj.state, "activated_abilities", None) or []
+    if ability_index < 0 or ability_index >= len(abilities):
+        return False, "No such ability", []
+    ability = abilities[ability_index]
+    if not is_scp_ability(ability):
+        return False, "Not an SCP ability", []
+
+    if ability.once_per_game and ability.used_this_game:
+        return False, "Ability already used this game", []
+    if ability.once_per_turn and ability.activations_this_turn > 0:
+        return False, "Ability already used this turn", []
+    if ability.precondition_fn and not ability.precondition_fn(obj, state):
+        return False, "Ability precondition not met", []
+
+    if ability.is_modal:
+        if mode is None or not (0 <= int(mode) < len(ability.modes)):
+            return False, "Modal ability requires a valid mode", []
+        effect_fn = ability.modes[int(mode)].effect_fn
+    else:
+        effect_fn = ability.effect_fn
+
+    ok, why = can_pay_scp_cost(obj, state, ability.cost)
+    if not ok:
+        return False, why, []
+
+    events = pay_scp_cost(game, obj, ability.cost)
+    events.extend(game.emit(Event(
+        type=EventType.SCP_ABILITY_ACTIVATED,
+        payload={
+            "player": player_id,
+            "object_id": obj.id,
+            "ability_index": ability_index,
+            "mode": int(mode) if ability.is_modal else None,
+            "description": ability.description,
+        },
+        source=obj.id,
+        controller=player_id,
+    )))
+
+    # Resolve the effect, emitting its events through the pipeline (mirrors
+    # _fire_card_hook so interceptors / reactions run; pre-emitted events pass
+    # through unchanged).
+    for event in (effect_fn(obj, state) or []):
+        if getattr(event, "timestamp", 0) or event in state.event_log:
+            events.append(event)
+        else:
+            events.extend(game.emit(event))
+
+    ability.activations_this_turn += 1
+    ability.used_this_game = True
+
+    events.extend(check_scp_victory(game, source=obj.id))
+    events.extend(check_scp_loss(game))
+    return True, f"Activated: {ability.description}", events
+
+
 def check_scp_loss(game) -> list[Event]:
     events: list[Event] = []
     state = game.state

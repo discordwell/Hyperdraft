@@ -202,6 +202,42 @@ def legal_scp_actions(game, player_id: str) -> list[dict[str, Any]]:
                     ["tactical"],
                 )
 
+    # Activated / modal abilities on controlled permanents. One action per
+    # modal mode so the chooser (human or AI) picks before dispatch.
+    from src.engine.scp_abilities import is_scp_ability
+    from src.engine.scp_costs import can_pay_scp_cost, describe_scp_cost
+    for obj in battlefield:
+        if obj.controller != player_id:
+            continue
+        for idx, ability in enumerate(getattr(obj.state, "activated_abilities", None) or []):
+            if not is_scp_ability(ability):
+                continue
+            if ability.once_per_game and ability.used_this_game:
+                continue
+            if ability.once_per_turn and ability.activations_this_turn > 0:
+                continue
+            if ability.precondition_fn and not ability.precondition_fn(obj, game.state):
+                continue
+            ok, _why = can_pay_scp_cost(obj, game.state, ability.cost)
+            if not ok:
+                continue
+            cost_label = describe_scp_cost(ability.cost)
+            if ability.is_modal:
+                for m_idx, mode in enumerate(ability.modes):
+                    add(
+                        "SCP_ACTIVATE_ABILITY",
+                        {"source_id": obj.id, "ability_index": idx, "mode": m_idx},
+                        f"{obj.name} — {mode.label} ({cost_label})",
+                        ["ability", *mode.tags],
+                    )
+            else:
+                add(
+                    "SCP_ACTIVATE_ABILITY",
+                    {"source_id": obj.id, "ability_index": idx},
+                    f"{obj.name} — {ability.description} ({cost_label})",
+                    ["ability"],
+                )
+
     for incident_index, incident in enumerate(list(game.state.scp_incidents.get(player_id, []))):
         add("SCP_RESOLVE_INCIDENT", {"index": incident_index}, f"Resolve incident: {incident.get('name', 'unknown')}", ["stabilize"])
 

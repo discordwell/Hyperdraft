@@ -181,4 +181,12 @@ class SCPTurnManager(TurnManager):
             return scp.apply_protocol(game, player_id, action.get("anomaly_id"), action.get("protocol") or "")
         if action_type == "SCP_RESOLVE_INCIDENT":
             return scp.resolve_incident(game, player_id, int(action.get("index", 0) or 0))
+        if action_type == "SCP_ACTIVATE_ABILITY":
+            return scp.activate_ability(
+                game,
+                player_id,
+                action.get("source_id") or action.get("object_id"),
+                int(action.get("ability_index", 0) or 0),
+                mode=(int(action["mode"]) if action.get("mode") is not None else None),
+            )
         return False, "Unknown SCP action", []

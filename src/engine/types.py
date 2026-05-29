@@ -671,6 +671,7 @@ class EventType(Enum):
     # FBN (Foundations Beyond) verbs. Both inert — used for analytics + frontend hooks.
     SCP_CONTROL_SWAP = auto()              # Compleation Vector flipped a personnel's controller
     SCP_PHYLACTERY_AUDIT_OFFER = auto()    # Phylactery Audit auto-accept / reject decision
+    SCP_ABILITY_ACTIVATED = auto()         # An SCP-native activated/modal ability resolved
 
     # ------------------------------------------------------------------
     # Cats — trick-taking + pile-building card game. See src/engine/cats.py.

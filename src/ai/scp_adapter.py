@@ -371,6 +371,121 @@ class SCPAIAdapter:
             return self._has_audit_cards(state, player_id)
         return None
 
+    def _controlled_objects(self, state, player_id):
+        """Objects ``player_id`` controls, across the SCP zone indexes."""
+        out = []
+        seen = set()
+        for key in ("scp_personnel", "scp_anomalies", "scp_contained", "scp_facilities", "scp_mandates"):
+            index = getattr(state, key, {}) or {}
+            for oid in index.get(player_id, []) or []:
+                if oid in seen:
+                    continue
+                seen.add(oid)
+                obj = state.objects.get(oid)
+                if obj is not None:
+                    out.append(obj)
+        return out
+
+    def _estimate_ability_value(self, obj, state, player_id, hint) -> float:
+        """Scalar value of an effect from its declared SCPValueHint, using the
+        same site-state weights the rest of the heuristic encodes. Negative
+        breach/ethics_debt deltas (reducing a loss clock) score as upside."""
+        if hint is None:
+            return 0.0
+        site = scp.site(state, player_id)
+        v = 0.0
+        if hint.breach:
+            cur_breach = int(site.get("breach", 0) or 0)
+            if hint.breach < 0:
+                # Reducing breach: worth nothing if there's no breach to remove,
+                # worth more when near the loss clock.
+                reducible = min(-hint.breach, cur_breach)
+                danger = 3.0 if cur_breach >= self._breach_danger else 1.0
+                v += reducible * danger
+            else:
+                v += -hint.breach  # raising your own breach is a downside
+        if hint.secrecy:
+            v += hint.secrecy * (2.5 if int(site.get("secrecy", 0) or 0) <= 6 else 1.0)
+        if hint.archives:
+            v += hint.archives * 2.0
+        if hint.briefing:
+            v += hint.briefing * 0.6
+        if hint.clearance:
+            v += hint.clearance * 0.5
+        if hint.ethics_debt:
+            v += -hint.ethics_debt * (2.0 if int(site.get("ethics_debt", 0) or 0) >= 6 else 0.8)
+        if hint.gains_mnestic:
+            v += 1.5
+        if hint.contains_anomaly:
+            v += 2.0
+        if hint.steals_permanent:
+            v += 3.0
+        if hint.custom_value_fn:
+            v += float(hint.custom_value_fn(obj, state, None))
+        return v
+
+    def _cost_value(self, obj, state, player_id, cost) -> float:
+        """Heuristic value of the resources a cost spends (so the AI doesn't
+        fire an ability whose cost outweighs its gain). Paying ethics REDUCES a
+        liability, so it's nearly free."""
+        site = scp.site(state, player_id)
+        c = 0.0
+        if cost.ethics:
+            c += cost.ethics * 0.2
+        if cost.secrecy:
+            c += cost.secrecy * (2.5 if int(site.get("secrecy", 0) or 0) <= 6 else 1.0)
+        if cost.briefing:
+            c += cost.briefing * 0.6
+        if cost.clearance:
+            c += cost.clearance * 0.5
+        if cost.archives:
+            c += cost.archives * 2.0
+        if cost.exhaust_self:
+            c += 0.5
+        return c
+
+    def _consider_activated_abilities(self, player_id, state, game) -> list:
+        """Fire beneficial SCP activated/modal abilities. Single pass over
+        controlled permanents; picks the best mode for modal abilities. The
+        FIRE_THRESHOLD keeps the AI from firing marginal abilities and is a
+        per-preset knob (tunable later via /ultra-loop)."""
+        from src.engine.scp_abilities import is_scp_ability
+        from src.engine.scp_costs import can_pay_scp_cost
+
+        events = []
+        threshold = getattr(self, "_ability_fire_threshold", 0.5)
+        for obj in self._controlled_objects(state, player_id):
+            for idx, ability in enumerate(getattr(obj.state, "activated_abilities", None) or []):
+                if not is_scp_ability(ability):
+                    continue
+                if ability.once_per_game and ability.used_this_game:
+                    continue
+                if ability.once_per_turn and ability.activations_this_turn > 0:
+                    continue
+                if ability.precondition_fn and not ability.precondition_fn(obj, state):
+                    continue
+                ok, _why = can_pay_scp_cost(obj, state, ability.cost)
+                if not ok:
+                    continue
+                cost_val = self._cost_value(obj, state, player_id, ability.cost)
+                if ability.is_modal:
+                    best_mode, best_gain = None, float("-inf")
+                    for m_idx, mode in enumerate(ability.modes):
+                        gain = self._estimate_ability_value(obj, state, player_id, mode.value_hint)
+                        if gain > best_gain:
+                            best_gain, best_mode = gain, m_idx
+                    if best_mode is not None and best_gain - cost_val > threshold:
+                        a_ok, _msg, a_ev = scp.activate_ability(game, player_id, obj.id, idx, mode=best_mode)
+                        if a_ok:
+                            events.extend(a_ev)
+                else:
+                    gain = self._estimate_ability_value(obj, state, player_id, ability.value_hint)
+                    if gain - cost_val > threshold:
+                        a_ok, _msg, a_ev = scp.activate_ability(game, player_id, obj.id, idx)
+                        if a_ok:
+                            events.extend(a_ev)
+        return events
+
     async def take_turn(self, player_id: str, state: GameState, game) -> list:
         events = []
         if not game:
@@ -660,6 +775,11 @@ class SCPAIAdapter:
                     if ok:
                         events.extend(rv_events)
                         break
+
+        # Fire beneficial activated / modal abilities before the assignment
+        # phase (some abilities set up the board for assignments).
+        events.extend(self._consider_activated_abilities(player_id, state, game))
+        site = scp.site(state, player_id)
 
         active = [
             state.objects[aid]
