@@ -4224,7 +4224,14 @@ def bristlebane_battler_setup(obj: GameObject, state: GameState) -> list[Interce
             )]
         )
 
+    def enters_with_counters(event: Event, state: GameState) -> list[Event]:
+        # "This creature enters with five -1/-1 counters on it."
+        return [Event(type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '-1/-1', 'amount': 5},
+            source=obj.id)]
+
     return [
+        make_etb_trigger(obj, enters_with_counters),
         Interceptor(
             id=new_id(),
             source=obj.id,
@@ -4348,10 +4355,26 @@ CHAMPIONS_OF_THE_PERFECT = make_creature(
 
 
 # Chomping Changeling - {2}{G} Creature — Shapeshifter 1/2
+def _find_artifact_or_enchantment(obj: GameObject, state: GameState, *, opponent_only=True):
+    for o in state.objects.values():
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if opponent_only and o.controller == obj.controller:
+            continue
+        if (CardType.ARTIFACT in o.characteristics.types or
+                CardType.ENCHANTMENT in o.characteristics.types):
+            return o.id
+    return None
+
+
 def chomping_changeling_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "destroy up to one target artifact or enchantment."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Destroy artifact or enchantment - simplified
-        return []
+        target = _find_artifact_or_enchantment(obj, state, opponent_only=False)
+        payload = {'target_filter': 'artifact_or_enchantment', 'optional': True}
+        if target:
+            payload['object_id'] = target
+        return [Event(type=EventType.OBJECT_DESTROYED, payload=payload, source=obj.id)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -4383,8 +4406,11 @@ def crossroads_watcher_setup(obj: GameObject, state: GameState) -> list[Intercep
         return CardType.CREATURE in entering.characteristics.types
 
     def etb_handler(event: Event, state: GameState) -> InterceptorResult:
-        # Grant +1/+0 until end of turn - simplified
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+        # "this creature gets +1/+0 until end of turn."
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 0,
+                     'duration': 'end_of_turn'}, source=obj.id)])
 
     return [
         Interceptor(
@@ -4429,10 +4455,30 @@ DAWNS_LIGHT_ARCHER = make_creature(
 
 
 # Dundoolin Weaver - {1}{G} Creature — Kithkin Druid 2/1
+def _permanent_card_in_graveyard(obj: GameObject, state: GameState):
+    gy = state.zones.get(f"graveyard_{obj.controller}")
+    if gy:
+        for cid in gy.objects:
+            card = state.objects.get(cid)
+            if card and card.characteristics.types & {
+                    CardType.CREATURE, CardType.ARTIFACT, CardType.ENCHANTMENT,
+                    CardType.LAND, CardType.PLANESWALKER}:
+                return cid
+    return None
+
+
 def dundoolin_weaver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "if you control three or more creatures, return target permanent card
+    #  from your graveyard to your hand."  (intervening-if carried in payload)
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Count creatures, return permanent from graveyard - simplified
-        return []
+        creatures = sum(1 for o in _battlefield_creatures(state)
+                        if o.controller == obj.controller)
+        target = _permanent_card_in_graveyard(obj, state)
+        ev = _return_from_graveyard_event(obj, target, 'permanent_in_your_graveyard',
+                                          optional=False)
+        ev.payload['condition'] = 'control_three_or_more_creatures'
+        ev.payload['condition_met'] = creatures >= 3
+        return [ev]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -4472,9 +4518,19 @@ PITILESS_FISTS = make_enchantment(
 
 # Prismabasher - {4}{G}{G} Creature — Elemental 6/6
 def prismabasher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "up to X target creatures you control get +X/+X until end of turn, where X
+    #  is the number of colors among permanents you control."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Vivid - count colors, give +X/+X to creatures
-        return []
+        x = max(1, _colors_among_permanents(obj, state))
+        targets = [o.id for o in _battlefield_creatures(state)
+                   if o.controller == obj.controller][:x]
+        if targets:
+            return [Event(type=EventType.PT_MODIFICATION,
+                payload={'object_id': t, 'power_mod': x, 'toughness_mod': x,
+                         'duration': 'end_of_turn'}, source=obj.id) for t in targets]
+        return [Event(type=EventType.PT_MODIFICATION,
+            payload={'power_mod': x, 'toughness_mod': x, 'duration': 'end_of_turn',
+                     'target_filter': 'up_to_x_creatures_you_control'}, source=obj.id)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -4787,9 +4843,13 @@ VIRULENT_EMISSARY = make_creature(
 
 # Wildvine Pummeler - {4}{G}{G} Creature — Elemental 6/5
 def wildvine_pummeler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "destroy target artifact or enchantment an opponent controls."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Destroy target artifact or enchantment - targeting handled by game system
-        return []
+        target = _find_artifact_or_enchantment(obj, state, opponent_only=True)
+        payload = {'target_filter': 'opponent_artifact_or_enchantment'}
+        if target:
+            payload['object_id'] = target
+        return [Event(type=EventType.OBJECT_DESTROYED, payload=payload, source=obj.id)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -4865,9 +4925,23 @@ DOSE_OF_DAWNGLOW = make_instant(
 
 # Deceit - {4}{U/B}{U/B} Creature — Elemental Incarnation 5/5
 def deceit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "If {U}{U} was spent ... return up to one target nonland permanent to its
+    #  owner's hand. If {B}{B} was spent ... target opponent reveals their hand.
+    #  You choose a nonland card ... that player discards that card."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Effects based on mana spent - simplified, targeting handled by game system
-        return []
+        events: list[Event] = []
+        bounce_target = find_any_creature(obj, state, exclude_self=True)
+        bev = _return_to_hand_event(obj, bounce_target, 'other_nonland_permanent',
+                                    optional=True)
+        bev.payload['condition'] = 'UU_spent'
+        events.append(bev)
+        opp = next(opponents_of(obj, state), None)
+        dpayload = {'count': 1, 'chosen_by': obj.controller, 'nonland_only': True,
+                    'condition': 'BB_spent'}
+        if opp:
+            dpayload['player'] = opp
+        events.append(Event(type=EventType.DISCARD, payload=dpayload, source=obj.id))
+        return events
     return [make_etb_trigger(obj, etb_effect), make_evoke(obj, "{U/B}{U/B}")]
 
 
@@ -4948,9 +5022,16 @@ RETCHED_WRETCH = make_creature(
 
 # Gloom Ripper - {3}{B}{B} Creature — Elemental Horror 5/4
 def gloom_ripper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "target opponent sacrifices a creature."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Target opponent sacrifices - targeting handled by game system
-        return []
+        opp = next(opponents_of(obj, state), None)
+        victim = find_opponent_creature(obj, state)
+        payload = {'sacrifice_type': 'creature'}
+        if opp:
+            payload['player'] = opp
+        if victim:
+            payload['object_id'] = victim
+        return [Event(type=EventType.SACRIFICE, payload=payload, source=obj.id)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
