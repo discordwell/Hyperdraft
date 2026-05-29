@@ -1,5 +1,5 @@
 ---
-description: Per-card interceptor verification. Subagent reads card defs in the target engine, generates unit tests that fire each card's trigger and assert the expected effect emits. Catches "interceptor wired but effect_fn returns []" and other depths-style breakage before downstream tuning runs.
+description: Per-card interceptor verification. Subagent reads card defs in the target engine, generates unit tests that fire each card's OWN canonical trigger (death→kill, attack→declare, etc.) and assert a TEXT-MATCHING event emits (a "deal damage" card must emit DAMAGE, not a generic SCRY/SURVEIL info-pulse). Run under HYPERDRAFT_STRICT=1 so swallowed card-side errors surface. Catches "interceptor wired but effect_fn returns []", text/event mismatches (slice-N median-lift stubs), and other depths-style breakage before downstream tuning runs.
 argument-hint: [--game <name>] [--set <code>] [--out tests/test_<game>_interceptors.py] [--fail-on-empty]
 ---
 
@@ -108,11 +108,34 @@ Use `Agent` tool with `subagent_type=general-purpose`. Brief:
 >      `(card_name, trigger_kind, expected_effect_keywords)` for every
 >      card with a non-trivial interceptor. `trigger_kind` is the
 >      helper used (e.g. `make_etb_trigger`, `make_death_trigger`,
->      `on_play`, `battlecry`). `expected_effect_keywords` come from
->      parsing the card's `text` field — e.g. "draw a card" → `DRAW`,
->      "gain N life" → `LIFE_CHANGE`, "deal N damage" → `DAMAGE`,
->      "destroy target" → `OBJECT_DESTROYED`, "create N tokens" →
->      `TOKEN_CREATE`.
+>      `on_play`, `battlecry`). **`expected_effect_keywords` come from
+>      parsing the card's printed `text`, NOT from what the code emits.**
+>      The text is the spec; the test verifies the code obeys it. Map
+>      each text clause to its canonical `EventType`:
+>      - "draw a card" / "draw N cards" → `DRAW`
+>      - "gain N life" / "lose N life" / "each opponent loses" / "drain"
+>        → `LIFE_CHANGE`
+>      - "deal N damage" / "deals N damage" → `DAMAGE`
+>      - "destroy target" / "destroy all" → `OBJECT_DESTROYED` (note the
+>        DESTROY→OBJECT_DESTROYED rewrite — assert on the destination
+>        zone or `OBJECT_DESTROYED`, never raw `DESTROY`)
+>      - "sacrifice" → `ZONE_CHANGE` with `reason == 'sacrifice'`
+>      - "exile" → `EXILE`
+>      - "create N tokens" / "create a … token" → `CREATE_TOKEN`
+>      - "scry N" → `SCRY`; "surveil N" → `SURVEIL`; "mill" → `MILL`
+>      - "counter target" → `COUNTER_SPELL`
+>      - "+X/+Y" / counters → `PT_MODIFICATION` / `COUNTER_ADDED`
+>      A card whose text names MULTIPLE effects gets ALL of them in
+>      `expected_effect_keywords` (the assertion below requires at least
+>      one to fire; conditional riders make "all" too strict).
+>      **CRITICAL anti-gaming rule (read this):** the expected set is
+>      derived from TEXT, so a card whose text says "deal 3 damage" has
+>      `expected = ['DAMAGE']`. If that card's interceptor instead emits
+>      a generic `SCRY`/`SURVEIL`/`MILL`/`LIFE_CHANGE` info-pulse (the
+>      slice-N median-lift stub signature), the test MUST FAIL — an
+>      info-pulse does NOT satisfy a damage card. Do not widen the
+>      expected set to whatever the code happens to emit; that launders
+>      the exact bug this skill exists to catch.
 >   2. The existing test scaffolding at `<TEST_SCAFFOLD_PATH>`. Mirror
 >      its setup helpers (e.g. `create_creature_on_battlefield`).
 >      Don't reinvent the wheel — reuse helpers if they exist; copy
@@ -123,19 +146,44 @@ Use `Agent` tool with `subagent_type=general-purpose`. Brief:
 > **Generate one test per card.** Each test:
 >   1. Builds a minimal game state (1–2 players, hand/library populated
 >      enough that the trigger has a target if needed).
->   2. Drops the card into the right zone for its trigger:
->      - ETB / battlecry / on_play → battlefield (via the engine's
->        canonical entry path; usually a ZONE_CHANGE event).
->      - Death / deathrattle → battlefield, then destroy.
->      - Attack triggers → battlefield, then declare attacker.
->      - Activated abilities → battlefield, then activate.
->      - Static effects → battlefield, then check a relevant query.
+>   2. **Fires the card's OWN canonical trigger — the one its text
+>      actually uses. A blanket ETB probe is wrong: it false-PASSES
+>      ETB-shaped stubs and false-FAILS every non-ETB card.** Match the
+>      trigger to the card's `trigger_kind`:
+>      - ETB / battlecry / on_play → put on battlefield via the engine's
+>        canonical entry path (usually a ZONE_CHANGE to battlefield).
+>      - **Death / deathrattle / "when this dies" → put on battlefield,
+>        then KILL it** (emit lethal damage or destroy it). Do NOT just
+>        ETB it — a death trigger never fires on entry.
+>      - **Attack / "whenever this attacks" → put on battlefield, then
+>        DECLARE IT AS AN ATTACKER.** Do NOT ETB-probe it.
+>      - Damage / "deals combat damage" → battlefield, declare attacker,
+>        resolve combat damage to a blocker/player.
+>      - Upkeep / end-step → battlefield, set `active_player`, emit the
+>        PHASE_START for that step.
+>      - Activated ability → battlefield, then activate (pay cost).
+>      - Spell-cast trigger → battlefield, then cast a spell.
+>      - Static / lord effects → battlefield, then check the relevant
+>        QUERY (use `get_power`/`has_ability` from `src.engine.queries`,
+>        not a raw QUERY event).
+>      For Pokemon/YGO, the rules text lives in `attacks[].text` /
+>      `ability.text` (the top-level `text` is flavor) — derive expected
+>      keywords from the structured fields, and fire the matching attack
+>      or ability, not an ETB.
 >   3. Captures emitted events (use the engine's event log /
 >      `game.events` / equivalent — discover from existing tests).
->   4. Asserts at least one event in the log has a `type` matching one
->      of the expected effect keywords. If the card text mentions
->      multiple effects, assert one is present (not all — some are
->      conditional).
+>   4. **Asserts a TEXT-MATCHING event fired.** At least one event in the
+>      log must have a `type` in `expected_effect_keywords` (the set
+>      derived from the card's TEXT in step 1). If the text names
+>      multiple effects, one is sufficient (riders are conditional). The
+>      assertion message MUST print BOTH the expected set and the actual
+>      emitted types, e.g. `expected one of ['DAMAGE'] in event_log, got
+>      ['SCRY']` — so a text/event mismatch is diagnosable at a glance.
+>      **"some event fired" is NOT an acceptable assertion**: a card that
+>      emits only `SCRY` when its text says "deal damage" must fail, not
+>      pass. Exclude bookkeeping events (`ZONE_CHANGE`, `PHASE_START`,
+>      priority/turn plumbing) from the "got" set so they can't
+>      accidentally satisfy a content assertion.
 >
 > **Cards you cannot auto-test**: modal cards (multiple choice
 > effects), cards requiring target choice from a non-trivial pool,
@@ -148,10 +196,24 @@ Use `Agent` tool with `subagent_type=general-purpose`. Brief:
 > **File structure** (`<OUT_PATH>`):
 >
 > ```python
-> """Auto-generated interceptor verification for <game>. See /test-interceptors."""
+> """Auto-generated interceptor verification for <game>. See /test-interceptors.
 >
+> Run (strict mode surfaces swallowed card-side errors — see "Run" below):
+>     HYPERDRAFT_STRICT=1 HYPERDRAFT_STRICT_STACK=1 PYTHONPATH=. python <OUT_PATH>
+> """
+>
+> import os
 > import sys
-> sys.path.insert(0, '/path/to/repo')
+> from pathlib import Path
+>
+> # __file__-relative repo root — NEVER hardcode an absolute checkout path.
+> # A hardcoded '/Users/.../HYPERDRAFT' silently loads the MAIN checkout's card
+> # modules from inside a worktree agent, so freshly-edited cards aren't seen and
+> # pass rates are unreliable (spice-pass.md gotcha #18). parents[1] from
+> # tests/ == repo root.
+> _REPO_ROOT = Path(__file__).resolve().parents[1]
+> if str(_REPO_ROOT) not in sys.path:
+>     sys.path.insert(0, str(_REPO_ROOT))
 >
 > from src.engine import Game, Event, EventType, ZoneType
 > from src.cards.<game> import <DICT_NAME>
@@ -163,15 +225,29 @@ Use `Agent` tool with `subagent_type=general-purpose`. Brief:
 >
 > # ... reused/copied scaffolding helpers ...
 >
+> # Bookkeeping events that must NOT satisfy a content assertion.
+> _PLUMBING = {"ZONE_CHANGE", "PHASE_START", "PHASE_END", "PRIORITY",
+>              "TURN_START", "TURN_END", "DRAW_FOR_TURN", "UNTAP"}
+>
 > def test_card_<snake_name>():
->     """<card name>: expects <expected effect>"""
->     # ... setup, trigger, assert ...
+>     """<card name>: text says <clause> → expects one of <EXPECTED>."""
+>     EXPECTED = ['DAMAGE']   # derived from the card's TEXT, not its code
+>     # ... build state, fire THIS card's canonical trigger (death→kill,
+>     #     attack→declare attacker, etb→enter, etc.) ...
+>     got = {e.type.name for e in game.state.event_log} - _PLUMBING
+>     assert any(t in got for t in EXPECTED), (
+>         f"expected one of {EXPECTED} in event_log, got {sorted(got)}"
+>     )
 >
 > # ... one per card ...
 >
 > if __name__ == "__main__":
 >     # Run every test, count pass / fail / skipped, print a summary table.
+>     # HYPERDRAFT_STRICT=1 prints full tracebacks for errored tests so a
+>     # swallowed card-side AttributeError (a source typo that looks like an
+>     # "empty effect") is visible, not hidden behind a one-line summary.
 >     import traceback
+>     STRICT = bool(os.environ.get("HYPERDRAFT_STRICT"))
 >     tests = [v for k, v in globals().items() if k.startswith("test_")]
 >     passed, failed, errors = [], [], []
 >     for t in tests:
@@ -182,6 +258,8 @@ Use `Agent` tool with `subagent_type=general-purpose`. Brief:
 >             failed.append((t.__name__, str(e)))
 >         except Exception as e:
 >             errors.append((t.__name__, f"{type(e).__name__}: {e}"))
+>             if STRICT:
+>                 traceback.print_exc()
 >     print(f"\n=== Interceptor verification: <game> ===")
 >     print(f"  passed: {len(passed)}")
 >     print(f"  failed: {len(failed)}")
@@ -204,12 +282,29 @@ Use `Agent` tool with `subagent_type=general-purpose`. Brief:
 
 ### 2. Run the generated tests
 
+Always run in **strict mode** so swallowed card-side errors surface:
+
 ```
-PYTHONPATH=. python <OUT_PATH>
+HYPERDRAFT_STRICT=1 HYPERDRAFT_STRICT_STACK=1 PYTHONPATH=. python <OUT_PATH>
 ```
 
-Capture stdout/stderr. Parse the summary line for pass / fail / error
-counts.
+The two flags do different jobs and you want both:
+
+- `HYPERDRAFT_STRICT_STACK=1` — **engine-side.** The stack's
+  `_resolve_triggered` (`src/engine/stack.py`) normally *swallows* any
+  exception raised inside a card's `effect_fn` and returns no events, so a
+  card-side typo (`AttributeError: 'GameObject' has no attribute 'controler'`)
+  looks identical to a legitimate "engine doesn't support this effect yet"
+  empty result. With this flag the engine **re-raises**, so the typo surfaces
+  as a real error instead of a silent empty-effect false-pass.
+- `HYPERDRAFT_STRICT=1` — **test-runner-side.** The generated `__main__`
+  runner reads this and prints a full traceback for every errored test (see
+  the template). Without it, errors collapse to a one-line `TypeError: ...`
+  summary that hides where the failure originated.
+
+A card that "emits nothing" is frequently a source typo, not an engine gap —
+strict mode is what tells the two apart. Capture stdout/stderr and parse the
+summary line for pass / fail / error counts.
 
 ### 3. Triage
 
@@ -223,6 +318,15 @@ For each failure:
    - **Wrong effect** — interceptor produces events but not the type
      the rules text implies. E.g. "draw a card" emitted `LIFE_CHANGE`.
      Likely a copy-paste bug in the card def.
+   - **Text-mismatched info-pulse (slice-N stub)** — the card emits a
+     generic `SCRY`/`SURVEIL`/`MILL`/`LIFE_CHANGE` that bears no relation
+     to its printed text (e.g. a "destroy target" card emits `SCRY`).
+     This is the median-lift stub signature. The fix is to rewrite the
+     `effect_fn` to do what the TEXT says — NOT to edit the card's text
+     to match the stub, and NOT to add the emitted type to the test's
+     expected set. If a whole batch of cards shows this pattern, the set
+     was retrofitted with `_<set>_s<N>_*` stubs and needs them reverted
+     (see `.claude/skills/spice-pass.md` FORBIDDEN section).
    - **Trigger never fires** — the canonical event was emitted but no
      interceptor ran. The card's `setup_interceptors` may not have
      registered, or registered against the wrong event type.
