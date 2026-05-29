@@ -6278,9 +6278,25 @@ ECLIPSED_REALMS = make_land(
     text="As Eclipsed Realms enters, choose a creature type. {T}: Add {C}. {T}: Add one mana of any color. Spend this mana only to cast spells of the chosen type or activate abilities of sources of the chosen type."
 )
 
+def _evolving_wilds_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    def fetch(o: GameObject, st: GameState, targets) -> list[Event]:
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={'player': o.controller, 'card_type': 'basic land',
+                     'destination': 'battlefield', 'tapped': True, 'optional': False},
+            source=o.id, controller=o.controller,
+        )]
+    make_activated_ability(
+        obj, cost="{T}, Sacrifice Evolving Wilds", effect_fn=fetch,
+        description="Search your library for a basic land card, put it onto the battlefield tapped, then shuffle",
+    )
+    return []
+
+
 EVOLVING_WILDS = make_land(
     name="Evolving Wilds",
-    text="{T}, Sacrifice Evolving Wilds: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle."
+    text="{T}, Sacrifice Evolving Wilds: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
+    setup_interceptors=_evolving_wilds_setup
 )
 
 

@@ -206,7 +206,6 @@ SKIPPED_CARDS = {
     # --- Section 2 structural skips (lands / activated / equipment / aura / replacement / PW) ---
     'Ajani, Outland Chaperone': 'planeswalker: loyalty-activated abilities (structural)',
     'Aurora Awakener': 'reveal-until-X dig (variable, library-state dependent; not a single content event)',
-    'Blood Crypt': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
     'Bloom Tender': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Brion Stoutarm': 'activated sacrifice ability (structural; no triggered/static interceptor)',
     'Chameleon Colossus': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
@@ -217,35 +216,27 @@ SKIPPED_CARDS = {
     'Demigod of Revenge': 'cast-time graveyard recursion (return all copies; resolves before ETB; structural)',
     'Devoted Druid': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Earwig Squad': 'prowl-gated ETB (search+exile only when prowl cost paid; alt-cost dependent)',
-    'Eclipsed Realms': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
     'Elvish Branchbender': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Evolving Wilds': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
     'Figure of Destiny': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Firdoch Core': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Forest': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
     'Fulminator Mage': 'activated sacrifice ability (structural; no triggered/static interceptor)',
     'Gathering Stone': 'choose-a-type cost-reducer / mana on ETB (structural; no content event)',
     'Glen Elendra Archmage': 'activated sacrifice ability (structural; no triggered/static interceptor)',
-    'Hallowed Fountain': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
     'Heap Doll': 'activated sacrifice ability (structural; no triggered/static interceptor)',
     'Heritage Druid': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Horde of Notions': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Island': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
     'Maralen, Fae Ascendant': 'static lock / name-or-color-choice replacement effect (structural)',
     'Mirror Entity': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Mirrormind Crown': 'equipment: grants statics/abilities to the held creature (needs an attached host)',
     'Mistbind Clique': 'champion mechanic (exile-on-ETB + return-on-leave; structural)',
     'Moonglove Extract': 'activated sacrifice ability (structural; no triggered/static interceptor)',
     'Mornsong Aria': 'static lock / name-or-color-choice replacement effect (structural)',
-    'Mountain': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
     'Nettle Sentinel': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Nettlevine Blight': 'PHASE B: aura grants the enchanted permanent an end-step "sacrifice then re-attach to a permanent you control" triggered ability — needs a granted self-moving aura trigger',
     'Overbeing of Myth': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Overgrown Tomb': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
     "Painter's Servant": 'static lock / name-or-color-choice replacement effect (structural)',
     'Pili-Pala': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Pitiless Fists': 'PHASE B: aura has no static; its only effect is a targeted ETB fight (enchanted creature fights a chosen opponent creature) — needs cast-time target choice',
-    'Plains': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
     'Reaping Willow': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Rhys the Redeemed': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Rimefire Torque': 'structural / activated / replacement effect not expressible via a canonical trigger',
@@ -258,14 +249,11 @@ SKIPPED_CARDS = {
     'Sower of Temptation': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Spellstutter Sprite': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Springleaf Drum': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Steam Vents': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
     'Stillmoon Cavalier': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Sting-Slinger': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Stoic Grove-Guide': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Swamp': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
     'Sygg, River Guide': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Tattermunge Maniac': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Temple Garden': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
     'Twilight Diviner': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Vendilion Clique': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Vexing Shusher': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
@@ -2651,6 +2639,127 @@ def test_card_gilt_leafs_embrace():
     assert has_ability(host, "indestructible", game.state), "enchanted creature should gain indestructible"
 
 
+# --- mana lands (engine-native mana ability; verify it produces the colors) -
+
+def _spawn_land(game, player, land_name):
+    card_def = FAE_BUT_MID_CARDS[land_name]
+    land = game.create_object(
+        name=land_name, owner_id=player.id, zone=ZoneType.HAND,
+        characteristics=card_def.characteristics, card_def=None,
+    )
+    land.card_def = card_def
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={"object_id": land.id, "from_zone": f"hand_{player.id}",
+                 "to_zone": "battlefield", "to_zone_type": ZoneType.BATTLEFIELD},
+    ))
+    land.state.summoning_sickness = False
+    return land
+
+
+def _assert_land_produces(game, player, land_name, expected_colors):
+    """Activate the land's mana ability and assert it produces ``expected_colors``.
+
+    Mana abilities are engine-native (text-parsed, surfaced as ``mana:N``); they
+    emit MANA_PRODUCED rather than a card-effect event, so this verifies the
+    actual produced colors instead of scanning the (plumbing-filtered) log.
+    """
+    land = _spawn_land(game, player, land_name)
+    mana_actions = [a for a in game.priority_system.get_legal_actions(player.id)
+                    if a.source_id == land.id and a.ability_id and a.ability_id.startswith("mana:")]
+    assert mana_actions, f"{land_name}: expected a mana ability in legal actions"
+
+    async def _run():
+        action = _PlayerAction(
+            type=_ActionType.ACTIVATE_ABILITY,
+            player_id=player.id, source_id=land.id,
+            ability_id=mana_actions[0].ability_id,
+        )
+        return await game.priority_system._handle_activate_ability(action)
+    events = _asyncio.get_event_loop().run_until_complete(_run())
+    produced = {e.payload.get('color') for e in events if e.type == EventType.MANA_PRODUCED}
+    for c in expected_colors:
+        assert c in produced, f"{land_name}: expected to produce {c}, got {sorted(produced)}"
+
+
+def test_card_forest():
+    """Forest: ({T}: Add {G}.)"""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Forest", ["G"])
+
+
+def test_card_island():
+    """Island: ({T}: Add {U}.)"""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Island", ["U"])
+
+
+def test_card_mountain():
+    """Mountain: ({T}: Add {R}.)"""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Mountain", ["R"])
+
+
+def test_card_plains():
+    """Plains: ({T}: Add {W}.)"""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Plains", ["W"])
+
+
+def test_card_swamp():
+    """Swamp: ({T}: Add {B}.)"""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Swamp", ["B"])
+
+
+def test_card_blood_crypt():
+    """Blood Crypt: ({T}: Add {B} or {R}.) ..."""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Blood Crypt", ["B", "R"])
+
+
+def test_card_hallowed_fountain():
+    """Hallowed Fountain: ({T}: Add {W} or {U}.) ..."""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Hallowed Fountain", ["W", "U"])
+
+
+def test_card_overgrown_tomb():
+    """Overgrown Tomb: ({T}: Add {B} or {G}.) ..."""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Overgrown Tomb", ["B", "G"])
+
+
+def test_card_steam_vents():
+    """Steam Vents: ({T}: Add {U} or {R}.) ..."""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Steam Vents", ["U", "R"])
+
+
+def test_card_temple_garden():
+    """Temple Garden: ({T}: Add {G} or {W}.) ..."""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Temple Garden", ["G", "W"])
+
+
+def test_card_eclipsed_realms():
+    """Eclipsed Realms: ... {T}: Add {C}. {T}: Add one mana of any color. ..."""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Eclipsed Realms", ["C"])
+
+
+def test_card_evolving_wilds():
+    """Evolving Wilds: {T}, Sacrifice Evolving Wilds: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle."""
+    game, p1, p2 = _new_game()
+    _own_main(game, p1)
+    land = _spawn_land(game, p1, "Evolving Wilds")
+    cost_evts, resolve_evts = _activate(game, p1, land)
+    cost_types = [e.type for e in cost_evts]
+    assert EventType.SACRIFICE in cost_types, f"should sacrifice itself, got {[e.type.name for e in cost_evts]}"
+    assert any(e.type.name in ('SEARCH_LIBRARY', 'LIBRARY_SEARCH') for e in resolve_evts), (
+        f"should search library for a basic land, got {[e.type.name for e in resolve_evts]}")
+
+
 # ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
@@ -2661,7 +2770,11 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_barbed_bloodletter, test_card_bark_of_doran, test_card_cloak_and_dagger,
     test_card_obsidian_battle_axe, test_card_runed_stalactite, test_card_veterans_armaments,
     test_card_diviners_wand, test_card_thornbite_staff,
-    test_card_gilt_leafs_embrace]
+    test_card_gilt_leafs_embrace,
+    test_card_forest, test_card_island, test_card_mountain, test_card_plains, test_card_swamp,
+    test_card_blood_crypt, test_card_hallowed_fountain, test_card_overgrown_tomb,
+    test_card_steam_vents, test_card_temple_garden, test_card_eclipsed_realms,
+    test_card_evolving_wilds]
 
 
 def _run():
