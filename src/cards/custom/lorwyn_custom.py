@@ -184,6 +184,7 @@ def make_static_pt_boost(
 from src.cards.interceptor_helpers import (
     make_death_trigger, make_attack_trigger, make_tap_trigger,
     make_upkeep_trigger, make_counter_added_trigger, make_end_step_trigger,
+    make_spell_cast_trigger,  # used by Enraged Flamecaster (was missing → NameError on ETB)
     make_keyword_grant, other_creatures_you_control,
     other_creatures_with_subtype,
     # Targeted trigger helpers
