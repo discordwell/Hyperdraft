@@ -406,5919 +406,6 @@ def changeling_wayfinder_setup(obj: GameObject, state: GameState) -> list[Interc
 # REVISED (rebalance): {3} -> {2}. Library-search effect is stub; without it,
 # 1/2 for 3 was unplayable. 1/2 for 2 is a legitimate Changeling enabler that
 # triggers tribal payoffs across every Lorwyn type.
-
-# ============================================================================
-# Slice-24 RETROFIT REPLACEMENTS (2026-05-28):
-# 256 cards previously routed through slice-24 helper wrappers now have real
-# per-card setup/resolve functions that emit events matching their rules
-# text. Replaces the depth-v2 metric-gaming fake-event helpers.
-# ============================================================================
-
-from src.cards.interceptor_helpers import (
-    make_etb_trigger,
-    make_attack_trigger,
-    make_upkeep_trigger,
-    make_end_step_trigger,
-    make_death_trigger,
-)
-
-def appeal_to_eirdu_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def crib_swap_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.EXILE, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def keep_out_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 4, "is_combat": False}, source=__src__))
-    evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def kinbinding_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def midnight_tilling_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.MILL, payload={"player": caster, "amount": 4}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def tend_the_sprigs_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
-    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def thoughtweft_charge_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
-    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 3, "toughness_mod": 3, "duration": "end_of_turn"}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def auntie_s_sentence_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 1}, source=__src__) for _opp in state.players if _opp != caster])
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def blight_rot_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "-1/-1", "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def bloodline_bidding_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def darkness_descends_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "-1/-1", "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def boulder_dash_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 2, "is_combat": False}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def burning_curiosity_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def cinder_strike_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 2, "is_combat": False}, source=__src__))
-    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 4, "is_combat": False}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def collective_inferno_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def feed_the_flames_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 5, "is_combat": False}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def giantfall_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def goatnap_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 3, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def ajani_outland_chaperone_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
-        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def personify_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.EXILE, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def protective_response_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def pyrrhic_strike_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def riverguard_s_reflexes_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 2, "duration": "end_of_turn"}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def morningtide_s_light_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.LIFE_CHANGE, payload={"player": caster, "amount": 4}, source=__src__))
-    evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def spiral_into_solitude_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.EXILE, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def winnowing_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def glen_elendra_s_answer_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def harmonized_crescendo_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def rime_chill_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def rimefire_torque_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "-1/-1", "amount": 3}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_death_trigger(obj, _effect)]
-
-
-def lofty_dreams_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 2}, source=__src__))
-    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 3}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def mirrorform_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def noggle_the_mind_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def run_away_together_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def spell_snare_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.COUNTER_SPELL, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def summit_sentinel_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def sunderflock_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def swat_away_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def temporal_cleansing_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def thirst_for_identity_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 2}, source=__src__))
-    evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 1}, source=__src__) for _opp in state.players if _opp != caster])
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def unexpected_assistance_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 3}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def wanderwine_farewell_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def wild_unraveling_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
-    evs.append(Event(type=EventType.COUNTER_SPELL, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def celestial_reunion_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def dawn_s_light_archer_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def gilt_leaf_s_embrace_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def pitiless_fists_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def prismatic_undercurrents_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def assert_perfection_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def aurora_awakener_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def bloom_tender_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def blossoming_defense_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 2, "duration": "end_of_turn"}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def shimmerwilds_growth_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def spry_and_mighty_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 3, "toughness_mod": 3, "duration": "end_of_turn"}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def unforgiving_aim_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def vinebred_brawler_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "+1/+1", "amount": 2}, source=__src__))
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def barbed_bloodletter_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 2, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def bogslither_s_embrace_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.EXILE, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def champion_of_the_weird_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def dawnhand_dissident_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SURVEIL, payload={"player": caster, "amount": 1}, source=__src__))
-        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "-1/-1", "amount": 1}, source=__src__))
-        evs.append(Event(type=EventType.EXILE, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_death_trigger(obj, _effect)]
-
-
-def dose_of_dawnglow_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload={"player": caster, "destination": "hand"}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def dream_harvest_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def requiting_hex_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.LIFE_CHANGE, payload={"player": caster, "amount": 2}, source=__src__))
-    evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def gutsplitter_gang_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 1}, source=__src__) for _opp in state.players if _opp != caster])
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def heirloom_auntie_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload={"player": caster, "destination": "hand"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def moonglove_extractor_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def moonshadow_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def mudbutton_cursetosser_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "-1/-1", "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_death_trigger(obj, _effect)]
-
-
-def nameless_inversion_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def nightmare_sower_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def perfect_intimidation_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def scarblade_scout_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def scarblade_s_malice_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def shimmercreep_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
-        evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 1}, source=__src__) for _opp in state.players if _opp != caster])
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def taster_of_wares_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 2}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def twilight_diviner_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.LIFE_CHANGE, payload={"player": caster, "amount": 1}, source=__src__))
-        evs.extend([Event(type=EventType.LIFE_CHANGE, payload={"player": _opp, "amount": -3}, source=__src__) for _opp in state.players if _opp != caster])
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def unbury_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "-1/-1", "amount": 1}, source=__src__))
-    evs.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload={"player": caster, "destination": "hand"}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def end_blaze_epiphany_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def reckless_ransacking_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 3, "toughness_mod": 2, "duration": "end_of_turn"}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def hexing_squelcher_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def impolite_entrance_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def kindle_the_inner_flame_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
-    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 3, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def kulrath_zealot_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 2, "is_combat": False}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def lasting_tarfire_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 2, "is_combat": False}, source=__src__))
-    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def lavaleaper_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def meek_attack_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def scuzzback_scrounger_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def sear_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 3, "is_combat": False}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def sizzling_changeling_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def soul_immolation_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 6, "is_combat": False}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def soulbright_seeker_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def sourbread_auntie_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def spinerock_tyrant_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 3, "is_combat": False}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_death_trigger(obj, _effect)]
-
-
-def squawkroaster_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def sting_slinger_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def tweeze_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 2, "is_combat": False}, source=__src__))
-    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def warren_torchmaster_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def ashling_s_command_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 3, "is_combat": False}, source=__src__))
-    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 2}, source=__src__))
-    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def brigid_s_command_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 2, "duration": "end_of_turn"}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def prideful_feastling_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def reaping_willow_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "-1/-1", "amount": 1}, source=__src__))
-        evs.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload={"player": caster, "destination": "hand"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def catharsis_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def emptiness_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def grub_s_command_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 3, "is_combat": False}, source=__src__))
-    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def high_perfect_morcant_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.LIFE_CHANGE, payload={"player": caster, "amount": 2}, source=__src__))
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def hovel_hurler_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def kirol_attentive_first_year_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def lluwen_imperfect_naturalist_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def maralen_fae_ascendant_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def merrow_skyswimmer_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def mischievous_sneakling_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
-        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
-        evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 1}, source=__src__) for _opp in state.players if _opp != caster])
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def morcant_s_loyalist_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.LIFE_CHANGE, payload={"player": caster, "amount": 3}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def noggle_robber_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
-        evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 1}, source=__src__) for _opp in state.players if _opp != caster])
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_death_trigger(obj, _effect)]
-
-
-def sanar_innovative_first_year_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.LIFE_CHANGE, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def shadow_urchin_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_death_trigger(obj, _effect)]
-
-
-def stoic_grove_guide_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_death_trigger(obj, _effect)]
-
-
-def sygg_s_command_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.LIFE_CHANGE, payload={"player": caster, "amount": 1}, source=__src__))
-    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
-    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def tam_mindful_first_year_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "+1/+1", "amount": 1}, source=__src__))
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def thoughtweft_lieutenant_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def trystan_s_command_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-    evs.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload={"player": caster, "destination": "hand"}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def twinflame_travelers_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def vibrance_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def voracious_tome_skimmer_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
-        evs.append(Event(type=EventType.MILL, payload={"player": caster, "amount": 3}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def wary_farmer_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def wistfulness_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 2}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def chronicle_of_victory_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 2, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def dawn_blessed_pennant_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.LIFE_CHANGE, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def firdoch_core_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def gathering_stone_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def mirrormind_crown_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def puca_s_eye_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
-        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def springleaf_drum_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def blood_crypt_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def hallowed_fountain_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def overgrown_tomb_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def steam_vents_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def temple_garden_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def eclipsed_realms_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def evolving_wilds_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_death_trigger(obj, _effect)]
-
-
-def bark_of_doran_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 0, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def auntie_s_favor_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
-    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def wretched_banquet_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def cinder_pyromancer_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_death_trigger(obj, _effect)]
-
-
-def inner_flame_igniter_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_death_trigger(obj, _effect)]
-
-
-def smoldering_spinebacks_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def thundercloud_shaman_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def elvish_harbinger_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def heritage_druid_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_death_trigger(obj, _effect)]
-
-
-def nath_of_the_gilt_leaf_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 1}, source=__src__) for _opp in state.players if _opp != caster])
-        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_death_trigger(obj, _effect)]
-
-
-def treefolk_harbinger_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def wolf_skull_shaman_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def sygg_river_guide_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_death_trigger(obj, _effect)]
-
-
-def sygg_river_cutthroat_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def oversoul_of_dusk_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def kitchen_finks_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.LIFE_CHANGE, payload={"player": caster, "amount": 2}, source=__src__))
-        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "-1/-1", "amount": 2}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def murderous_redcap_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def demigod_of_revenge_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def glen_elendra_archmage_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def stillmoon_cavalier_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def creakwood_liege_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def deathbringer_liege_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-        evs.append(Event(type=EventType.TAP, payload={"object_id": "<target>"}, source=__src__))
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def balefire_liege_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 3, "is_combat": False}, source=__src__))
-        evs.append(Event(type=EventType.LIFE_CHANGE, payload={"player": caster, "amount": 3}, source=__src__))
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def boartusk_liege_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def thistledown_liege_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def murkfiend_liege_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def mindwrack_liege_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def ashenmoor_liege_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def wilt_leaf_liege_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 1}, source=__src__) for _opp in state.players if _opp != caster])
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def moonglove_extract_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 2, "is_combat": False}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def runed_stalactite_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def thornbite_staff_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_death_trigger(obj, _effect)]
-
-
-def obsidian_battle_axe_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def cloak_and_dagger_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def diviner_s_wand_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def veteran_s_armaments_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def kinsbaile_borderguard_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "+1/+1", "amount": 1}, source=__src__))
-        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def cloudgoat_ranger_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def mirror_entity_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def reveillark_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_death_trigger(obj, _effect)]
-
-
-def ranger_of_eos_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def vendilion_clique_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def sower_of_temptation_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def mistbind_clique_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def spellstutter_sprite_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.COUNTER_SPELL, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def scion_of_oona_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def shriekmaw_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def oona_s_blackguard_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
-        evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 1}, source=__src__) for _opp in state.players if _opp != caster])
-        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "+1/+1", "amount": 1}, source=__src__))
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def earwig_squad_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def bitterblossom_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.extend([Event(type=EventType.LIFE_CHANGE, payload={"player": _opp, "amount": -1}, source=__src__) for _opp in state.players if _opp != caster])
-        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def mornsong_aria_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def sunrise_sovereign_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 2, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def brion_stoutarm_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def nova_chaser_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def incandescent_soulstoke_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def chameleon_colossus_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def primalcrux_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def devoted_druid_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "-1/-1", "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def nettle_sentinel_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_death_trigger(obj, _effect)]
-
-
-def masked_admirers_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def thoughtweft_gambit_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def cryptic_command_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
-    evs.append(Event(type=EventType.COUNTER_SPELL, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def firespout_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 3, "is_combat": False}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def primal_command_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def austere_command_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def profane_command_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload={"player": caster, "destination": "hand"}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def incendiary_command_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 4, "is_combat": False}, source=__src__))
-    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 2, "is_combat": False}, source=__src__))
-    evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 1}, source=__src__) for _opp in state.players if _opp != caster])
-    evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def fulminator_mage_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def figure_of_destiny_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def manamorphose_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def boggart_ram_gang_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def tattermunge_maniac_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def vexing_shusher_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def plumeveil_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def unmake_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.EXILE, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def fiery_justice_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 5, "is_combat": False}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def augury_adept_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def cold_eyed_selkie_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_death_trigger(obj, _effect)]
-
-
-def deus_of_calamity_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def ghastlord_of_fugue_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 1, "is_combat": False}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_death_trigger(obj, _effect)]
-
-
-def deity_of_scars_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.COUNTER_ADDED, payload={"object_id": __src__, "counter_type": "-1/-1", "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def overbeing_of_myth_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def divinity_of_pride_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 4, "toughness_mod": 4, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def hallowed_burial_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def idyllic_tutor_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SEARCH_LIBRARY, payload={"player": caster, "destination": "hand"}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def spectral_procession_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def runed_halo_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def knight_of_meadowgrain_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def pollen_lullaby_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def broken_ambitions_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.MILL, payload={"player": caster, "amount": 4}, source=__src__))
-    evs.append(Event(type=EventType.COUNTER_SPELL, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def faerie_trickery_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def ponder_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def final_revels_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 2, "toughness_mod": 0, "duration": "end_of_turn"}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def thoughtseize_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.extend([Event(type=EventType.LIFE_CHANGE, payload={"player": _opp, "amount": -2}, source=__src__) for _opp in state.players if _opp != caster])
-    evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 2}, source=__src__) for _opp in state.players if _opp != caster])
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def peppersmoke_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def fodder_launch_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def makeshift_mannequin_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload={"player": caster, "destination": "hand"}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def death_denied_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def nettlevine_blight_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def tarfire_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 2, "is_combat": False}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def lash_out_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 3, "is_combat": False}, source=__src__))
-    evs.append(Event(type=EventType.DAMAGE, payload={"source": __src__, "target": opp, "amount": 3, "is_combat": False}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def sensation_gorger_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.DRAW, payload={"player": caster, "amount": 4}, source=__src__))
-        evs.extend([Event(type=EventType.DISCARD, payload={"player": _opp, "amount": 4}, source=__src__) for _opp in state.players if _opp != caster])
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def garruk_wildspeaker_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 3, "toughness_mod": 3, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def leaf_crowned_elder_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def elvish_branchbender_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def gilt_leaf_ambush_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def hunting_triad_resolve(targets, state):
-    caster = getattr(state, "active_player", None)
-    if caster is None and state.players:
-        caster = next(iter(state.players))
-    if caster is None:
-        return []
-    opp = None
-    for _o in state.players:
-        if _o != caster:
-            opp = _o
-            break
-    if opp is None:
-        opp = caster  # solitaire fallback
-    __src__ = None
-    evs: list[Event] = []
-    evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-    _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                EventType.DRAW, EventType.TAP}
-    if not any(e.type in _tracked for e in evs):
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=None))
-    return evs
-
-
-def boggart_sprite_chaser_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.PT_MODIFICATION, payload={"object_id": "<target>", "power_mod": 1, "toughness_mod": 1, "duration": "end_of_turn"}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_upkeep_trigger(obj, _effect)]
-
-
-def scarblade_elite_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.OBJECT_DESTROYED, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_death_trigger(obj, _effect)]
-
-
-def safehold_elite_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def rendclaw_trow_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_etb_trigger(obj, _effect)]
-
-
-def horde_of_notions_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_attack_trigger(obj, _effect)]
-
-
-def rhys_the_redeemed_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.CREATE_TOKEN, payload={"controller": caster, "token": {"power": 1, "toughness": 1, "subtypes": set(), "colors": set()}}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def heap_doll_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.EXILE, payload={"object_id": "<target>", "source": __src__}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_death_trigger(obj, _effect)]
-
-
-def painter_s_servant_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_death_trigger(obj, _effect)]
-
-
-def pili_pala_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-def wanderbrine_rootcutters_setup(obj, state):
-    def _effect(event, state):
-        caster = obj.controller
-        opp = None
-        for _o in state.players:
-            if _o != caster:
-                opp = _o
-                break
-        if opp is None:
-            opp = caster
-        __src__ = obj.id
-        evs: list[Event] = []
-        evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=__src__))
-        _tracked = {EventType.SCRY, EventType.SURVEIL, EventType.MILL,
-                    EventType.LIFE_CHANGE, EventType.DAMAGE, EventType.DISCARD,
-                    EventType.DRAW, EventType.TAP}
-        if not any(e.type in _tracked for e in evs):
-            evs.append(Event(type=EventType.SCRY, payload={"player": caster, "amount": 1}, source=obj.id))
-        return evs
-    return [make_end_step_trigger(obj, _effect)]
-
-
-
 CHANGELING_WAYFINDER = make_creature(
     name="Changeling Wayfinder",
     power=1,
@@ -6442,7 +529,7 @@ APPEAL_TO_EIRDU = make_instant(
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     text="Convoke. One or two target creatures each get +2/+1 until end of turn.",
-    resolve=appeal_to_eirdu_resolve  # Would create temporary QUERY interceptors
+    resolve=None  # Would create temporary QUERY interceptors
 )
 
 
@@ -6619,7 +706,7 @@ CRIB_SWAP = make_instant(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="Changeling. Exile target creature. Its controller creates a 1/1 colorless Shapeshifter creature token with changeling.",
-    resolve=crib_swap_resolve  # Would exile + create token
+    resolve=None  # Would exile + create token
 )
 
 
@@ -6859,7 +946,7 @@ KEEP_OUT = make_instant(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Choose one — Keep Out deals 4 damage to target tapped creature. Destroy target enchantment.",
-    resolve=keep_out_resolve
+    resolve=None
 )
 
 
@@ -6878,7 +965,7 @@ KINBINDING = make_enchantment(
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
     text="Creatures you control get +X/+X, where X is the number of creatures that entered the battlefield under your control this turn.",
-    setup_interceptors=kinbinding_setup  # Would need turn-based tracking
+    setup_interceptors=None  # Would need turn-based tracking
 )
 
 
@@ -7068,7 +1155,7 @@ MIDNIGHT_TILLING = make_instant(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Mill four cards, then you may return a permanent card from among them to your hand.",
-    resolve=midnight_tilling_resolve
+    resolve=None
 )
 
 
@@ -7308,7 +1395,7 @@ TEND_THE_SPRIGS = make_sorcery(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     text="Search your library for a basic land card, put it onto the battlefield tapped, then shuffle. Then if you control seven or more lands and/or Treefolk, create a 3/4 green Treefolk creature token with reach.",
-    resolve=tend_the_sprigs_resolve
+    resolve=None
 )
 
 
@@ -7324,7 +1411,7 @@ THOUGHTWEFT_CHARGE = make_instant(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Target creature gets +3/+3 until end of turn. If a creature entered the battlefield under your control this turn, draw a card.",
-    resolve=thoughtweft_charge_resolve
+    resolve=None
 )
 
 
@@ -7378,19 +1465,11 @@ def champions_of_shoal_setup(obj: GameObject, state: GameState) -> list[Intercep
         # Would tap target creature and add stun counter
         return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
 
-    def _initial_counter_etb(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={"object_id": obj.id, "counter_type": "-1/-1", "amount": 2},
-            source=obj.id,
-        )]
-    _initial_counter_interceptor = make_etb_trigger(obj, _initial_counter_etb)
-
     return [Interceptor(
         id=new_id(), source=obj.id, controller=obj.controller,
         priority=InterceptorPriority.REACT, filter=etb_or_tap_filter,
         handler=tap_target_handler, duration='while_on_battlefield'
-    ), _initial_counter_interceptor]
+    )]
 
 
 CHAMPIONS_OF_THE_SHOAL = make_creature(
@@ -7556,9 +1635,7 @@ AUNTIES_SENTENCE = make_sorcery(
     name="Auntie's Sentence",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="Choose one — Target opponent reveals their hand. You choose a nonland card from it. That player discards that card. OR Target creature gets -2/-2 until end of turn.",
-
-    resolve=auntie_s_sentence_resolve,
+    text="Choose one — Target opponent reveals their hand. You choose a nonland card from it. That player discards that card. OR Target creature gets -2/-2 until end of turn."
 )
 
 # Bile-Vial Boggart - {B} Creature — Goblin Assassin 1/1
@@ -7666,7 +1743,7 @@ BLIGHT_ROT = make_instant(
     mana_cost="{2}{B}",
     colors={Color.BLACK},
     text="Put four -1/-1 counters on target creature.",
-    resolve=blight_rot_resolve
+    resolve=None
 )
 
 # Bloodline Bidding - {6}{B}{B} Sorcery
@@ -7674,9 +1751,7 @@ BLOODLINE_BIDDING = make_sorcery(
     name="Bloodline Bidding",
     mana_cost="{6}{B}{B}",
     colors={Color.BLACK},
-    text="Convoke. Choose a creature type. Return all creature cards of that type from your graveyard to the battlefield.",
-
-    resolve=bloodline_bidding_resolve,
+    text="Convoke. Choose a creature type. Return all creature cards of that type from your graveyard to the battlefield."
 )
 
 # Boggart Mischief - {2}{B} Kindred Enchantment — Goblin
@@ -7784,9 +1859,7 @@ DARKNESS_DESCENDS = make_sorcery(
     name="Darkness Descends",
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
-    text="Put two -1/-1 counters on each creature.",
-
-    resolve=darkness_descends_resolve,
+    text="Put two -1/-1 counters on each creature."
 )
 
 # Dawnhand Eulogist - {3}{B} Creature — Elf Warlock 3/3
@@ -8005,9 +2078,7 @@ BOULDER_DASH = make_sorcery(
     name="Boulder Dash",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Boulder Dash deals 2 damage to any target and 1 damage to any other target.",
-
-    resolve=boulder_dash_resolve,
+    text="Boulder Dash deals 2 damage to any target and 1 damage to any other target."
 )
 
 # Brambleback Brute - {2}{R} Creature — Giant Warrior 4/5
@@ -8037,9 +2108,7 @@ BURNING_CURIOSITY = make_sorcery(
     name="Burning Curiosity",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    text="As an additional cost to cast this spell, you may blight 1. Exile the top two cards of your library. If this spell's additional cost was paid, exile the top three cards instead. Until the end of your next turn, you may play those cards.",
-
-    resolve=burning_curiosity_resolve,
+    text="As an additional cost to cast this spell, you may blight 1. Exile the top two cards of your library. If this spell's additional cost was paid, exile the top three cards instead. Until the end of your next turn, you may play those cards."
 )
 
 # Cinder Strike - {R} Sorcery
@@ -8047,9 +2116,7 @@ CINDER_STRIKE = make_sorcery(
     name="Cinder Strike",
     mana_cost="{R}",
     colors={Color.RED},
-    text="As an additional cost to cast this spell, you may blight 1. Cinder Strike deals 2 damage to target creature. It deals 4 damage to that creature instead if this spell's additional cost was paid.",
-
-    resolve=cinder_strike_resolve,
+    text="As an additional cost to cast this spell, you may blight 1. Cinder Strike deals 2 damage to target creature. It deals 4 damage to that creature instead if this spell's additional cost was paid."
 )
 
 # Collective Inferno - {3}{R}{R} Enchantment
@@ -8058,7 +2125,7 @@ COLLECTIVE_INFERNO = make_enchantment(
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
     text="Convoke. As this enchantment enters, choose a creature type. Double all damage that sources you control of the chosen type would deal.",
-    setup_interceptors=collective_inferno_setup  # Would need damage replacement
+    setup_interceptors=None  # Would need damage replacement
 )
 
 # Elder Auntie - {2}{R} Creature — Goblin Warlock 2/2
@@ -8142,9 +2209,7 @@ FEED_THE_FLAMES = make_instant(
     name="Feed the Flames",
     mana_cost="{3}{R}",
     colors={Color.RED},
-    text="Feed the Flames deals 5 damage to target creature. If that creature would die this turn, exile it instead.",
-
-    resolve=feed_the_flames_resolve,
+    text="Feed the Flames deals 5 damage to target creature. If that creature would die this turn, exile it instead."
 )
 
 # Flame-Chain Mauler - {1}{R} Creature — Elemental Warrior 2/2
@@ -8209,9 +2274,7 @@ GIANTFALL = make_instant(
     name="Giantfall",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Choose one — Target creature you control deals damage equal to its power to target creature an opponent controls; or destroy target artifact.",
-
-    resolve=giantfall_resolve,
+    text="Choose one — Target creature you control deals damage equal to its power to target creature an opponent controls; or destroy target artifact."
 )
 
 # Goatnap - {2}{R} Sorcery
@@ -8219,9 +2282,7 @@ GOATNAP = make_sorcery(
     name="Goatnap",
     mana_cost="{2}{R}",
     colors={Color.RED},
-    text="Gain control of target creature until end of turn. Untap that creature. It gains haste until end of turn. If that creature is a Goat, it also gets +3/+0 until end of turn.",
-
-    resolve=goatnap_resolve,
+    text="Gain control of target creature until end of turn. Untap that creature. It gains haste until end of turn. If that creature is a Goat, it also gets +3/+0 until end of turn."
 )
 
 # Goliath Daydreamer - {2}{R}{R} Creature — Giant Wizard 4/4
@@ -8675,9 +2736,7 @@ AJANI_OUTLAND_CHAPERONE = make_planeswalker(
     colors={Color.WHITE},
     subtypes={"Ajani"},
     text="+1: Create a 1/1 white Cat creature token. +1: Ajani deals damage to target tapped creature equal to the number of creatures you control. -6: Search your library for any number of permanent cards with mana value 3 or less, put them onto the battlefield, then shuffle.",
-    loyalty=3,
-
-    setup_interceptors=ajani_outland_chaperone_setup,
+    loyalty=3
 )
 
 
@@ -8687,7 +2746,7 @@ PERSONIFY = make_instant(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Exile target creature you control, then return that card to the battlefield under its owner's control. Create a 1/1 colorless Shapeshifter creature token with changeling.",
-    resolve=personify_resolve
+    resolve=None
 )
 
 
@@ -8697,7 +2756,7 @@ PROTECTIVE_RESPONSE = make_instant(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="Convoke. Destroy target attacking or blocking creature.",
-    resolve=protective_response_resolve
+    resolve=None
 )
 
 
@@ -8707,7 +2766,7 @@ PYRRHIC_STRIKE = make_instant(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="As an additional cost to cast this spell, you may blight 2. Choose one. If the blight cost was paid, choose both instead — Destroy target artifact or enchantment; Destroy target creature with mana value 3 or greater.",
-    resolve=pyrrhic_strike_resolve
+    resolve=None
 )
 
 
@@ -8741,14 +2800,6 @@ def reluctant_dounguard_setup(obj: GameObject, state: GameState) -> list[Interce
             )]
         )
 
-    def _initial_counter_etb(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={"object_id": obj.id, "counter_type": "-1/-1", "amount": 2},
-            source=obj.id,
-        )]
-    _initial_counter_interceptor = make_etb_trigger(obj, _initial_counter_etb)
-
     return [
         Interceptor(
             id=new_id(),
@@ -8758,7 +2809,7 @@ def reluctant_dounguard_setup(obj: GameObject, state: GameState) -> list[Interce
             filter=other_creature_etb_filter,
             handler=etb_handler,
             duration='while_on_battlefield'
-        ), _initial_counter_interceptor
+        )
     ]
 
 
@@ -8806,7 +2857,7 @@ RIVERGUARDS_REFLEXES = make_instant(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Target creature gets +2/+2 and gains first strike until end of turn. Untap it.",
-    resolve=riverguard_s_reflexes_resolve
+    resolve=None
 )
 
 
@@ -9031,7 +3082,7 @@ MORNINGTIDES_LIGHT = make_instant(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     text="Destroy target creature with power 4 or greater. You gain 4 life.",
-    resolve=morningtide_s_light_resolve
+    resolve=None
 )
 
 
@@ -9106,7 +3157,7 @@ SPIRAL_INTO_SOLITUDE = make_instant(
     mana_cost="{1}{W}",
     colors={Color.WHITE},
     text="Exile target attacking or blocking creature. Its controller creates a 1/1 white Kithkin creature token.",
-    resolve=spiral_into_solitude_resolve
+    resolve=None
 )
 
 
@@ -9281,9 +3332,7 @@ WINNOWING = make_sorcery(
     name="Winnowing",
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
-    text="Destroy all creatures with power 4 or greater.",
-
-    resolve=winnowing_resolve,
+    text="Destroy all creatures with power 4 or greater."
 )
 
 
@@ -9338,7 +3387,7 @@ GLEN_ELENDRAS_ANSWER = make_instant(
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
     text="This spell can't be countered. Counter all spells your opponents control and all abilities your opponents control. Create a 1/1 blue and black Faerie creature token with flying for each spell and ability countered this way.",
-    resolve=glen_elendra_s_answer_resolve
+    resolve=None
 )
 
 
@@ -9348,7 +3397,7 @@ HARMONIZED_CRESCENDO = make_instant(
     mana_cost="{4}{U}{U}",
     colors={Color.BLUE},
     text="Convoke. Choose a creature type. Draw a card for each permanent you control of the chosen type.",
-    resolve=harmonized_crescendo_resolve
+    resolve=None
 )
 
 
@@ -9401,7 +3450,7 @@ RIME_CHILL = make_instant(
     mana_cost="{6}{U}",
     colors={Color.BLUE},
     text="Vivid — This spell costs {1} less to cast for each color among permanents you control. Tap up to two target creatures. Put a stun counter on each of them.",
-    resolve=rime_chill_resolve
+    resolve=None
 )
 
 
@@ -9409,9 +3458,7 @@ RIME_CHILL = make_instant(
 RIMEFIRE_TORQUE = make_artifact(
     name="Rimefire Torque",
     mana_cost="{1}{U}",
-    text="As this artifact enters, choose a creature type. Whenever a permanent you control of the chosen type enters, put a charge counter on this artifact. {T}, Remove three charge counters: Copy the next instant or sorcery spell you cast this turn.",
-
-    setup_interceptors=rimefire_torque_setup,
+    text="As this artifact enters, choose a creature type. Whenever a permanent you control of the chosen type enters, put a charge counter on this artifact. {T}, Remove three charge counters: Copy the next instant or sorcery spell you cast this turn."
 )
 
 
@@ -9531,7 +3578,7 @@ LOFTY_DREAMS = make_instant(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     text="Draw two cards. If you control a Faerie, draw three cards instead.",
-    resolve=lofty_dreams_resolve
+    resolve=None
 )
 
 
@@ -9541,7 +3588,7 @@ MIRRORFORM = make_instant(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     text="Create a token that's a copy of target creature you control. Sacrifice it at the beginning of the next end step.",
-    resolve=mirrorform_resolve
+    resolve=None
 )
 
 
@@ -9550,9 +3597,7 @@ NOGGLE_THE_MIND = make_sorcery(
     name="Noggle the Mind",
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
-    text="Target player shuffles their hand into their library, then draws cards equal to the number of cards shuffled away this way.",
-
-    resolve=noggle_the_mind_resolve,
+    text="Target player shuffles their hand into their library, then draws cards equal to the number of cards shuffled away this way."
 )
 
 
@@ -9597,7 +3642,7 @@ RUN_AWAY_TOGETHER = make_instant(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     text="Choose two target creatures controlled by different players. Return those creatures to their owners' hands.",
-    resolve=run_away_together_resolve
+    resolve=None
 )
 
 
@@ -9717,7 +3762,7 @@ SPELL_SNARE = make_instant(
     mana_cost="{U}",
     colors={Color.BLUE},
     text="Counter target spell with mana value 2.",
-    resolve=spell_snare_resolve
+    resolve=None
 )
 
 
@@ -9751,7 +3796,7 @@ SUMMIT_SENTINEL = make_creature(
     colors={Color.BLUE},
     subtypes={"Faerie", "Soldier"},
     text="Flying, vigilance.",
-    setup_interceptors=summit_sentinel_setup
+    setup_interceptors=None
 )
 
 
@@ -9760,9 +3805,7 @@ SUNDERFLOCK = make_sorcery(
     name="Sunderflock",
     mana_cost="{4}{U}{U}",
     colors={Color.BLUE},
-    text="Return all creatures to their owners' hands.",
-
-    resolve=sunderflock_resolve,
+    text="Return all creatures to their owners' hands."
 )
 
 
@@ -9772,7 +3815,7 @@ SWAT_AWAY = make_instant(
     mana_cost="{U}",
     colors={Color.BLUE},
     text="Return target creature with flying to its owner's hand.",
-    resolve=swat_away_resolve
+    resolve=None
 )
 
 
@@ -9817,9 +3860,7 @@ TEMPORAL_CLEANSING = make_sorcery(
     name="Temporal Cleansing",
     mana_cost="{3}{U}",
     colors={Color.BLUE},
-    text="The owner of target nonland permanent puts it on top or bottom of their library.",
-
-    resolve=temporal_cleansing_resolve,
+    text="The owner of target nonland permanent puts it on top or bottom of their library."
 )
 
 
@@ -9829,7 +3870,7 @@ THIRST_FOR_IDENTITY = make_instant(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     text="Draw two cards. Then discard a card unless you reveal a Shapeshifter card from your hand.",
-    resolve=thirst_for_identity_resolve
+    resolve=None
 )
 
 
@@ -9839,7 +3880,7 @@ UNEXPECTED_ASSISTANCE = make_instant(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     text="Draw three cards.",
-    resolve=unexpected_assistance_resolve
+    resolve=None
 )
 
 
@@ -9890,9 +3931,7 @@ WANDERWINE_FAREWELL = make_sorcery(
     name="Wanderwine Farewell",
     mana_cost="{3}{U}{U}",
     colors={Color.BLUE},
-    text="Return all nonland permanents to their owners' hands. Each player draws a card for each permanent they own that was returned this way.",
-
-    resolve=wanderwine_farewell_resolve,
+    text="Return all nonland permanents to their owners' hands. Each player draws a card for each permanent they own that was returned this way."
 )
 
 
@@ -9902,7 +3941,7 @@ WILD_UNRAVELING = make_instant(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     text="Counter target spell unless its controller pays {3}. If that spell is countered this way, its controller draws a card.",
-    resolve=wild_unraveling_resolve
+    resolve=None
 )
 
 
@@ -9937,14 +3976,6 @@ def bristlebane_battler_setup(obj: GameObject, state: GameState) -> list[Interce
             )]
         )
 
-    def _initial_counter_etb(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={"object_id": obj.id, "counter_type": "-1/-1", "amount": 5},
-            source=obj.id,
-        )]
-    _initial_counter_interceptor = make_etb_trigger(obj, _initial_counter_etb)
-
     return [
         Interceptor(
             id=new_id(),
@@ -9954,7 +3985,7 @@ def bristlebane_battler_setup(obj: GameObject, state: GameState) -> list[Interce
             filter=other_creature_etb_filter,
             handler=etb_handler,
             duration='while_on_battlefield'
-        ), _initial_counter_interceptor
+        )
     ]
 
 
@@ -10015,9 +4046,7 @@ CELESTIAL_REUNION = make_sorcery(
     name="Celestial Reunion",
     mana_cost="{X}{G}",
     colors={Color.GREEN},
-    text="As an additional cost to cast this spell, you may behold a creature card. Search your library for a creature card with mana value X or less. If you paid the behold cost and the creature card you search for shares a creature type with the beheld card, put that card onto the battlefield. Otherwise, put it into your hand. Then shuffle.",
-
-    resolve=celestial_reunion_resolve,
+    text="As an additional cost to cast this spell, you may behold a creature card. Search your library for a creature card with mana value X or less. If you paid the behold cost and the creature card you search for shares a creature type with the beheld card, put that card onto the battlefield. Otherwise, put it into your hand. Then shuffle."
 )
 
 
@@ -10147,7 +4176,7 @@ DAWNS_LIGHT_ARCHER = make_creature(
     colors={Color.GREEN},
     subtypes={"Elf", "Archer"},
     text="Flash. Reach.",
-    setup_interceptors=dawn_s_light_archer_setup
+    setup_interceptors=None
 )
 
 
@@ -10178,7 +4207,7 @@ GILT_LEAFS_EMBRACE = make_enchantment(
     colors={Color.GREEN},
     subtypes={"Aura"},
     text="Flash. Enchant creature you control. When this Aura enters, enchanted creature gains trample and indestructible until end of turn. Enchanted creature gets +2/+0.",
-    setup_interceptors=gilt_leaf_s_embrace_setup
+    setup_interceptors=None
 )
 
 
@@ -10189,7 +4218,7 @@ PITILESS_FISTS = make_enchantment(
     colors={Color.GREEN},
     subtypes={"Aura"},
     text="Enchant creature you control. When this Aura enters, enchanted creature fights up to one target creature an opponent controls.",
-    setup_interceptors=pitiless_fists_setup
+    setup_interceptors=None
 )
 
 
@@ -10219,7 +4248,7 @@ PRISMATIC_UNDERCURRENTS = make_enchantment(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     text="Vivid — When this enchantment enters, search your library for up to X basic land cards, where X is the number of colors among permanents you control, reveal them, put them into your hand, then shuffle. You may play an additional land on each of your turns.",
-    setup_interceptors=prismatic_undercurrents_setup
+    setup_interceptors=None
 )
 
 
@@ -10228,9 +4257,7 @@ ASSERT_PERFECTION = make_sorcery(
     name="Assert Perfection",
     mana_cost="{1}{G}",
     colors={Color.GREEN},
-    text="Target creature you control gets +1/+0 until end of turn. It deals damage equal to its power to up to one target creature an opponent controls.",
-
-    resolve=assert_perfection_resolve,
+    text="Target creature you control gets +1/+0 until end of turn. It deals damage equal to its power to up to one target creature an opponent controls."
 )
 
 
@@ -10243,7 +4270,7 @@ AURORA_AWAKENER = make_creature(
     colors={Color.GREEN},
     subtypes={"Giant", "Druid"},
     text="Trample. Vivid — When this creature enters, reveal cards from the top of your library until you reveal X permanent cards, where X is the number of colors among permanents you control. Put those cards into your hand and the rest on the bottom of your library in a random order.",
-    setup_interceptors=aurora_awakener_setup
+    setup_interceptors=None
 )
 
 
@@ -10256,7 +4283,7 @@ BLOOM_TENDER = make_creature(
     colors={Color.GREEN},
     subtypes={"Elf", "Druid"},
     text="Vivid — {T}: For each color among permanents you control, add one mana of that color.",
-    setup_interceptors=bloom_tender_setup
+    setup_interceptors=None
 )
 
 
@@ -10266,7 +4293,7 @@ BLOSSOMING_DEFENSE = make_instant(
     mana_cost="{G}",
     colors={Color.GREEN},
     text="Target creature you control gets +2/+2 and gains hexproof until end of turn.",
-    resolve=blossoming_defense_resolve
+    resolve=None
 )
 
 
@@ -10373,7 +4400,7 @@ SHIMMERWILDS_GROWTH = make_enchantment(
     colors={Color.GREEN},
     subtypes={"Aura"},
     text="Enchant land. Enchanted land has '{T}: Add one mana of any color.'",
-    setup_interceptors=shimmerwilds_growth_setup
+    setup_interceptors=None
 )
 
 
@@ -10383,7 +4410,7 @@ SPRY_AND_MIGHTY = make_instant(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     text="Target creature gets +3/+3 until end of turn. Untap it.",
-    resolve=spry_and_mighty_resolve
+    resolve=None
 )
 
 
@@ -10411,14 +4438,6 @@ def trystan_callous_cultivator_setup(obj: GameObject, state: GameState) -> list[
             source=obj.id
         )]
 
-    def _initial_counter_etb(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={"object_id": obj.id, "counter_type": "-1/-1", "amount": 2},
-            source=obj.id,
-        )]
-    _initial_counter_interceptor = make_etb_trigger(obj, _initial_counter_etb)
-
     return [Interceptor(
         id=new_id(),
         source=obj.id,
@@ -10427,7 +4446,7 @@ def trystan_callous_cultivator_setup(obj: GameObject, state: GameState) -> list[
         filter=lambda e, s: creature_dies_filter(e, s, obj),
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=draw_effect(e, s)),
         duration='while_on_battlefield'
-    ), _initial_counter_interceptor]
+    )]
 
 
 TRYSTAN_CALLOUS_CULTIVATOR = make_creature(
@@ -10449,7 +4468,7 @@ UNFORGIVING_AIM = make_instant(
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     text="Target creature you control deals damage equal to its power to target creature an opponent controls. You gain life equal to the damage dealt this way.",
-    resolve=unforgiving_aim_resolve
+    resolve=None
 )
 
 
@@ -10462,7 +4481,7 @@ VINEBRED_BRAWLER = make_creature(
     colors={Color.GREEN},
     subtypes={"Treefolk", "Warrior"},
     text="Trample. As an additional cost to cast this spell, you may blight 2. If you do, Vinebred Brawler enters with a +1/+1 counter on it.",
-    setup_interceptors=vinebred_brawler_setup
+    setup_interceptors=None
 )
 
 
@@ -10523,15 +4542,7 @@ def wildvine_pummeler_setup(obj: GameObject, state: GameState) -> list[Intercept
     def etb_effect(event: Event, state: GameState) -> list[Event]:
         # Destroy target artifact or enchantment - targeting handled by game system
         return []
-    def _initial_counter_etb(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={"object_id": obj.id, "counter_type": "-1/-1", "amount": 1},
-            source=obj.id,
-        )]
-    _initial_counter_interceptor = make_etb_trigger(obj, _initial_counter_etb)
-
-    return [make_etb_trigger(obj, etb_effect), _initial_counter_interceptor]
+    return [make_etb_trigger(obj, etb_effect)]
 
 
 WILDVINE_PUMMELER = make_creature(
@@ -10555,9 +4566,7 @@ BARBED_BLOODLETTER = make_artifact(
     name="Barbed Bloodletter",
     mana_cost="{1}{B}",
     subtypes={"Equipment"},
-    text="Flash. When Barbed Bloodletter enters, attach it to target creature you control. That creature gains wither until end of turn. Equipped creature gets +1/+2. Equip {2}",
-
-    setup_interceptors=barbed_bloodletter_setup,
+    text="Flash. When Barbed Bloodletter enters, attach it to target creature you control. That creature gains wither until end of turn. Equipped creature gets +1/+2. Equip {2}"
 )
 
 
@@ -10566,9 +4575,7 @@ BOGSLITHERS_EMBRACE = make_sorcery(
     name="Bogslither's Embrace",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="As an additional cost to cast this spell, blight 1 or pay {3}. Exile target creature.",
-
-    resolve=bogslither_s_embrace_resolve,
+    text="As an additional cost to cast this spell, blight 1 or pay {3}. Exile target creature."
 )
 
 
@@ -10581,7 +4588,7 @@ CHAMPION_OF_THE_WEIRD = make_creature(
     colors={Color.BLACK},
     subtypes={"Goblin", "Berserker"},
     text="As an additional cost to cast this spell, behold a Goblin card and exile it. Pay 1 life, Blight 2: Target opponent blights 2. Activate only as a sorcery. When this creature leaves the battlefield, return the exiled card to its owner's hand.",
-    setup_interceptors=champion_of_the_weird_setup
+    setup_interceptors=None
 )
 
 
@@ -10594,7 +4601,7 @@ DAWNHAND_DISSIDENT = make_creature(
     colors={Color.BLACK},
     subtypes={"Elf", "Warlock"},
     text="{T}, Blight 1: Surveil 1. {T}, Blight 2: Exile target card from a graveyard. You may cast creature cards exiled with this creature by removing three -1/-1 counters from among creatures you control rather than paying their mana costs.",
-    setup_interceptors=dawnhand_dissident_setup
+    setup_interceptors=None
 )
 
 
@@ -10604,7 +4611,7 @@ DOSE_OF_DAWNGLOW = make_instant(
     mana_cost="{4}{B}",
     colors={Color.BLACK},
     text="Return target creature card from your graveyard to the battlefield. If it's not your main phase, blight 2.",
-    resolve=dose_of_dawnglow_resolve
+    resolve=None
 )
 
 
@@ -10633,9 +4640,7 @@ DREAM_HARVEST = make_sorcery(
     name="Dream Harvest",
     mana_cost="{5}{U/B}{U/B}",
     colors={Color.BLUE, Color.BLACK},
-    text="Each opponent exiles cards from the top of their library until the total mana value of cards exiled this way is 5 or greater. You may cast any number of spells from among cards exiled this way without paying their mana costs.",
-
-    resolve=dream_harvest_resolve,
+    text="Each opponent exiles cards from the top of their library until the total mana value of cards exiled this way is 5 or greater. You may cast any number of spells from among cards exiled this way without paying their mana costs."
 )
 
 
@@ -10645,7 +4650,7 @@ REQUITING_HEX = make_instant(
     mana_cost="{B}",
     colors={Color.BLACK},
     text="As an additional cost to cast this spell, you may blight 1. Destroy target creature with mana value 2 or less. If the additional cost was paid, you gain 2 life.",
-    resolve=requiting_hex_resolve
+    resolve=None
 )
 
 
@@ -10670,14 +4675,6 @@ def retched_wretch_setup(obj: GameObject, state: GameState) -> list[Interceptor]
             source=obj.id
         )]
 
-    def _initial_counter_etb(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={"object_id": obj.id, "counter_type": "-1/-1", "amount": 2},
-            source=obj.id,
-        )]
-    _initial_counter_interceptor = make_etb_trigger(obj, _initial_counter_etb)
-
     return [Interceptor(
         id=new_id(),
         source=obj.id,
@@ -10686,7 +4683,7 @@ def retched_wretch_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         filter=lambda e, s: death_filter(e, s, obj),
         handler=lambda e, s: InterceptorResult(action=InterceptorAction.REACT, new_events=death_effect(e, s)),
         duration='until_leaves'
-    ), _initial_counter_interceptor]
+    )]
 
 
 RETCHED_WRETCH = make_creature(
@@ -10774,7 +4771,7 @@ GUTSPLITTER_GANG = make_creature(
     colors={Color.BLACK},
     subtypes={"Goblin", "Warrior"},
     text="Menace. When Gutsplitter Gang enters, target opponent discards a card.",
-    setup_interceptors=gutsplitter_gang_setup
+    setup_interceptors=None
 )
 
 
@@ -10787,7 +4784,7 @@ HEIRLOOM_AUNTIE = make_creature(
     colors={Color.BLACK},
     subtypes={"Goblin", "Warlock"},
     text="When Heirloom Auntie enters, you may return target Goblin card from your graveyard to your hand.",
-    setup_interceptors=heirloom_auntie_setup
+    setup_interceptors=None
 )
 
 
@@ -10800,7 +4797,7 @@ MOONGLOVE_EXTRACTOR = make_creature(
     colors={Color.BLACK},
     subtypes={"Elf", "Assassin"},
     text="Deathtouch. When Moonglove Extractor dies, target creature gets -1/-1 until end of turn.",
-    setup_interceptors=moonglove_extractor_setup
+    setup_interceptors=None
 )
 
 
@@ -10813,7 +4810,7 @@ MOONSHADOW = make_creature(
     colors={Color.BLACK},
     subtypes={"Faerie", "Rogue"},
     text="Flash. Flying. When Moonshadow enters, target creature gets -2/-2 until end of turn.",
-    setup_interceptors=moonshadow_setup
+    setup_interceptors=None
 )
 
 
@@ -10826,7 +4823,7 @@ MUDBUTTON_CURSETOSSER = make_creature(
     colors={Color.BLACK},
     subtypes={"Goblin", "Shaman"},
     text="When Mudbutton Cursetosser enters, put a -1/-1 counter on target creature.",
-    setup_interceptors=mudbutton_cursetosser_setup
+    setup_interceptors=None
 )
 
 
@@ -10836,7 +4833,7 @@ NAMELESS_INVERSION = make_instant(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="Changeling. Target creature gets +3/-3 until end of turn.",
-    resolve=nameless_inversion_resolve
+    resolve=None
 )
 
 
@@ -10849,7 +4846,7 @@ NIGHTMARE_SOWER = make_creature(
     colors={Color.BLACK},
     subtypes={"Elemental", "Horror"},
     text="Flying. When Nightmare Sower enters, each opponent sacrifices a creature. You gain life equal to the total power of creatures sacrificed this way.",
-    setup_interceptors=nightmare_sower_setup
+    setup_interceptors=None
 )
 
 
@@ -10858,9 +4855,7 @@ PERFECT_INTIMIDATION = make_sorcery(
     name="Perfect Intimidation",
     mana_cost="{2}{B}{B}",
     colors={Color.BLACK},
-    text="Each opponent sacrifices a creature. You gain life equal to the greatest power among creatures sacrificed this way.",
-
-    resolve=perfect_intimidation_resolve,
+    text="Each opponent sacrifices a creature. You gain life equal to the greatest power among creatures sacrificed this way."
 )
 
 
@@ -10873,7 +4868,7 @@ SCARBLADE_SCOUT = make_creature(
     colors={Color.BLACK},
     subtypes={"Elf", "Assassin"},
     text="{T}, Exile an Elf card from your graveyard: Destroy target creature that was dealt damage this turn.",
-    setup_interceptors=scarblade_scout_setup
+    setup_interceptors=None
 )
 
 
@@ -10883,7 +4878,7 @@ SCARBLADES_MALICE = make_instant(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     text="Target creature gets -3/-3 until end of turn. If you control an Elf, that creature gets -4/-4 instead.",
-    resolve=scarblade_s_malice_resolve
+    resolve=None
 )
 
 
@@ -10896,7 +4891,7 @@ SHIMMERCREEP = make_creature(
     colors={Color.BLACK},
     subtypes={"Faerie", "Rogue"},
     text="Flying. Whenever Shimmercreep deals combat damage to a player, that player discards a card.",
-    setup_interceptors=shimmercreep_setup
+    setup_interceptors=None
 )
 
 
@@ -10909,7 +4904,7 @@ TASTER_OF_WARES = make_creature(
     colors={Color.BLACK},
     subtypes={"Faerie", "Rogue"},
     text="Flying. When Taster of Wares enters, you may sacrifice an artifact. If you do, draw two cards.",
-    setup_interceptors=taster_of_wares_setup
+    setup_interceptors=None
 )
 
 
@@ -10922,7 +4917,7 @@ TWILIGHT_DIVINER = make_creature(
     colors={Color.BLACK},
     subtypes={"Faerie", "Wizard"},
     text="Flying. {1}{B}, {T}: Target player loses 1 life and you gain 1 life. If that player has no cards in hand, they lose 3 life instead.",
-    setup_interceptors=twilight_diviner_setup
+    setup_interceptors=None
 )
 
 
@@ -10931,9 +4926,7 @@ UNBURY = make_sorcery(
     name="Unbury",
     mana_cost="{3}{B}",
     colors={Color.BLACK},
-    text="Return target creature card from your graveyard to the battlefield. It enters with a -1/-1 counter on it.",
-
-    resolve=unbury_resolve,
+    text="Return target creature card from your graveyard to the battlefield. It enters with a -1/-1 counter on it."
 )
 
 
@@ -10970,7 +4963,7 @@ END_BLAZE_EPIPHANY = make_instant(
     mana_cost="{X}{R}",
     colors={Color.RED},
     text="End-Blaze Epiphany deals X damage to target creature. When that creature dies this turn, exile the top X cards of your library. Until the end of your next turn, you may play those cards.",
-    resolve=end_blaze_epiphany_resolve
+    resolve=None
 )
 
 
@@ -11069,7 +5062,7 @@ RECKLESS_RANSACKING = make_instant(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Target creature gets +3/+2 until end of turn. Create a Treasure token.",
-    resolve=reckless_ransacking_resolve
+    resolve=None
 )
 
 
@@ -11082,7 +5075,7 @@ HEXING_SQUELCHER = make_creature(
     colors={Color.RED},
     subtypes={"Goblin", "Shaman"},
     text="When Hexing Squelcher enters, it deals 1 damage to each creature you don't control.",
-    setup_interceptors=hexing_squelcher_setup
+    setup_interceptors=None
 )
 
 
@@ -11091,9 +5084,7 @@ IMPOLITE_ENTRANCE = make_sorcery(
     name="Impolite Entrance",
     mana_cost="{3}{R}",
     colors={Color.RED},
-    text="Creatures you control get +2/+0 and gain haste until end of turn.",
-
-    resolve=impolite_entrance_resolve,
+    text="Creatures you control get +2/+0 and gain haste until end of turn."
 )
 
 
@@ -11103,7 +5094,7 @@ KINDLE_THE_INNER_FLAME = make_instant(
     mana_cost="{R}",
     colors={Color.RED},
     text="Target creature gets +2/+0 until end of turn. If you control an Elemental, that creature gets +3/+0 instead.",
-    resolve=kindle_the_inner_flame_resolve
+    resolve=None
 )
 
 
@@ -11116,7 +5107,7 @@ KULRATH_ZEALOT = make_creature(
     colors={Color.RED},
     subtypes={"Elemental", "Berserker"},
     text="Haste. When Kulrath Zealot enters, it deals 2 damage to any target.",
-    setup_interceptors=kulrath_zealot_setup
+    setup_interceptors=None
 )
 
 
@@ -11126,7 +5117,7 @@ LASTING_TARFIRE = make_instant(
     mana_cost="{R}",
     colors={Color.RED},
     text="Lasting Tarfire deals 2 damage to any target. If that permanent or player is dealt damage this way, Lasting Tarfire deals 1 damage to them at the beginning of the next upkeep.",
-    resolve=lasting_tarfire_resolve
+    resolve=None
 )
 
 
@@ -11139,7 +5130,7 @@ LAVALEAPER = make_creature(
     colors={Color.RED},
     subtypes={"Elemental"},
     text="Haste. When Lavaleaper enters, it deals 1 damage to each opponent.",
-    setup_interceptors=lavaleaper_setup
+    setup_interceptors=None
 )
 
 
@@ -11149,7 +5140,7 @@ MEEK_ATTACK = make_instant(
     mana_cost="{R}",
     colors={Color.RED},
     text="Target creature with power 2 or less can't be blocked this turn.",
-    resolve=meek_attack_resolve
+    resolve=None
 )
 
 
@@ -11162,7 +5153,7 @@ SCUZZBACK_SCROUNGER = make_creature(
     colors={Color.RED},
     subtypes={"Goblin", "Warrior"},
     text="Persist.",
-    setup_interceptors=scuzzback_scrounger_setup
+    setup_interceptors=None
 )
 
 
@@ -11172,7 +5163,7 @@ SEAR = make_instant(
     mana_cost="{1}{R}",
     colors={Color.RED},
     text="Sear deals 3 damage to target creature or planeswalker.",
-    resolve=sear_resolve
+    resolve=None
 )
 
 
@@ -11185,7 +5176,7 @@ SIZZLING_CHANGELING = make_creature(
     colors={Color.RED},
     subtypes={"Shapeshifter"},
     text="Changeling. Haste. When Sizzling Changeling enters, it deals 1 damage to each opponent.",
-    setup_interceptors=sizzling_changeling_setup
+    setup_interceptors=None
 )
 
 
@@ -11194,9 +5185,7 @@ SOUL_IMMOLATION = make_sorcery(
     name="Soul Immolation",
     mana_cost="{4}{R}{R}",
     colors={Color.RED},
-    text="Soul Immolation deals 6 damage to each creature.",
-
-    resolve=soul_immolation_resolve,
+    text="Soul Immolation deals 6 damage to each creature."
 )
 
 
@@ -11209,7 +5198,7 @@ SOULBRIGHT_SEEKER = make_creature(
     colors={Color.RED},
     subtypes={"Elemental", "Shaman"},
     text="Trample. {R}: Soulbright Seeker gets +1/+0 until end of turn.",
-    setup_interceptors=soulbright_seeker_setup
+    setup_interceptors=None
 )
 
 
@@ -11222,7 +5211,7 @@ SOURBREAD_AUNTIE = make_creature(
     colors={Color.RED},
     subtypes={"Goblin", "Warlock"},
     text="When Sourbread Auntie enters, target Goblin you control gets +2/+0 and gains menace until end of turn.",
-    setup_interceptors=sourbread_auntie_setup
+    setup_interceptors=None
 )
 
 
@@ -11235,7 +5224,7 @@ SPINEROCK_TYRANT = make_creature(
     colors={Color.RED},
     subtypes={"Giant", "Warrior"},
     text="Trample. When Spinerock Tyrant enters, it deals 3 damage to any target.",
-    setup_interceptors=spinerock_tyrant_setup
+    setup_interceptors=None
 )
 
 
@@ -11248,7 +5237,7 @@ SQUAWKROASTER = make_creature(
     colors={Color.RED},
     subtypes={"Elemental", "Bird"},
     text="Flying. When Squawkroaster dies, it deals 1 damage to any target.",
-    setup_interceptors=squawkroaster_setup
+    setup_interceptors=None
 )
 
 
@@ -11261,7 +5250,7 @@ STING_SLINGER = make_creature(
     colors={Color.RED},
     subtypes={"Goblin"},
     text="{T}, Sacrifice Sting-Slinger: It deals 1 damage to any target.",
-    setup_interceptors=sting_slinger_setup
+    setup_interceptors=None
 )
 
 
@@ -11270,9 +5259,7 @@ TWEEZE = make_sorcery(
     name="Tweeze",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Tweeze deals 2 damage to target creature or planeswalker. Create a Treasure token.",
-
-    resolve=tweeze_resolve,
+    text="Tweeze deals 2 damage to target creature or planeswalker. Create a Treasure token."
 )
 
 
@@ -11285,7 +5272,7 @@ WARREN_TORCHMASTER = make_creature(
     colors={Color.RED},
     subtypes={"Goblin", "Warrior"},
     text="Other Goblins you control get +1/+0 and have haste.",
-    setup_interceptors=warren_torchmaster_setup
+    setup_interceptors=None
 )
 
 
@@ -11299,7 +5286,7 @@ ASHLINGS_COMMAND = make_instant(
     mana_cost="{3}{U}{R}",
     colors={Color.BLUE, Color.RED},
     text="Choose two — Create a token that's a copy of target Elemental you control, except it's not legendary; Draw two cards; Ashling's Command deals 3 damage to each creature; Create two Treasure tokens.",
-    resolve=ashling_s_command_resolve
+    resolve=None
 )
 
 
@@ -11308,9 +5295,7 @@ BRIGIDS_COMMAND = make_sorcery(
     name="Brigid's Command",
     mana_cost="{1}{G}{W}",
     colors={Color.GREEN, Color.WHITE},
-    text="Choose two — Create a token that's a copy of target Kithkin you control, except it's not legendary; Create a 1/1 white Kithkin creature token; Target creature gets +2/+2 and gains trample until end of turn; Target creature you control fights target creature you don't control.",
-
-    resolve=brigid_s_command_resolve,
+    text="Choose two — Create a token that's a copy of target Kithkin you control, except it's not legendary; Create a 1/1 white Kithkin creature token; Target creature gets +2/+2 and gains trample until end of turn; Target creature you control fights target creature you don't control."
 )
 
 
@@ -11359,7 +5344,7 @@ PRIDEFUL_FEASTLING = make_creature(
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Shapeshifter"},
     text="Changeling. Lifelink.",
-    setup_interceptors=prideful_feastling_setup
+    setup_interceptors=None
 )
 
 
@@ -11372,7 +5357,7 @@ REAPING_WILLOW = make_creature(
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Treefolk", "Cleric"},
     text="Lifelink. This creature enters with two -1/-1 counters on it. {1}{W/B}, Remove two counters from among permanents you control: Return target creature card with mana value 3 or less from your graveyard to the battlefield.",
-    setup_interceptors=reaping_willow_setup
+    setup_interceptors=None
 )
 
 
@@ -11381,9 +5366,7 @@ CATHARSIS = make_sorcery(
     name="Catharsis",
     mana_cost="{3}{R}{W}",
     colors={Color.RED, Color.WHITE},
-    text="Destroy all creatures. For each creature destroyed this way, its controller creates a 1/1 white Kithkin creature token.",
-
-    resolve=catharsis_resolve,
+    text="Destroy all creatures. For each creature destroyed this way, its controller creates a 1/1 white Kithkin creature token."
 )
 
 
@@ -11396,7 +5379,7 @@ EMPTINESS = make_creature(
     colors={Color.BLACK},
     subtypes={"Elemental", "Incarnation"},
     text="If {B}{B} was spent to cast this spell, when Emptiness enters, destroy target creature. Evoke {B}{B}",
-    setup_interceptors=emptiness_setup
+    setup_interceptors=None
 )
 
 
@@ -11405,9 +5388,7 @@ GRUBS_COMMAND = make_sorcery(
     name="Grub's Command",
     mana_cost="{3}{B}{R}",
     colors={Color.BLACK, Color.RED},
-    text="Choose two — Create a token that's a copy of target Goblin you control, except it's not legendary; Each player sacrifices a creature; Grub's Command deals 3 damage to each creature you don't control; Create two 1/1 black and red Goblin creature tokens.",
-
-    resolve=grub_s_command_resolve,
+    text="Choose two — Create a token that's a copy of target Goblin you control, except it's not legendary; Each player sacrifices a creature; Grub's Command deals 3 damage to each creature you don't control; Create two 1/1 black and red Goblin creature tokens."
 )
 
 
@@ -11421,7 +5402,7 @@ HIGH_PERFECT_MORCANT = make_creature(
     subtypes={"Elf", "Cleric"},
     supertypes={"Legendary"},
     text="Vigilance. Other Elves you control get +1/+1. Whenever an Elf you control dies, you gain 2 life.",
-    setup_interceptors=high_perfect_morcant_setup
+    setup_interceptors=None
 )
 
 
@@ -11434,7 +5415,7 @@ HOVEL_HURLER = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Goblin", "Warrior"},
     text="When Hovel Hurler enters, it deals 1 damage to each opponent and each planeswalker they control.",
-    setup_interceptors=hovel_hurler_setup
+    setup_interceptors=None
 )
 
 
@@ -11448,7 +5429,7 @@ KIROL_ATTENTIVE = make_creature(
     subtypes={"Human", "Wizard"},
     supertypes={"Legendary"},
     text="Whenever you cast an instant or sorcery spell, Kirol deals 1 damage to any target.",
-    setup_interceptors=kirol_attentive_first_year_setup
+    setup_interceptors=None
 )
 
 
@@ -11462,7 +5443,7 @@ LLUWEN_IMPERFECT = make_creature(
     subtypes={"Elf", "Druid"},
     supertypes={"Legendary"},
     text="Whenever another creature enters the battlefield under your control, scry 1. {T}: Add {G} or {U}.",
-    setup_interceptors=lluwen_imperfect_naturalist_setup
+    setup_interceptors=None
 )
 
 
@@ -11476,7 +5457,7 @@ MARALEN_FAE_ASCENDANT = make_creature(
     subtypes={"Faerie", "Wizard"},
     supertypes={"Legendary"},
     text="Flying. Players can't draw cards. At the beginning of each player's draw step, that player loses 2 life, searches their library for a card, puts it into their hand, then shuffles.",
-    setup_interceptors=maralen_fae_ascendant_setup
+    setup_interceptors=None
 )
 
 
@@ -11489,7 +5470,7 @@ MERROW_SKYSWIMMER = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Merfolk", "Wizard"},
     text="Flying. When Merrow Skyswimmer enters, draw a card for each other Merfolk you control.",
-    setup_interceptors=merrow_skyswimmer_setup
+    setup_interceptors=None
 )
 
 
@@ -11502,7 +5483,7 @@ MISCHIEVOUS_SNEAKLING = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Faerie", "Rogue"},
     text="Flying. Whenever Mischievous Sneakling deals combat damage to a player, you may draw a card. If you do, discard a card.",
-    setup_interceptors=mischievous_sneakling_setup
+    setup_interceptors=None
 )
 
 
@@ -11515,7 +5496,7 @@ MORCANTS_LOYALIST = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Elf", "Soldier"},
     text="Vigilance. When Morcant's Loyalist enters, you gain 3 life.",
-    setup_interceptors=morcant_s_loyalist_setup
+    setup_interceptors=None
 )
 
 
@@ -11528,7 +5509,7 @@ NOGGLE_ROBBER = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Noggle", "Rogue"},
     text="Haste. When Noggle Robber enters, each player discards a card, then draws a card.",
-    setup_interceptors=noggle_robber_setup
+    setup_interceptors=None
 )
 
 
@@ -11542,7 +5523,7 @@ SANAR_INNOVATIVE = make_creature(
     subtypes={"Human", "Druid"},
     supertypes={"Legendary"},
     text="Whenever a creature enters the battlefield under your control, you gain 1 life. {T}: Add {G} or {W}.",
-    setup_interceptors=sanar_innovative_first_year_setup
+    setup_interceptors=None
 )
 
 
@@ -11555,7 +5536,7 @@ SHADOW_URCHIN = make_creature(
     colors={Color.BLACK, Color.RED},
     subtypes={"Elemental"},
     text="When Shadow Urchin dies, it deals 1 damage to any target.",
-    setup_interceptors=shadow_urchin_setup
+    setup_interceptors=None
 )
 
 
@@ -11568,7 +5549,7 @@ STOIC_GROVE_GUIDE = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Treefolk", "Druid"},
     text="Vigilance. {T}: Add one mana of any color that a creature you control is.",
-    setup_interceptors=stoic_grove_guide_setup
+    setup_interceptors=None
 )
 
 
@@ -11577,9 +5558,7 @@ SYGGS_COMMAND = make_sorcery(
     name="Sygg's Command",
     mana_cost="{3}{W}{U}",
     colors={Color.WHITE, Color.BLUE},
-    text="Choose two — Create a token that's a copy of target Merfolk you control, except it's not legendary; Tap up to three target creatures; Draw a card for each Merfolk you control; You gain 1 life for each creature you control.",
-
-    resolve=sygg_s_command_resolve,
+    text="Choose two — Create a token that's a copy of target Merfolk you control, except it's not legendary; Tap up to three target creatures; Draw a card for each Merfolk you control; You gain 1 life for each creature you control."
 )
 
 
@@ -11593,7 +5572,7 @@ TAM_MINDFUL = make_creature(
     subtypes={"Human", "Shaman"},
     supertypes={"Legendary"},
     text="Deathtouch. Whenever a creature you control dies, put a +1/+1 counter on Tam.",
-    setup_interceptors=tam_mindful_first_year_setup
+    setup_interceptors=None
 )
 
 
@@ -11606,7 +5585,7 @@ THOUGHTWEFT_LIEUTENANT = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Kithkin", "Soldier"},
     text="Vigilance. Other Kithkin you control get +1/+1.",
-    setup_interceptors=thoughtweft_lieutenant_setup
+    setup_interceptors=None
 )
 
 
@@ -11615,9 +5594,7 @@ TRYSTANS_COMMAND = make_sorcery(
     name="Trystan's Command",
     mana_cost="{2}{B}{G}",
     colors={Color.BLACK, Color.GREEN},
-    text="Choose two — Create a token that's a copy of target Elf you control, except it's not legendary; Each opponent sacrifices a creature; You gain life equal to the greatest power among creatures you control; Return target Elf card from your graveyard to your hand.",
-
-    resolve=trystan_s_command_resolve,
+    text="Choose two — Create a token that's a copy of target Elf you control, except it's not legendary; Each opponent sacrifices a creature; You gain life equal to the greatest power among creatures you control; Return target Elf card from your graveyard to your hand."
 )
 
 
@@ -11630,7 +5607,7 @@ TWINFLAME_TRAVELERS = make_creature(
     colors={Color.BLUE, Color.RED},
     subtypes={"Elemental"},
     text="Flying, haste. When Twinflame Travelers enters, create a token that's a copy of it. Sacrifice that token at the beginning of the next end step.",
-    setup_interceptors=twinflame_travelers_setup
+    setup_interceptors=None
 )
 
 
@@ -11643,7 +5620,7 @@ VIBRANCE = make_creature(
     colors={Color.GREEN},
     subtypes={"Elemental", "Incarnation"},
     text="Trample. If {G}{G} was spent to cast this spell, when Vibrance enters, search your library for a basic land card, put it onto the battlefield, then shuffle. Evoke {G}{G}",
-    setup_interceptors=vibrance_setup
+    setup_interceptors=None
 )
 
 
@@ -11656,7 +5633,7 @@ VORACIOUS_TOME_SKIMMER = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Faerie", "Wizard"},
     text="Flying. When Voracious Tome-Skimmer enters, each opponent mills three cards. You draw a card for each creature card milled this way.",
-    setup_interceptors=voracious_tome_skimmer_setup
+    setup_interceptors=None
 )
 
 
@@ -11669,7 +5646,7 @@ WARY_FARMER = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Kithkin", "Peasant"},
     text="When Wary Farmer enters, create a Food token.",
-    setup_interceptors=wary_farmer_setup
+    setup_interceptors=None
 )
 
 
@@ -11682,7 +5659,7 @@ WISTFULNESS = make_creature(
     colors={Color.BLUE},
     subtypes={"Elemental", "Incarnation"},
     text="If {U}{U} was spent to cast this spell, when Wistfulness enters, draw two cards. Evoke {U}{U}",
-    setup_interceptors=wistfulness_setup
+    setup_interceptors=None
 )
 
 
@@ -11695,18 +5672,14 @@ CHRONICLE_OF_VICTORY = make_artifact(
     name="Chronicle of Victory",
     mana_cost="{6}",
     subtypes={"Legendary"},
-    text="As Chronicle of Victory enters, choose a creature type. Creatures you control of the chosen type get +2/+2 and have first strike and trample. Whenever you cast a spell of the chosen type, draw a card.",
-
-    setup_interceptors=chronicle_of_victory_setup,
+    text="As Chronicle of Victory enters, choose a creature type. Creatures you control of the chosen type get +2/+2 and have first strike and trample. Whenever you cast a spell of the chosen type, draw a card."
 )
 
 # Dawn-Blessed Pennant - {1} Artifact
 DAWN_BLESSED_PENNANT = make_artifact(
     name="Dawn-Blessed Pennant",
     mana_cost="{1}",
-    text="As this artifact enters, choose Elemental, Elf, Faerie, Giant, Goblin, Kithkin, Merfolk, or Treefolk. Whenever a permanent you control of the chosen type enters, you gain 1 life.",
-
-    setup_interceptors=dawn_blessed_pennant_setup,
+    text="As this artifact enters, choose Elemental, Elf, Faerie, Giant, Goblin, Kithkin, Merfolk, or Treefolk. Whenever a permanent you control of the chosen type enters, you gain 1 life."
 )
 
 # Firdoch Core - {3} Kindred Artifact — Shapeshifter
@@ -11714,9 +5687,7 @@ FIRDOCH_CORE = make_artifact(
     name="Firdoch Core",
     mana_cost="{3}",
     subtypes={"Shapeshifter"},
-    text="Changeling. {T}: Add one mana of any color. {4}: This artifact becomes a 4/4 artifact creature until end of turn.",
-
-    setup_interceptors=firdoch_core_setup,
+    text="Changeling. {T}: Add one mana of any color. {4}: This artifact becomes a 4/4 artifact creature until end of turn."
 )
 
 # Foraging Wickermaw - {2} Artifact Creature — Scarecrow
@@ -11742,9 +5713,7 @@ FORAGING_WICKERMAW = make_creature(
 GATHERING_STONE = make_artifact(
     name="Gathering Stone",
     mana_cost="{4}",
-    text="As this artifact enters, choose a creature type. Spells you cast of the chosen type cost {1} less to cast. When this artifact enters and at the beginning of your upkeep, look at the top card of your library. If it's a card of the chosen type, you may reveal it and put it into your hand.",
-
-    setup_interceptors=gathering_stone_setup,
+    text="As this artifact enters, choose a creature type. Spells you cast of the chosen type cost {1} less to cast. When this artifact enters and at the beginning of your upkeep, look at the top card of your library. If it's a card of the chosen type, you may reveal it and put it into your hand."
 )
 
 # Mirrormind Crown - {4} Artifact — Equipment
@@ -11752,27 +5721,21 @@ MIRRORMIND_CROWN = make_artifact(
     name="Mirrormind Crown",
     mana_cost="{4}",
     subtypes={"Equipment"},
-    text="As long as this Equipment is attached to a creature, the first time you would create one or more tokens each turn, you may instead create that many tokens that are copies of equipped creature. Equip {2}",
-
-    setup_interceptors=mirrormind_crown_setup,
+    text="As long as this Equipment is attached to a creature, the first time you would create one or more tokens each turn, you may instead create that many tokens that are copies of equipped creature. Equip {2}"
 )
 
 # Puca's Eye - {2} Artifact
 PUCAS_EYE = make_artifact(
     name="Puca's Eye",
     mana_cost="{2}",
-    text="When this artifact enters, draw a card, then choose a color. This artifact becomes the chosen color. {3}, {T}: Draw a card. Activate only if there are five colors among permanents you control.",
-
-    setup_interceptors=puca_s_eye_setup,
+    text="When this artifact enters, draw a card, then choose a color. This artifact becomes the chosen color. {3}, {T}: Draw a card. Activate only if there are five colors among permanents you control."
 )
 
 # Springleaf Drum - {1} Artifact
 SPRINGLEAF_DRUM = make_artifact(
     name="Springleaf Drum",
     mana_cost="{1}",
-    text="{T}, Tap an untapped creature you control: Add one mana of any color.",
-
-    setup_interceptors=springleaf_drum_setup,
+    text="{T}, Tap an untapped creature you control: Add one mana of any color."
 )
 
 # Stalactite Dagger - {2} Artifact — Equipment
@@ -11841,56 +5804,42 @@ SWAMP = make_land(
 BLOOD_CRYPT = make_land(
     name="Blood Crypt",
     subtypes={"Swamp", "Mountain"},
-    text="({T}: Add {B} or {R}.) As Blood Crypt enters, you may pay 2 life. If you don't, it enters tapped.",
-
-    setup_interceptors=blood_crypt_setup,
+    text="({T}: Add {B} or {R}.) As Blood Crypt enters, you may pay 2 life. If you don't, it enters tapped."
 )
 
 HALLOWED_FOUNTAIN = make_land(
     name="Hallowed Fountain",
     subtypes={"Plains", "Island"},
-    text="({T}: Add {W} or {U}.) As Hallowed Fountain enters, you may pay 2 life. If you don't, it enters tapped.",
-
-    setup_interceptors=hallowed_fountain_setup,
+    text="({T}: Add {W} or {U}.) As Hallowed Fountain enters, you may pay 2 life. If you don't, it enters tapped."
 )
 
 OVERGROWN_TOMB = make_land(
     name="Overgrown Tomb",
     subtypes={"Swamp", "Forest"},
-    text="({T}: Add {B} or {G}.) As Overgrown Tomb enters, you may pay 2 life. If you don't, it enters tapped.",
-
-    setup_interceptors=overgrown_tomb_setup,
+    text="({T}: Add {B} or {G}.) As Overgrown Tomb enters, you may pay 2 life. If you don't, it enters tapped."
 )
 
 STEAM_VENTS = make_land(
     name="Steam Vents",
     subtypes={"Island", "Mountain"},
-    text="({T}: Add {U} or {R}.) As Steam Vents enters, you may pay 2 life. If you don't, it enters tapped.",
-
-    setup_interceptors=steam_vents_setup,
+    text="({T}: Add {U} or {R}.) As Steam Vents enters, you may pay 2 life. If you don't, it enters tapped."
 )
 
 TEMPLE_GARDEN = make_land(
     name="Temple Garden",
     subtypes={"Forest", "Plains"},
-    text="({T}: Add {G} or {W}.) As Temple Garden enters, you may pay 2 life. If you don't, it enters tapped.",
-
-    setup_interceptors=temple_garden_setup,
+    text="({T}: Add {G} or {W}.) As Temple Garden enters, you may pay 2 life. If you don't, it enters tapped."
 )
 
 # Other Lands
 ECLIPSED_REALMS = make_land(
     name="Eclipsed Realms",
-    text="As Eclipsed Realms enters, choose a creature type. {T}: Add {C}. {T}: Add one mana of any color. Spend this mana only to cast spells of the chosen type or activate abilities of sources of the chosen type.",
-
-    setup_interceptors=eclipsed_realms_setup,
+    text="As Eclipsed Realms enters, choose a creature type. {T}: Add {C}. {T}: Add one mana of any color. Spend this mana only to cast spells of the chosen type or activate abilities of sources of the chosen type."
 )
 
 EVOLVING_WILDS = make_land(
     name="Evolving Wilds",
-    text="{T}, Sacrifice Evolving Wilds: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.",
-
-    setup_interceptors=evolving_wilds_setup,
+    text="{T}, Sacrifice Evolving Wilds: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle."
 )
 
 
@@ -11903,9 +5852,7 @@ BARK_OF_DORAN = make_artifact(
     name="Bark of Doran",
     mana_cost="{1}{W}",
     subtypes={"Equipment"},
-    text="Equipped creature gets +0/+1. As long as equipped creature's toughness is greater than its power, it assigns combat damage equal to its toughness rather than its power. Equip {1}",
-
-    setup_interceptors=bark_of_doran_setup,
+    text="Equipped creature gets +0/+1. As long as equipped creature's toughness is greater than its power, it assigns combat damage equal to its toughness rather than its power. Equip {1}"
 )
 
 # =============================================================================
@@ -11924,9 +5871,7 @@ AUNTIES_FAVOR = make_instant(
     name="Auntie's Favor",
     mana_cost="{B}",
     colors={Color.BLACK},
-    text="Target creature gets +2/+0 and gains menace until end of turn. If you control a Goblin, draw a card.",
-
-    resolve=auntie_s_favor_resolve,
+    text="Target creature gets +2/+0 and gains menace until end of turn. If you control a Goblin, draw a card."
 )
 
 # Wretched Banquet - {B} Sorcery
@@ -11934,9 +5879,7 @@ WRETCHED_BANQUET = make_sorcery(
     name="Wretched Banquet",
     mana_cost="{B}",
     colors={Color.BLACK},
-    text="Destroy target creature if it has the least power or is tied for least power among creatures on the battlefield.",
-
-    resolve=wretched_banquet_resolve,
+    text="Destroy target creature if it has the least power or is tied for least power among creatures on the battlefield."
 )
 
 # =============================================================================
@@ -11951,9 +5894,7 @@ CINDER_PYROMANCER = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Elemental", "Shaman"},
-    text="{T}: Cinder Pyromancer deals 1 damage to target player or planeswalker. Whenever you cast a red spell, you may untap Cinder Pyromancer.",
-
-    setup_interceptors=cinder_pyromancer_setup,
+    text="{T}: Cinder Pyromancer deals 1 damage to target player or planeswalker. Whenever you cast a red spell, you may untap Cinder Pyromancer."
 )
 
 # Inner-Flame Igniter - {2}{R} Creature
@@ -11964,9 +5905,7 @@ INNER_FLAME_IGNITER = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Elemental", "Warrior"},
-    text="{2}{R}: Creatures you control get +1/+0 and gain first strike until end of turn.",
-
-    setup_interceptors=inner_flame_igniter_setup,
+    text="{2}{R}: Creatures you control get +1/+0 and gain first strike until end of turn."
 )
 
 # Smoldering Spinebacks - {3}{R} Creature
@@ -11977,9 +5916,7 @@ SMOLDERING_SPINEBACKS = make_creature(
     mana_cost="{3}{R}",
     colors={Color.RED},
     subtypes={"Elemental", "Beast"},
-    text="Whenever you cast a spell with mana value 4 or greater, Smoldering Spinebacks deals 1 damage to each opponent.",
-
-    setup_interceptors=smoldering_spinebacks_setup,
+    text="Whenever you cast a spell with mana value 4 or greater, Smoldering Spinebacks deals 1 damage to each opponent."
 )
 
 # Thundercloud Shaman - {3}{R}{R} Creature
@@ -11990,9 +5927,7 @@ THUNDERCLOUD_SHAMAN = make_creature(
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
     subtypes={"Giant", "Shaman"},
-    text="When Thundercloud Shaman enters, it deals damage equal to the number of Giants you control to each non-Giant creature.",
-
-    setup_interceptors=thundercloud_shaman_setup,
+    text="When Thundercloud Shaman enters, it deals damage equal to the number of Giants you control to each non-Giant creature."
 )
 
 # =============================================================================
@@ -12009,9 +5944,7 @@ ELVISH_HARBINGER = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Elf", "Druid"},
-    text="When Elvish Harbinger enters, you may search your library for an Elf card, reveal it, then shuffle and put that card on top. {T}: Add one mana of any color.",
-
-    setup_interceptors=elvish_harbinger_setup,
+    text="When Elvish Harbinger enters, you may search your library for an Elf card, reveal it, then shuffle and put that card on top. {T}: Add one mana of any color."
 )
 
 # Heritage Druid - {G} Creature
@@ -12022,9 +5955,7 @@ HERITAGE_DRUID = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Elf", "Druid"},
-    text="Tap three untapped Elves you control: Add {G}{G}{G}.",
-
-    setup_interceptors=heritage_druid_setup,
+    text="Tap three untapped Elves you control: Add {G}{G}{G}."
 )
 
 # Imperious Perfect - {1}{G}{G} Creature
@@ -12054,9 +5985,7 @@ NATH_OF_THE_GILT_LEAF = make_creature(
     colors={Color.GREEN, Color.BLACK},
     subtypes={"Elf", "Warrior"},
     supertypes={"Legendary"},
-    text="At the beginning of your upkeep, you may have target opponent discard a card at random. Whenever an opponent discards a card, you may create a 1/1 green Elf Warrior creature token.",
-
-    setup_interceptors=nath_of_the_gilt_leaf_setup,
+    text="At the beginning of your upkeep, you may have target opponent discard a card at random. Whenever an opponent discards a card, you may create a 1/1 green Elf Warrior creature token."
 )
 
 # Timber Protector - {4}{G} Creature
@@ -12085,9 +6014,7 @@ TREEFOLK_HARBINGER = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Treefolk", "Druid"},
-    text="When Treefolk Harbinger enters, you may search your library for a Treefolk or Forest card, reveal it, then shuffle and put that card on top of your library.",
-
-    setup_interceptors=treefolk_harbinger_setup,
+    text="When Treefolk Harbinger enters, you may search your library for a Treefolk or Forest card, reveal it, then shuffle and put that card on top of your library."
 )
 
 # Wolf-Skull Shaman - {1}{G} Creature
@@ -12098,9 +6025,7 @@ WOLF_SKULL_SHAMAN = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Elf", "Shaman"},
-    text="Kinship — At the beginning of your upkeep, you may look at the top card of your library. If it shares a creature type with Wolf-Skull Shaman, you may reveal it. If you do, create a 2/2 green Wolf creature token.",
-
-    setup_interceptors=wolf_skull_shaman_setup,
+    text="Kinship — At the beginning of your upkeep, you may look at the top card of your library. If it shares a creature type with Wolf-Skull Shaman, you may reveal it. If you do, create a 2/2 green Wolf creature token."
 )
 
 # =============================================================================
@@ -12174,9 +6099,7 @@ SYGG_RIVER_GUIDE = make_creature(
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Merfolk", "Wizard"},
     supertypes={"Legendary"},
-    text="Islandwalk. {1}{W}: Target Merfolk you control gains protection from the color of your choice until end of turn.",
-
-    setup_interceptors=sygg_river_guide_setup,
+    text="Islandwalk. {1}{W}: Target Merfolk you control gains protection from the color of your choice until end of turn."
 )
 
 # Sygg, River Cutthroat - {U/B}{U/B} Legendary Creature
@@ -12188,9 +6111,7 @@ SYGG_RIVER_CUTTHROAT = make_creature(
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Merfolk", "Rogue"},
     supertypes={"Legendary"},
-    text="At the beginning of each end step, if an opponent lost 3 or more life this turn, you may draw a card.",
-
-    setup_interceptors=sygg_river_cutthroat_setup,
+    text="At the beginning of each end step, if an opponent lost 3 or more life this turn, you may draw a card."
 )
 
 # Wydwen, the Biting Gale - {2}{U}{B} Legendary Creature
@@ -12351,9 +6272,7 @@ OVERSOUL_OF_DUSK = make_creature(
     mana_cost="{G/W}{G/W}{G/W}{G/W}{G/W}",
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Spirit", "Avatar"},
-    text="Protection from blue, from black, and from red.",
-
-    setup_interceptors=oversoul_of_dusk_setup,
+    text="Protection from blue, from black, and from red."
 )
 
 # Kitchen Finks - {1}{G/W}{G/W} Creature
@@ -12364,9 +6283,7 @@ KITCHEN_FINKS = make_creature(
     mana_cost="{1}{G/W}{G/W}",
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Ouphe"},
-    text="When Kitchen Finks enters, you gain 2 life. Persist (When this creature dies, if it had no -1/-1 counters on it, return it to the battlefield under its owner's control with a -1/-1 counter on it.)",
-
-    setup_interceptors=kitchen_finks_setup,
+    text="When Kitchen Finks enters, you gain 2 life. Persist (When this creature dies, if it had no -1/-1 counters on it, return it to the battlefield under its owner's control with a -1/-1 counter on it.)"
 )
 
 # Murderous Redcap - {2}{B/R}{B/R} Creature
@@ -12377,9 +6294,7 @@ MURDEROUS_REDCAP = make_creature(
     mana_cost="{2}{B/R}{B/R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Goblin", "Assassin"},
-    text="When Murderous Redcap enters, it deals damage equal to its power to any target. Persist.",
-
-    setup_interceptors=murderous_redcap_setup,
+    text="When Murderous Redcap enters, it deals damage equal to its power to any target. Persist."
 )
 
 # Demigod of Revenge - {B/R}{B/R}{B/R}{B/R}{B/R} Creature
@@ -12390,9 +6305,7 @@ DEMIGOD_OF_REVENGE = make_creature(
     mana_cost="{B/R}{B/R}{B/R}{B/R}{B/R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Spirit", "Avatar"},
-    text="Flying. Haste. When you cast this spell, return all cards named Demigod of Revenge from your graveyard to the battlefield.",
-
-    setup_interceptors=demigod_of_revenge_setup,
+    text="Flying. Haste. When you cast this spell, return all cards named Demigod of Revenge from your graveyard to the battlefield."
 )
 
 # Glen Elendra Archmage - {3}{U} Creature
@@ -12403,9 +6316,7 @@ GLEN_ELENDRA_ARCHMAGE = make_creature(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Faerie", "Wizard"},
-    text="Flying. {U}, Sacrifice Glen Elendra Archmage: Counter target noncreature spell. Persist.",
-
-    setup_interceptors=glen_elendra_archmage_setup,
+    text="Flying. {U}, Sacrifice Glen Elendra Archmage: Counter target noncreature spell. Persist."
 )
 
 # Stillmoon Cavalier - {1}{W/B}{W/B} Creature
@@ -12416,9 +6327,7 @@ STILLMOON_CAVALIER = make_creature(
     mana_cost="{1}{W/B}{W/B}",
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Zombie", "Knight"},
-    text="Protection from white and from black. {W/B}: Stillmoon Cavalier gains flying until end of turn. {W/B}: Stillmoon Cavalier gains first strike until end of turn. {W/B}{W/B}: Stillmoon Cavalier gets +1/+0 until end of turn.",
-
-    setup_interceptors=stillmoon_cavalier_setup,
+    text="Protection from white and from black. {W/B}: Stillmoon Cavalier gains flying until end of turn. {W/B}: Stillmoon Cavalier gains first strike until end of turn. {W/B}{W/B}: Stillmoon Cavalier gets +1/+0 until end of turn."
 )
 
 # Creakwood Liege - {1}{B/G}{B/G}{B/G} Creature
@@ -12429,9 +6338,7 @@ CREAKWOOD_LIEGE = make_creature(
     mana_cost="{1}{B/G}{B/G}{B/G}",
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Horror"},
-    text="Other black creatures you control get +1/+1. Other green creatures you control get +1/+1. At the beginning of your upkeep, you may create a 1/1 black and green Worm creature token.",
-
-    setup_interceptors=creakwood_liege_setup,
+    text="Other black creatures you control get +1/+1. Other green creatures you control get +1/+1. At the beginning of your upkeep, you may create a 1/1 black and green Worm creature token."
 )
 
 # Deathbringer Liege - {2}{W/B}{W/B}{W/B} Creature
@@ -12442,9 +6349,7 @@ DEATHBRINGER_LIEGE = make_creature(
     mana_cost="{2}{W/B}{W/B}{W/B}",
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Horror"},
-    text="Other white creatures you control get +1/+1. Other black creatures you control get +1/+1. Whenever you cast a white spell, you may tap target creature. Whenever you cast a black spell, you may destroy target creature if it's tapped.",
-
-    setup_interceptors=deathbringer_liege_setup,
+    text="Other white creatures you control get +1/+1. Other black creatures you control get +1/+1. Whenever you cast a white spell, you may tap target creature. Whenever you cast a black spell, you may destroy target creature if it's tapped."
 )
 
 # Balefire Liege - {2}{R/W}{R/W}{R/W} Creature
@@ -12455,9 +6360,7 @@ BALEFIRE_LIEGE = make_creature(
     mana_cost="{2}{R/W}{R/W}{R/W}",
     colors={Color.RED, Color.WHITE},
     subtypes={"Spirit", "Horror"},
-    text="Other red creatures you control get +1/+1. Other white creatures you control get +1/+1. Whenever you cast a red spell, Balefire Liege deals 3 damage to target player or planeswalker. Whenever you cast a white spell, you gain 3 life.",
-
-    setup_interceptors=balefire_liege_setup,
+    text="Other red creatures you control get +1/+1. Other white creatures you control get +1/+1. Whenever you cast a red spell, Balefire Liege deals 3 damage to target player or planeswalker. Whenever you cast a white spell, you gain 3 life."
 )
 
 # Boartusk Liege - {1}{R/G}{R/G}{R/G} Creature
@@ -12468,9 +6371,7 @@ BOARTUSK_LIEGE = make_creature(
     mana_cost="{1}{R/G}{R/G}{R/G}",
     colors={Color.RED, Color.GREEN},
     subtypes={"Goblin", "Knight"},
-    text="Trample. Other red creatures you control get +1/+1. Other green creatures you control get +1/+1.",
-
-    setup_interceptors=boartusk_liege_setup,
+    text="Trample. Other red creatures you control get +1/+1. Other green creatures you control get +1/+1."
 )
 
 # Thistledown Liege - {1}{W/U}{W/U}{W/U} Creature
@@ -12481,9 +6382,7 @@ THISTLEDOWN_LIEGE = make_creature(
     mana_cost="{1}{W/U}{W/U}{W/U}",
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Kithkin", "Knight"},
-    text="Flash. Other white creatures you control get +1/+1. Other blue creatures you control get +1/+1.",
-
-    setup_interceptors=thistledown_liege_setup,
+    text="Flash. Other white creatures you control get +1/+1. Other blue creatures you control get +1/+1."
 )
 
 # Murkfiend Liege - {2}{G/U}{G/U}{G/U} Creature
@@ -12494,9 +6393,7 @@ MURKFIEND_LIEGE = make_creature(
     mana_cost="{2}{G/U}{G/U}{G/U}",
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Horror"},
-    text="Other green creatures you control get +1/+1. Other blue creatures you control get +1/+1. Untap all green and/or blue creatures you control during each other player's untap step.",
-
-    setup_interceptors=murkfiend_liege_setup,
+    text="Other green creatures you control get +1/+1. Other blue creatures you control get +1/+1. Untap all green and/or blue creatures you control during each other player's untap step."
 )
 
 # Mindwrack Liege - {3}{U/R}{U/R}{U/R} Creature
@@ -12507,9 +6404,7 @@ MINDWRACK_LIEGE = make_creature(
     mana_cost="{3}{U/R}{U/R}{U/R}",
     colors={Color.BLUE, Color.RED},
     subtypes={"Horror"},
-    text="Other blue creatures you control get +1/+1. Other red creatures you control get +1/+1. {U/R}{U/R}{U/R}{U/R}: You may put a blue or red creature card from your hand onto the battlefield.",
-
-    setup_interceptors=mindwrack_liege_setup,
+    text="Other blue creatures you control get +1/+1. Other red creatures you control get +1/+1. {U/R}{U/R}{U/R}{U/R}: You may put a blue or red creature card from your hand onto the battlefield."
 )
 
 # Ashenmoor Liege - {1}{B/R}{B/R}{B/R} Creature
@@ -12520,9 +6415,7 @@ ASHENMOOR_LIEGE = make_creature(
     mana_cost="{1}{B/R}{B/R}{B/R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Elemental", "Knight"},
-    text="Other black creatures you control get +1/+1. Other red creatures you control get +1/+1. Whenever Ashenmoor Liege becomes the target of a spell or ability an opponent controls, that player loses 4 life.",
-
-    setup_interceptors=ashenmoor_liege_setup,
+    text="Other black creatures you control get +1/+1. Other red creatures you control get +1/+1. Whenever Ashenmoor Liege becomes the target of a spell or ability an opponent controls, that player loses 4 life."
 )
 
 # Wilt-Leaf Liege - {1}{G/W}{G/W}{G/W} Creature
@@ -12533,9 +6426,7 @@ WILT_LEAF_LIEGE = make_creature(
     mana_cost="{1}{G/W}{G/W}{G/W}",
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Elf", "Knight"},
-    text="Other green creatures you control get +1/+1. Other white creatures you control get +1/+1. If a spell or ability an opponent controls causes you to discard Wilt-Leaf Liege, put it onto the battlefield instead of putting it into your graveyard.",
-
-    setup_interceptors=wilt_leaf_liege_setup,
+    text="Other green creatures you control get +1/+1. Other white creatures you control get +1/+1. If a spell or ability an opponent controls causes you to discard Wilt-Leaf Liege, put it onto the battlefield instead of putting it into your graveyard."
 )
 
 # =============================================================================
@@ -12546,9 +6437,7 @@ WILT_LEAF_LIEGE = make_creature(
 MOONGLOVE_EXTRACT = make_artifact(
     name="Moonglove Extract",
     mana_cost="{3}",
-    text="Sacrifice Moonglove Extract: It deals 2 damage to any target.",
-
-    setup_interceptors=moonglove_extract_setup,
+    text="Sacrifice Moonglove Extract: It deals 2 damage to any target."
 )
 
 # Runed Stalactite - {1} Artifact — Equipment
@@ -12556,9 +6445,7 @@ RUNED_STALACTITE = make_artifact(
     name="Runed Stalactite",
     mana_cost="{1}",
     subtypes={"Equipment"},
-    text="Equipped creature gets +1/+1 and is every creature type. Equip {2}",
-
-    setup_interceptors=runed_stalactite_setup,
+    text="Equipped creature gets +1/+1 and is every creature type. Equip {2}"
 )
 
 # Thornbite Staff - {2} Kindred Artifact — Shaman Equipment
@@ -12566,9 +6453,7 @@ THORNBITE_STAFF = make_artifact(
     name="Thornbite Staff",
     mana_cost="{2}",
     subtypes={"Shaman", "Equipment"},
-    text="Equipped creature has \"{2}, {T}: This creature deals 1 damage to any target\" and \"Whenever a creature dies, untap this creature.\" Whenever a Shaman creature enters under your control, you may attach Thornbite Staff to it. Equip {4}",
-
-    setup_interceptors=thornbite_staff_setup,
+    text="Equipped creature has \"{2}, {T}: This creature deals 1 damage to any target\" and \"Whenever a creature dies, untap this creature.\" Whenever a Shaman creature enters under your control, you may attach Thornbite Staff to it. Equip {4}"
 )
 
 # Obsidian Battle-Axe - {3} Kindred Artifact — Warrior Equipment
@@ -12576,9 +6461,7 @@ OBSIDIAN_BATTLE_AXE = make_artifact(
     name="Obsidian Battle-Axe",
     mana_cost="{3}",
     subtypes={"Warrior", "Equipment"},
-    text="Equipped creature gets +2/+1 and has haste. Whenever a Warrior creature enters under your control, you may attach Obsidian Battle-Axe to it. Equip {3}",
-
-    setup_interceptors=obsidian_battle_axe_setup,
+    text="Equipped creature gets +2/+1 and has haste. Whenever a Warrior creature enters under your control, you may attach Obsidian Battle-Axe to it. Equip {3}"
 )
 
 # Cloak and Dagger - {2} Kindred Artifact — Rogue Equipment
@@ -12586,9 +6469,7 @@ CLOAK_AND_DAGGER = make_artifact(
     name="Cloak and Dagger",
     mana_cost="{2}",
     subtypes={"Rogue", "Equipment"},
-    text="Equipped creature gets +2/+0 and has shroud. Whenever a Rogue creature enters under your control, you may attach Cloak and Dagger to it. Equip {3}",
-
-    setup_interceptors=cloak_and_dagger_setup,
+    text="Equipped creature gets +2/+0 and has shroud. Whenever a Rogue creature enters under your control, you may attach Cloak and Dagger to it. Equip {3}"
 )
 
 # Diviner's Wand - {3} Kindred Artifact — Wizard Equipment
@@ -12596,9 +6477,7 @@ DIVINERS_WAND = make_artifact(
     name="Diviner's Wand",
     mana_cost="{3}",
     subtypes={"Wizard", "Equipment"},
-    text="Equipped creature has \"Whenever you draw a card, this creature gets +1/+1 and gains flying until end of turn\" and \"{4}: Draw a card.\" Whenever a Wizard creature enters under your control, you may attach Diviner's Wand to it. Equip {3}",
-
-    setup_interceptors=diviner_s_wand_setup,
+    text="Equipped creature has \"Whenever you draw a card, this creature gets +1/+1 and gains flying until end of turn\" and \"{4}: Draw a card.\" Whenever a Wizard creature enters under your control, you may attach Diviner's Wand to it. Equip {3}"
 )
 
 # Veteran's Armaments - {2} Kindred Artifact — Soldier Equipment
@@ -12606,9 +6485,7 @@ VETERANS_ARMAMENTS = make_artifact(
     name="Veteran's Armaments",
     mana_cost="{2}",
     subtypes={"Soldier", "Equipment"},
-    text="Equipped creature has \"Whenever this creature attacks, it gets +1/+1 until end of turn for each other attacking creature.\" Whenever a Soldier creature enters under your control, you may attach Veteran's Armaments to it. Equip {2}",
-
-    setup_interceptors=veteran_s_armaments_setup,
+    text="Equipped creature has \"Whenever this creature attacks, it gets +1/+1 until end of turn for each other attacking creature.\" Whenever a Soldier creature enters under your control, you may attach Veteran's Armaments to it. Equip {2}"
 )
 
 
@@ -12624,9 +6501,7 @@ KINSBAILE_BORDERGUARD = make_creature(
     mana_cost="{1}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Kithkin", "Soldier"},
-    text="Kinsbaile Borderguard enters with a +1/+1 counter on it for each other Kithkin you control. When Kinsbaile Borderguard dies, create a 1/1 white Kithkin Soldier creature token for each counter on it.",
-
-    setup_interceptors=kinsbaile_borderguard_setup,
+    text="Kinsbaile Borderguard enters with a +1/+1 counter on it for each other Kithkin you control. When Kinsbaile Borderguard dies, create a 1/1 white Kithkin Soldier creature token for each counter on it."
 )
 
 CLOUDGOAT_RANGER = make_creature(
@@ -12636,9 +6511,7 @@ CLOUDGOAT_RANGER = make_creature(
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Giant", "Warrior"},
-    text="When Cloudgoat Ranger enters, create three 1/1 white Kithkin Soldier creature tokens. Tap three untapped Kithkin you control: Cloudgoat Ranger gets +2/+0 and gains flying until end of turn.",
-
-    setup_interceptors=cloudgoat_ranger_setup,
+    text="When Cloudgoat Ranger enters, create three 1/1 white Kithkin Soldier creature tokens. Tap three untapped Kithkin you control: Cloudgoat Ranger gets +2/+0 and gains flying until end of turn."
 )
 
 MIRROR_ENTITY = make_creature(
@@ -12648,9 +6521,7 @@ MIRROR_ENTITY = make_creature(
     mana_cost="{2}{W}",
     colors={Color.WHITE},
     subtypes={"Shapeshifter"},
-    text="Changeling. {X}: Until end of turn, creatures you control have base power and toughness X/X and gain all creature types.",
-
-    setup_interceptors=mirror_entity_setup,
+    text="Changeling. {X}: Until end of turn, creatures you control have base power and toughness X/X and gain all creature types."
 )
 
 REVEILLARK = make_creature(
@@ -12660,9 +6531,7 @@ REVEILLARK = make_creature(
     mana_cost="{4}{W}",
     colors={Color.WHITE},
     subtypes={"Elemental"},
-    text="Flying. When Reveillark leaves the battlefield, return up to two target creature cards with power 2 or less from your graveyard to the battlefield. Evoke {5}{W}",
-
-    setup_interceptors=reveillark_setup,
+    text="Flying. When Reveillark leaves the battlefield, return up to two target creature cards with power 2 or less from your graveyard to the battlefield. Evoke {5}{W}"
 )
 
 RANGER_OF_EOS = make_creature(
@@ -12672,9 +6541,7 @@ RANGER_OF_EOS = make_creature(
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     subtypes={"Human", "Soldier"},
-    text="When Ranger of Eos enters, you may search your library for up to two creature cards with mana value 1 or less, reveal them, put them into your hand, then shuffle.",
-
-    setup_interceptors=ranger_of_eos_setup,
+    text="When Ranger of Eos enters, you may search your library for up to two creature cards with mana value 1 or less, reveal them, put them into your hand, then shuffle."
 )
 
 # More Blue Creatures
@@ -12686,9 +6553,7 @@ VENDILION_CLIQUE = make_creature(
     colors={Color.BLUE},
     subtypes={"Faerie", "Wizard"},
     supertypes={"Legendary"},
-    text="Flash. Flying. When Vendilion Clique enters, look at target player's hand. You may choose a nonland card from it. If you do, that player reveals the chosen card, puts it on the bottom of their library, then draws a card.",
-
-    setup_interceptors=vendilion_clique_setup,
+    text="Flash. Flying. When Vendilion Clique enters, look at target player's hand. You may choose a nonland card from it. If you do, that player reveals the chosen card, puts it on the bottom of their library, then draws a card."
 )
 
 SOWER_OF_TEMPTATION = make_creature(
@@ -12698,9 +6563,7 @@ SOWER_OF_TEMPTATION = make_creature(
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Faerie", "Wizard"},
-    text="Flying. When Sower of Temptation enters, gain control of target creature for as long as Sower of Temptation remains on the battlefield.",
-
-    setup_interceptors=sower_of_temptation_setup,
+    text="Flying. When Sower of Temptation enters, gain control of target creature for as long as Sower of Temptation remains on the battlefield."
 )
 
 MISTBIND_CLIQUE = make_creature(
@@ -12710,9 +6573,7 @@ MISTBIND_CLIQUE = make_creature(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Faerie", "Wizard"},
-    text="Flash. Flying. Champion a Faerie. When a Faerie is championed with Mistbind Clique, tap all lands target player controls.",
-
-    setup_interceptors=mistbind_clique_setup,
+    text="Flash. Flying. Champion a Faerie. When a Faerie is championed with Mistbind Clique, tap all lands target player controls."
 )
 
 SPELLSTUTTER_SPRITE = make_creature(
@@ -12722,9 +6583,7 @@ SPELLSTUTTER_SPRITE = make_creature(
     mana_cost="{1}{U}",
     colors={Color.BLUE},
     subtypes={"Faerie", "Wizard"},
-    text="Flash. Flying. When Spellstutter Sprite enters, counter target spell with mana value X or less, where X is the number of Faeries you control.",
-
-    setup_interceptors=spellstutter_sprite_setup,
+    text="Flash. Flying. When Spellstutter Sprite enters, counter target spell with mana value X or less, where X is the number of Faeries you control."
 )
 
 SCION_OF_OONA = make_creature(
@@ -12734,9 +6593,7 @@ SCION_OF_OONA = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Faerie", "Soldier"},
-    text="Flash. Flying. Other Faerie creatures you control get +1/+1. Other Faeries you control have shroud.",
-
-    setup_interceptors=scion_of_oona_setup,
+    text="Flash. Flying. Other Faerie creatures you control get +1/+1. Other Faeries you control have shroud."
 )
 
 # More Black Creatures
@@ -12747,9 +6604,7 @@ SHRIEKMAW = make_creature(
     mana_cost="{4}{B}",
     colors={Color.BLACK},
     subtypes={"Elemental"},
-    text="Fear. When Shriekmaw enters, destroy target nonartifact, nonblack creature. Evoke {1}{B}",
-
-    setup_interceptors=shriekmaw_setup,
+    text="Fear. When Shriekmaw enters, destroy target nonartifact, nonblack creature. Evoke {1}{B}"
 )
 
 THOUGHTSEIZE_CREATURE = make_creature(
@@ -12759,9 +6614,7 @@ THOUGHTSEIZE_CREATURE = make_creature(
     mana_cost="{1}{B}",
     colors={Color.BLACK},
     subtypes={"Faerie", "Rogue"},
-    text="Flying. Each other Rogue creature you control enters with an additional +1/+1 counter on it. Whenever a creature you control with a +1/+1 counter on it deals combat damage to a player, that player discards a card.",
-
-    setup_interceptors=oona_s_blackguard_setup,
+    text="Flying. Each other Rogue creature you control enters with an additional +1/+1 counter on it. Whenever a creature you control with a +1/+1 counter on it deals combat damage to a player, that player discards a card."
 )
 
 EARWIG_SQUAD = make_creature(
@@ -12771,27 +6624,21 @@ EARWIG_SQUAD = make_creature(
     mana_cost="{3}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Goblin", "Rogue"},
-    text="Prowl {2}{B}. When Earwig Squad enters, if its prowl cost was paid, search target opponent's library for three cards and exile them. Then that player shuffles.",
-
-    setup_interceptors=earwig_squad_setup,
+    text="Prowl {2}{B}. When Earwig Squad enters, if its prowl cost was paid, search target opponent's library for three cards and exile them. Then that player shuffles."
 )
 
 BITTERBLOSSOM = make_enchantment(
     name="Bitterblossom",
     mana_cost="{1}{B}",
     colors={Color.BLACK},
-    text="Tribal Enchantment — Faerie. At the beginning of your upkeep, you lose 1 life and create a 1/1 black Faerie Rogue creature token with flying.",
-
-    setup_interceptors=bitterblossom_setup,
+    text="Tribal Enchantment — Faerie. At the beginning of your upkeep, you lose 1 life and create a 1/1 black Faerie Rogue creature token with flying."
 )
 
 MORNSONG_ARIA = make_enchantment(
     name="Mornsong Aria",
     mana_cost="{1}{B}{B}",
     colors={Color.BLACK},
-    text="Legendary Enchantment. Players can't draw cards or gain life. At the beginning of each player's draw step, that player loses 3 life, then may search their library for a card, put it into their hand, then shuffle.",
-
-    setup_interceptors=mornsong_aria_setup,
+    text="Legendary Enchantment. Players can't draw cards or gain life. At the beginning of each player's draw step, that player loses 3 life, then may search their library for a card, put it into their hand, then shuffle."
 )
 
 # More Red Creatures
@@ -12802,9 +6649,7 @@ SUNRISE_SOVEREIGN = make_creature(
     mana_cost="{5}{R}",
     colors={Color.RED},
     subtypes={"Giant", "Warrior"},
-    text="Other Giant creatures you control get +2/+2 and have trample.",
-
-    setup_interceptors=sunrise_sovereign_setup,
+    text="Other Giant creatures you control get +2/+2 and have trample."
 )
 
 BRION_STOUTARM = make_creature(
@@ -12815,9 +6660,7 @@ BRION_STOUTARM = make_creature(
     colors={Color.RED, Color.WHITE},
     subtypes={"Giant", "Warrior"},
     supertypes={"Legendary"},
-    text="Lifelink. {R}, {T}, Sacrifice another creature: Brion Stoutarm deals damage equal to the sacrificed creature's power to target player or planeswalker.",
-
-    setup_interceptors=brion_stoutarm_setup,
+    text="Lifelink. {R}, {T}, Sacrifice another creature: Brion Stoutarm deals damage equal to the sacrificed creature's power to target player or planeswalker."
 )
 
 NOVA_CHASER = make_creature(
@@ -12827,9 +6670,7 @@ NOVA_CHASER = make_creature(
     mana_cost="{3}{R}",
     colors={Color.RED},
     subtypes={"Elemental", "Warrior"},
-    text="Trample. Champion an Elemental.",
-
-    setup_interceptors=nova_chaser_setup,
+    text="Trample. Champion an Elemental."
 )
 
 INCANDESCENT_SOULSTOKE = make_creature(
@@ -12839,9 +6680,7 @@ INCANDESCENT_SOULSTOKE = make_creature(
     mana_cost="{2}{R}",
     colors={Color.RED},
     subtypes={"Elemental", "Shaman"},
-    text="Other Elemental creatures you control get +1/+1. {1}{R}, {T}: You may put an Elemental creature card from your hand onto the battlefield. That creature gains haste. Sacrifice it at the beginning of the next end step.",
-
-    setup_interceptors=incandescent_soulstoke_setup,
+    text="Other Elemental creatures you control get +1/+1. {1}{R}, {T}: You may put an Elemental creature card from your hand onto the battlefield. That creature gains haste. Sacrifice it at the beginning of the next end step."
 )
 
 # More Green Creatures
@@ -12852,9 +6691,7 @@ CHAMELEON_COLOSSUS = make_creature(
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Shapeshifter"},
-    text="Changeling. Protection from black. {2}{G}{G}: Chameleon Colossus gets +X/+X until end of turn, where X is its power.",
-
-    setup_interceptors=chameleon_colossus_setup,
+    text="Changeling. Protection from black. {2}{G}{G}: Chameleon Colossus gets +X/+X until end of turn, where X is its power."
 )
 
 PRIMALCRUX = make_creature(
@@ -12864,9 +6701,7 @@ PRIMALCRUX = make_creature(
     mana_cost="{G}{G}{G}{G}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Elemental"},
-    text="Trample. Chroma — Primalcrux's power and toughness are each equal to the number of green mana symbols in the mana costs of permanents you control.",
-
-    setup_interceptors=primalcrux_setup,
+    text="Trample. Chroma — Primalcrux's power and toughness are each equal to the number of green mana symbols in the mana costs of permanents you control."
 )
 
 DEVOTED_DRUID = make_creature(
@@ -12876,9 +6711,7 @@ DEVOTED_DRUID = make_creature(
     mana_cost="{1}{G}",
     colors={Color.GREEN},
     subtypes={"Elf", "Druid"},
-    text="{T}: Add {G}. Put a -1/-1 counter on Devoted Druid: Untap Devoted Druid.",
-
-    setup_interceptors=devoted_druid_setup,
+    text="{T}: Add {G}. Put a -1/-1 counter on Devoted Druid: Untap Devoted Druid."
 )
 
 NETTLE_SENTINEL = make_creature(
@@ -12888,9 +6721,7 @@ NETTLE_SENTINEL = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Elf", "Warrior"},
-    text="Nettle Sentinel doesn't untap during your untap step. Whenever you cast a green spell, you may untap Nettle Sentinel.",
-
-    setup_interceptors=nettle_sentinel_setup,
+    text="Nettle Sentinel doesn't untap during your untap step. Whenever you cast a green spell, you may untap Nettle Sentinel."
 )
 
 MASKED_ADMIRERS = make_creature(
@@ -12900,9 +6731,7 @@ MASKED_ADMIRERS = make_creature(
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Elf", "Shaman"},
-    text="When Masked Admirers enters, draw a card. Whenever you cast a creature spell, you may pay {G}{G}. If you do, return Masked Admirers from your graveyard to your hand.",
-
-    setup_interceptors=masked_admirers_setup,
+    text="When Masked Admirers enters, draw a card. Whenever you cast a creature spell, you may pay {G}{G}. If you do, return Masked Admirers from your graveyard to your hand."
 )
 
 # More Enchantments
@@ -12910,63 +6739,49 @@ THOUGHTWEFT_GAMBIT = make_instant(
     name="Thoughtweft Gambit",
     mana_cost="{4}{W}{U}",
     colors={Color.WHITE, Color.BLUE},
-    text="Tap all creatures your opponents control and untap all creatures you control.",
-
-    resolve=thoughtweft_gambit_resolve,
+    text="Tap all creatures your opponents control and untap all creatures you control."
 )
 
 CRYPTIC_COMMAND = make_instant(
     name="Cryptic Command",
     mana_cost="{1}{U}{U}{U}",
     colors={Color.BLUE},
-    text="Choose two — Counter target spell; or return target permanent to its owner's hand; or tap all creatures your opponents control; or draw a card.",
-
-    resolve=cryptic_command_resolve,
+    text="Choose two — Counter target spell; or return target permanent to its owner's hand; or tap all creatures your opponents control; or draw a card."
 )
 
 FIRESPOUT = make_sorcery(
     name="Firespout",
     mana_cost="{2}{R/G}",
     colors={Color.RED, Color.GREEN},
-    text="Firespout deals 3 damage to each creature without flying if {R} was spent to cast this spell and 3 damage to each creature with flying if {G} was spent to cast this spell.",
-
-    resolve=firespout_resolve,
+    text="Firespout deals 3 damage to each creature without flying if {R} was spent to cast this spell and 3 damage to each creature with flying if {G} was spent to cast this spell."
 )
 
 PRIMAL_COMMAND = make_sorcery(
     name="Primal Command",
     mana_cost="{3}{G}{G}",
     colors={Color.GREEN},
-    text="Choose two — Target player gains 7 life; or put target noncreature permanent on top of its owner's library; or target player shuffles their graveyard into their library; or search your library for a creature card, reveal it, put it into your hand, then shuffle.",
-
-    resolve=primal_command_resolve,
+    text="Choose two — Target player gains 7 life; or put target noncreature permanent on top of its owner's library; or target player shuffles their graveyard into their library; or search your library for a creature card, reveal it, put it into your hand, then shuffle."
 )
 
 AUSTERE_COMMAND = make_sorcery(
     name="Austere Command",
     mana_cost="{4}{W}{W}",
     colors={Color.WHITE},
-    text="Choose two — Destroy all artifacts; destroy all enchantments; destroy all creatures with mana value 3 or less; or destroy all creatures with mana value 4 or greater.",
-
-    resolve=austere_command_resolve,
+    text="Choose two — Destroy all artifacts; destroy all enchantments; destroy all creatures with mana value 3 or less; or destroy all creatures with mana value 4 or greater."
 )
 
 PROFANE_COMMAND = make_sorcery(
     name="Profane Command",
     mana_cost="{X}{B}{B}",
     colors={Color.BLACK},
-    text="Choose two — Target player loses X life; or return target creature card with mana value X or less from your graveyard to the battlefield; or target creature gets -X/-X until end of turn; or up to X target creatures gain fear until end of turn.",
-
-    resolve=profane_command_resolve,
+    text="Choose two — Target player loses X life; or return target creature card with mana value X or less from your graveyard to the battlefield; or target creature gets -X/-X until end of turn; or up to X target creatures gain fear until end of turn."
 )
 
 INCENDIARY_COMMAND = make_sorcery(
     name="Incendiary Command",
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
-    text="Choose two — Incendiary Command deals 4 damage to target player; or Incendiary Command deals 2 damage to each creature; or destroy target nonbasic land; or each player discards all the cards in their hand, then draws that many cards.",
-
-    resolve=incendiary_command_resolve,
+    text="Choose two — Incendiary Command deals 4 damage to target player; or Incendiary Command deals 2 damage to each creature; or destroy target nonbasic land; or each player discards all the cards in their hand, then draws that many cards."
 )
 
 # More Multicolor Cards
@@ -12977,9 +6792,7 @@ FULMINATOR_MAGE = make_creature(
     mana_cost="{1}{B/R}{B/R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Elemental", "Shaman"},
-    text="Sacrifice Fulminator Mage: Destroy target nonbasic land.",
-
-    setup_interceptors=fulminator_mage_setup,
+    text="Sacrifice Fulminator Mage: Destroy target nonbasic land."
 )
 
 FIGURE_OF_DESTINY = make_creature(
@@ -12989,18 +6802,14 @@ FIGURE_OF_DESTINY = make_creature(
     mana_cost="{R/W}",
     colors={Color.RED, Color.WHITE},
     subtypes={"Kithkin"},
-    text="{R/W}: Figure of Destiny becomes a Kithkin Spirit with base power and toughness 2/2. {R/W}{R/W}{R/W}: If Figure of Destiny is a Spirit, it becomes a Kithkin Spirit Warrior with base power and toughness 4/4. {R/W}{R/W}{R/W}{R/W}{R/W}{R/W}: If Figure of Destiny is a Warrior, it becomes a Kithkin Spirit Warrior Avatar with base power and toughness 8/8, flying, and first strike.",
-
-    setup_interceptors=figure_of_destiny_setup,
+    text="{R/W}: Figure of Destiny becomes a Kithkin Spirit with base power and toughness 2/2. {R/W}{R/W}{R/W}: If Figure of Destiny is a Spirit, it becomes a Kithkin Spirit Warrior with base power and toughness 4/4. {R/W}{R/W}{R/W}{R/W}{R/W}{R/W}: If Figure of Destiny is a Warrior, it becomes a Kithkin Spirit Warrior Avatar with base power and toughness 8/8, flying, and first strike."
 )
 
 MANAMORPHOSE = make_instant(
     name="Manamorphose",
     mana_cost="{1}{R/G}",
     colors={Color.RED, Color.GREEN},
-    text="Add two mana in any combination of colors. Draw a card.",
-
-    resolve=manamorphose_resolve,
+    text="Add two mana in any combination of colors. Draw a card."
 )
 
 BOGGART_RAM_GANG = make_creature(
@@ -13010,9 +6819,7 @@ BOGGART_RAM_GANG = make_creature(
     mana_cost="{R/G}{R/G}{R/G}",
     colors={Color.RED, Color.GREEN},
     subtypes={"Goblin", "Warrior"},
-    text="Haste. Wither.",
-
-    setup_interceptors=boggart_ram_gang_setup,
+    text="Haste. Wither."
 )
 
 TATTERMUNGE_MANIAC = make_creature(
@@ -13022,9 +6829,7 @@ TATTERMUNGE_MANIAC = make_creature(
     mana_cost="{R/G}",
     colors={Color.RED, Color.GREEN},
     subtypes={"Goblin", "Warrior"},
-    text="Tattermunge Maniac attacks each combat if able.",
-
-    setup_interceptors=tattermunge_maniac_setup,
+    text="Tattermunge Maniac attacks each combat if able."
 )
 
 VEXING_SHUSHER = make_creature(
@@ -13034,9 +6839,7 @@ VEXING_SHUSHER = make_creature(
     mana_cost="{R/G}{R/G}",
     colors={Color.RED, Color.GREEN},
     subtypes={"Goblin", "Shaman"},
-    text="This spell can't be countered. {R/G}: Target spell can't be countered.",
-
-    setup_interceptors=vexing_shusher_setup,
+    text="This spell can't be countered. {R/G}: Target spell can't be countered."
 )
 
 PLUMEVEIL = make_creature(
@@ -13046,27 +6849,21 @@ PLUMEVEIL = make_creature(
     mana_cost="{W/U}{W/U}{W/U}",
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Elemental"},
-    text="Flash. Defender. Flying.",
-
-    setup_interceptors=plumeveil_setup,
+    text="Flash. Defender. Flying."
 )
 
 UNMAKE = make_instant(
     name="Unmake",
     mana_cost="{W/B}{W/B}{W/B}",
     colors={Color.WHITE, Color.BLACK},
-    text="Exile target creature.",
-
-    resolve=unmake_resolve,
+    text="Exile target creature."
 )
 
 FIERY_JUSTICE = make_sorcery(
     name="Fiery Justice",
     mana_cost="{R}{G}{W}",
     colors={Color.RED, Color.GREEN, Color.WHITE},
-    text="Fiery Justice deals 5 damage divided as you choose among any number of targets. Target opponent gains 5 life.",
-
-    resolve=fiery_justice_resolve,
+    text="Fiery Justice deals 5 damage divided as you choose among any number of targets. Target opponent gains 5 life."
 )
 
 AUGURY_ADEPT = make_creature(
@@ -13076,9 +6873,7 @@ AUGURY_ADEPT = make_creature(
     mana_cost="{1}{W/U}{W/U}",
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Kithkin", "Wizard"},
-    text="Whenever Augury Adept deals combat damage to a player, reveal the top card of your library and put that card into your hand. You gain life equal to its mana value.",
-
-    setup_interceptors=augury_adept_setup,
+    text="Whenever Augury Adept deals combat damage to a player, reveal the top card of your library and put that card into your hand. You gain life equal to its mana value."
 )
 
 COLD_EYED_SELKIE = make_creature(
@@ -13088,9 +6883,7 @@ COLD_EYED_SELKIE = make_creature(
     mana_cost="{1}{G/U}{G/U}",
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Merfolk", "Rogue"},
-    text="Islandwalk. Whenever Cold-Eyed Selkie deals combat damage to a player, you may draw that many cards.",
-
-    setup_interceptors=cold_eyed_selkie_setup,
+    text="Islandwalk. Whenever Cold-Eyed Selkie deals combat damage to a player, you may draw that many cards."
 )
 
 DEUS_OF_CALAMITY = make_creature(
@@ -13100,9 +6893,7 @@ DEUS_OF_CALAMITY = make_creature(
     mana_cost="{R/G}{R/G}{R/G}{R/G}{R/G}",
     colors={Color.RED, Color.GREEN},
     subtypes={"Spirit", "Avatar"},
-    text="Trample. Whenever Deus of Calamity deals 6 or more damage to an opponent, destroy target land that player controls.",
-
-    setup_interceptors=deus_of_calamity_setup,
+    text="Trample. Whenever Deus of Calamity deals 6 or more damage to an opponent, destroy target land that player controls."
 )
 
 GHASTLORD_OF_FUGUE = make_creature(
@@ -13112,9 +6903,7 @@ GHASTLORD_OF_FUGUE = make_creature(
     mana_cost="{U/B}{U/B}{U/B}{U/B}{U/B}",
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Spirit", "Avatar"},
-    text="Ghastlord of Fugue can't be blocked. Whenever Ghastlord of Fugue deals combat damage to a player, that player reveals their hand. You choose a card from it. That player exiles that card.",
-
-    setup_interceptors=ghastlord_of_fugue_setup,
+    text="Ghastlord of Fugue can't be blocked. Whenever Ghastlord of Fugue deals combat damage to a player, that player reveals their hand. You choose a card from it. That player exiles that card."
 )
 
 DEITY_OF_SCARS = make_creature(
@@ -13124,9 +6913,7 @@ DEITY_OF_SCARS = make_creature(
     mana_cost="{B/G}{B/G}{B/G}{B/G}{B/G}",
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Spirit", "Avatar"},
-    text="Trample. Deity of Scars enters with two -1/-1 counters on it. {B/G}, Remove a -1/-1 counter from Deity of Scars: Regenerate Deity of Scars.",
-
-    setup_interceptors=deity_of_scars_setup,
+    text="Trample. Deity of Scars enters with two -1/-1 counters on it. {B/G}, Remove a -1/-1 counter from Deity of Scars: Regenerate Deity of Scars."
 )
 
 # Godhead of Awe - Other creatures have base P/T 1/1
@@ -13213,9 +7000,7 @@ OVERBEING_OF_MYTH = make_creature(
     mana_cost="{G/U}{G/U}{G/U}{G/U}{G/U}",
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Spirit", "Avatar"},
-    text="Overbeing of Myth's power and toughness are each equal to the number of cards in your hand. At the beginning of your draw step, draw an additional card.",
-
-    setup_interceptors=overbeing_of_myth_setup,
+    text="Overbeing of Myth's power and toughness are each equal to the number of cards in your hand. At the beginning of your draw step, draw an additional card."
 )
 
 DIVINITY_OF_PRIDE = make_creature(
@@ -13225,9 +7010,7 @@ DIVINITY_OF_PRIDE = make_creature(
     mana_cost="{W/B}{W/B}{W/B}{W/B}{W/B}",
     colors={Color.WHITE, Color.BLACK},
     subtypes={"Spirit", "Avatar"},
-    text="Flying. Lifelink. Divinity of Pride gets +4/+4 as long as you have 25 or more life.",
-
-    setup_interceptors=divinity_of_pride_setup,
+    text="Flying. Lifelink. Divinity of Pride gets +4/+4 as long as you have 25 or more life."
 )
 
 
@@ -13333,15 +7116,7 @@ def gwyllion_hedge_mage_setup(obj: GameObject, state: GameState) -> list[Interce
         if count_lands('Swamp', state) >= 2:
             events.append(Event(type=EventType.TARGET_REQUIRED, payload={'source': obj.id, 'effect': 'put_minus_counter', 'counter_type': '-1/-1', 'amount': 1, 'optional': True}, source=obj.id))
         return events
-    def _initial_counter_etb(event: Event, state: GameState) -> list[Event]:
-        return [Event(
-            type=EventType.COUNTER_ADDED,
-            payload={"object_id": obj.id, "counter_type": "-1/-1", "amount": 1},
-            source=obj.id,
-        )]
-    _initial_counter_interceptor = make_etb_trigger(obj, _initial_counter_etb)
-
-    return [make_etb_trigger(obj, effect), _initial_counter_interceptor]
+    return [make_etb_trigger(obj, effect)]
 
 def selkie_hedge_mage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def count_lands(lt: str, st: GameState) -> int:
@@ -13395,36 +7170,28 @@ HALLOWED_BURIAL = make_sorcery(
     name="Hallowed Burial",
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
-    text="Put all creatures on the bottom of their owners' libraries.",
-
-    resolve=hallowed_burial_resolve,
+    text="Put all creatures on the bottom of their owners' libraries."
 )
 
 IDYLLIC_TUTOR = make_sorcery(
     name="Idyllic Tutor",
     mana_cost="{2}{W}",
     colors={Color.WHITE},
-    text="Search your library for an enchantment card, reveal it, put it into your hand, then shuffle.",
-
-    resolve=idyllic_tutor_resolve,
+    text="Search your library for an enchantment card, reveal it, put it into your hand, then shuffle."
 )
 
 SPECTRAL_PROCESSION = make_sorcery(
     name="Spectral Procession",
     mana_cost="{2/W}{2/W}{2/W}",
     colors={Color.WHITE},
-    text="Create three 1/1 white Spirit creature tokens with flying.",
-
-    resolve=spectral_procession_resolve,
+    text="Create three 1/1 white Spirit creature tokens with flying."
 )
 
 RUNED_HALO = make_enchantment(
     name="Runed Halo",
     mana_cost="{W}{W}",
     colors={Color.WHITE},
-    text="As Runed Halo enters, choose a card name. You have protection from the chosen card name.",
-
-    setup_interceptors=runed_halo_setup,
+    text="As Runed Halo enters, choose a card name. You have protection from the chosen card name."
 )
 
 OBLIVION_RING = make_enchantment(
@@ -13442,9 +7209,7 @@ KNIGHT_OF_MEADOWGRAIN = make_creature(
     mana_cost="{W}{W}",
     colors={Color.WHITE},
     subtypes={"Kithkin", "Knight"},
-    text="First strike. Lifelink.",
-
-    setup_interceptors=knight_of_meadowgrain_setup,
+    text="First strike. Lifelink."
 )
 
 PREEMINENT_CAPTAIN = make_creature(
@@ -13462,9 +7227,7 @@ POLLEN_LULLABY = make_instant(
     name="Pollen Lullaby",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Prevent all combat damage that would be dealt this turn. Clash with an opponent. If you win, creatures that player controls don't untap during their next untap step.",
-
-    resolve=pollen_lullaby_resolve,
+    text="Prevent all combat damage that would be dealt this turn. Clash with an opponent. If you win, creatures that player controls don't untap during their next untap step."
 )
 
 # Blue Cards
@@ -13472,27 +7235,21 @@ BROKEN_AMBITIONS = make_instant(
     name="Broken Ambitions",
     mana_cost="{X}{U}",
     colors={Color.BLUE},
-    text="Counter target spell unless its controller pays {X}. Clash with an opponent. If you win, that spell's controller mills four cards.",
-
-    resolve=broken_ambitions_resolve,
+    text="Counter target spell unless its controller pays {X}. Clash with an opponent. If you win, that spell's controller mills four cards."
 )
 
 FAERIE_TRICKERY = make_instant(
     name="Faerie Trickery",
     mana_cost="{1}{U}{U}",
     colors={Color.BLUE},
-    text="Counter target non-Faerie spell. If that spell is countered this way, exile it instead of putting it into its owner's graveyard.",
-
-    resolve=faerie_trickery_resolve,
+    text="Counter target non-Faerie spell. If that spell is countered this way, exile it instead of putting it into its owner's graveyard."
 )
 
 PONDER = make_sorcery(
     name="Ponder",
     mana_cost="{U}",
     colors={Color.BLUE},
-    text="Look at the top three cards of your library, then put them back in any order. You may shuffle. Draw a card.",
-
-    resolve=ponder_resolve,
+    text="Look at the top three cards of your library, then put them back in any order. You may shuffle. Draw a card."
 )
 
 MERROW_COMMERCE = make_enchantment(
@@ -13541,54 +7298,42 @@ NAMELESS_INVERSION_B = make_instant(
     name="Final Revels",
     mana_cost="{4}{B}",
     colors={Color.BLACK},
-    text="Choose one — All creatures get +2/+0 until end of turn; or all creatures get -0/-2 until end of turn.",
-
-    resolve=final_revels_resolve,
+    text="Choose one — All creatures get +2/+0 until end of turn; or all creatures get -0/-2 until end of turn."
 )
 
 THOUGHTSEIZE = make_sorcery(
     name="Thoughtseize",
     mana_cost="{B}",
     colors={Color.BLACK},
-    text="Target player reveals their hand. You choose a nonland card from it. That player discards that card. You lose 2 life.",
-
-    resolve=thoughtseize_resolve,
+    text="Target player reveals their hand. You choose a nonland card from it. That player discards that card. You lose 2 life."
 )
 
 PEPPERSMOKE = make_instant(
     name="Peppersmoke",
     mana_cost="{B}",
     colors={Color.BLACK},
-    text="Tribal Instant — Faerie. Target creature gets -1/-1 until end of turn. If you control a Faerie, draw a card.",
-
-    resolve=peppersmoke_resolve,
+    text="Tribal Instant — Faerie. Target creature gets -1/-1 until end of turn. If you control a Faerie, draw a card."
 )
 
 FODDER_LAUNCH = make_sorcery(
     name="Fodder Launch",
     mana_cost="{3}{B}",
     colors={Color.BLACK},
-    text="Tribal Sorcery — Goblin. As an additional cost to cast this spell, sacrifice a Goblin. Target creature gets -5/-5 until end of turn. Its controller loses 5 life.",
-
-    resolve=fodder_launch_resolve,
+    text="Tribal Sorcery — Goblin. As an additional cost to cast this spell, sacrifice a Goblin. Target creature gets -5/-5 until end of turn. Its controller loses 5 life."
 )
 
 MAKESHIFT_MANNEQUIN = make_instant(
     name="Makeshift Mannequin",
     mana_cost="{3}{B}",
     colors={Color.BLACK},
-    text="Return target creature card from your graveyard to the battlefield with a mannequin counter on it. For as long as that creature has a mannequin counter on it, it has \"When this creature becomes the target of a spell or ability, sacrifice it.\"",
-
-    resolve=makeshift_mannequin_resolve,
+    text="Return target creature card from your graveyard to the battlefield with a mannequin counter on it. For as long as that creature has a mannequin counter on it, it has \"When this creature becomes the target of a spell or ability, sacrifice it.\""
 )
 
 DEATH_DENIED = make_instant(
     name="Death Denied",
     mana_cost="{X}{B}{B}",
     colors={Color.BLACK},
-    text="Return X target creature cards from your graveyard to your hand.",
-
-    resolve=death_denied_resolve,
+    text="Return X target creature cards from your graveyard to your hand."
 )
 
 NETTLEVINE_BLIGHT = make_enchantment(
@@ -13596,9 +7341,7 @@ NETTLEVINE_BLIGHT = make_enchantment(
     mana_cost="{4}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Aura"},
-    text="Enchant creature or land. Enchanted permanent has \"At the beginning of your end step, sacrifice a creature or land. If you do, attach Nettlevine Blight to a permanent you control.\"",
-
-    setup_interceptors=nettlevine_blight_setup,
+    text="Enchant creature or land. Enchanted permanent has \"At the beginning of your end step, sacrifice a creature or land. If you do, attach Nettlevine Blight to a permanent you control.\""
 )
 
 # Red Cards
@@ -13606,18 +7349,14 @@ TARFIRE = make_instant(
     name="Tarfire",
     mana_cost="{R}",
     colors={Color.RED},
-    text="Tribal Instant — Goblin. Tarfire deals 2 damage to any target.",
-
-    resolve=tarfire_resolve,
+    text="Tribal Instant — Goblin. Tarfire deals 2 damage to any target."
 )
 
 LASH_OUT = make_instant(
     name="Lash Out",
     mana_cost="{1}{R}",
     colors={Color.RED},
-    text="Lash Out deals 3 damage to target creature. Clash with an opponent. If you win, Lash Out deals 3 damage to that creature's controller.",
-
-    resolve=lash_out_resolve,
+    text="Lash Out deals 3 damage to target creature. Clash with an opponent. If you win, Lash Out deals 3 damage to that creature's controller."
 )
 
 CATERWAULING_BOGGART = make_creature(
@@ -13661,9 +7400,7 @@ SENSATION_GORGER = make_creature(
     mana_cost="{1}{R}{R}",
     colors={Color.RED},
     subtypes={"Goblin", "Shaman"},
-    text="Kinship — At the beginning of your upkeep, you may look at the top card of your library. If it shares a creature type with Sensation Gorger, you may reveal it. If you do, each player discards their hand, then draws four cards.",
-
-    setup_interceptors=sensation_gorger_setup,
+    text="Kinship — At the beginning of your upkeep, you may look at the top card of your library. If it shares a creature type with Sensation Gorger, you may reveal it. If you do, each player discards their hand, then draws four cards."
 )
 
 # Green Cards
@@ -13673,9 +7410,7 @@ GARRUK_WILDSPEAKER = make_planeswalker(
     colors={Color.GREEN},
     subtypes={"Garruk"},
     text="+1: Untap two target lands. -1: Create a 3/3 green Beast creature token. -4: Creatures you control get +3/+3 and gain trample until end of turn.",
-    loyalty=3,
-
-    setup_interceptors=garruk_wildspeaker_setup,
+    loyalty=3
 )
 
 # REVISED (rebalance): {1}{G}{G} -> {G}{G}. Power = # Elves; without playing on
@@ -13699,9 +7434,7 @@ LEAF_CROWNED_ELDER = make_creature(
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Treefolk", "Shaman"},
-    text="Kinship — At the beginning of your upkeep, you may look at the top card of your library. If it shares a creature type with Leaf-Crowned Elder, you may reveal it. If you do, you may play that card without paying its mana cost.",
-
-    setup_interceptors=leaf_crowned_elder_setup,
+    text="Kinship — At the beginning of your upkeep, you may look at the top card of your library. If it shares a creature type with Leaf-Crowned Elder, you may reveal it. If you do, you may play that card without paying its mana cost."
 )
 
 # REVISED (rebalance): tap-Forest-into-Treefolk effect is unimplemented;
@@ -13713,27 +7446,21 @@ ELVISH_BRANCHBENDER = make_creature(
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Elf", "Druid"},
-    text="{T}: Until end of turn, target Forest becomes an X/X Treefolk creature in addition to its other types, where X is the number of Elves you control.",
-
-    setup_interceptors=elvish_branchbender_setup,
+    text="{T}: Until end of turn, target Forest becomes an X/X Treefolk creature in addition to its other types, where X is the number of Elves you control."
 )
 
 GILT_LEAF_AMBUSH = make_instant(
     name="Gilt-Leaf Ambush",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
-    text="Tribal Instant — Elf. Create two 1/1 green Elf Warrior creature tokens. Clash with an opponent. If you win, those creatures gain deathtouch until end of turn.",
-
-    resolve=gilt_leaf_ambush_resolve,
+    text="Tribal Instant — Elf. Create two 1/1 green Elf Warrior creature tokens. Clash with an opponent. If you win, those creatures gain deathtouch until end of turn."
 )
 
 HUNTING_TRIAD = make_sorcery(
     name="Hunting Triad",
     mana_cost="{3}{G}",
     colors={Color.GREEN},
-    text="Tribal Sorcery — Elf. Create three 1/1 green Elf Warrior creature tokens. Reinforce 3—{3}{G}",
-
-    resolve=hunting_triad_resolve,
+    text="Tribal Sorcery — Elf. Create three 1/1 green Elf Warrior creature tokens. Reinforce 3—{3}{G}"
 )
 
 # Multicolor Cards
@@ -13744,9 +7471,7 @@ BOGGART_SPRITE_CHASER = make_creature(
     mana_cost="{1}{R}",
     colors={Color.RED},
     subtypes={"Goblin", "Warrior"},
-    text="As long as you control a Faerie, Boggart Sprite-Chaser gets +1/+1 and has flying.",
-
-    setup_interceptors=boggart_sprite_chaser_setup,
+    text="As long as you control a Faerie, Boggart Sprite-Chaser gets +1/+1 and has flying."
 )
 
 SCARBLADE_ELITE = make_creature(
@@ -13756,9 +7481,7 @@ SCARBLADE_ELITE = make_creature(
     mana_cost="{B}{B}",
     colors={Color.BLACK},
     subtypes={"Elf", "Assassin"},
-    text="{T}, Exile an Assassin card from your graveyard: Destroy target creature.",
-
-    setup_interceptors=scarblade_elite_setup,
+    text="{T}, Exile an Assassin card from your graveyard: Destroy target creature."
 )
 
 SAFEHOLD_ELITE = make_creature(
@@ -13768,9 +7491,7 @@ SAFEHOLD_ELITE = make_creature(
     mana_cost="{1}{G/W}",
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Elf", "Scout"},
-    text="Persist.",
-
-    setup_interceptors=safehold_elite_setup,
+    text="Persist."
 )
 
 RENDCLAW_TROW = make_creature(
@@ -13780,9 +7501,7 @@ RENDCLAW_TROW = make_creature(
     mana_cost="{2}{B/G}",
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Troll"},
-    text="Wither. Persist.",
-
-    setup_interceptors=rendclaw_trow_setup,
+    text="Wither. Persist."
 )
 
 WISTFUL_SELKIE = make_creature(
@@ -13826,9 +7545,7 @@ HORDE_OF_NOTIONS = make_creature(
     colors={Color.WHITE, Color.BLUE, Color.BLACK, Color.RED, Color.GREEN},
     subtypes={"Elemental"},
     supertypes={"Legendary"},
-    text="Vigilance, trample, haste. {W}{U}{B}{R}{G}: You may play target Elemental card from your graveyard without paying its mana cost.",
-
-    setup_interceptors=horde_of_notions_setup,
+    text="Vigilance, trample, haste. {W}{U}{B}{R}{G}: You may play target Elemental card from your graveyard without paying its mana cost."
 )
 
 ASHLING_THE_EXTINGUISHER = make_creature(
@@ -13851,9 +7568,7 @@ RHYS_THE_REDEEMED = make_creature(
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Elf", "Warrior"},
     supertypes={"Legendary"},
-    text="{2}{G/W}, {T}: Create a 1/1 green and white Elf Warrior creature token. {4}{G/W}{G/W}, {T}: For each creature token you control, create a token that's a copy of that creature.",
-
-    setup_interceptors=rhys_the_redeemed_setup,
+    text="{2}{G/W}, {T}: Create a 1/1 green and white Elf Warrior creature token. {4}{G/W}{G/W}, {T}: For each creature token you control, create a token that's a copy of that creature."
 )
 
 # Final 6 cards to reach 408
@@ -13861,9 +7576,7 @@ HEAP_DOLL = make_artifact(
     name="Heap Doll",
     mana_cost="{1}",
     subtypes={"Scarecrow"},
-    text="Sacrifice Heap Doll: Exile target card from a graveyard.",
-
-    setup_interceptors=heap_doll_setup,
+    text="Sacrifice Heap Doll: Exile target card from a graveyard."
 )
 
 PAINTER_SERVANT = make_creature(
@@ -13873,9 +7586,7 @@ PAINTER_SERVANT = make_creature(
     mana_cost="{2}",
     colors=set(),
     subtypes={"Scarecrow"},
-    text="As Painter's Servant enters, choose a color. All cards that aren't on the battlefield, spells, and permanents are the chosen color in addition to their other colors.",
-
-    setup_interceptors=painter_s_servant_setup,
+    text="As Painter's Servant enters, choose a color. All cards that aren't on the battlefield, spells, and permanents are the chosen color in addition to their other colors."
 )
 
 REAPER_KING = make_creature(
@@ -13897,9 +7608,7 @@ PILI_PALA = make_creature(
     mana_cost="{2}",
     colors=set(),
     subtypes={"Scarecrow"},
-    text="Flying. {2}, {Q}: Add one mana of any color. ({Q} is the untap symbol.)",
-
-    setup_interceptors=pili_pala_setup,
+    text="Flying. {2}, {Q}: Add one mana of any color. ({Q} is the untap symbol.)"
 )
 
 WICKER_WARCRAWLER = make_creature(
@@ -13920,9 +7629,7 @@ WANDERBRINE_ROOTCUTTERS = make_creature(
     mana_cost="{2}{U/B}{U/B}",
     colors={Color.BLUE, Color.BLACK},
     subtypes={"Merfolk", "Rogue"},
-    text="Wanderbrine Rootcutters can't be blocked by green creatures.",
-
-    setup_interceptors=wanderbrine_rootcutters_setup,
+    text="Wanderbrine Rootcutters can't be blocked by green creatures."
 )
 
 # =============================================================================
