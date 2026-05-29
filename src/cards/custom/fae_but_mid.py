@@ -10103,3 +10103,853 @@ def _register_section2_recovered():
     FAE_BUT_MID_CARDS['Ghastlord of Fugue'].setup_interceptors = ghastlord_of_fugue_setup
 
 _register_section2_recovered()
+
+
+# =============================================================================
+# SECTION 2 (instants/sorceries): cast-resolve effects from printed TEXT
+# Each <snake>_resolve(targets, state) emits the text-matching event(s).
+# =============================================================================
+
+def _spell_src(name, state):
+    """Best-effort (spell_id, caster) for a resolving Section-2 spell."""
+    for o in state.objects.values():
+        if getattr(o, 'name', None) == name and o.zone == ZoneType.STACK:
+            return o.id, o.controller
+    # fall back to any stack object / active player
+    for o in state.objects.values():
+        if o.zone == ZoneType.STACK:
+            return o.id, o.controller
+    return name, (state.active_player or next(iter(state.players), None))
+
+
+def _opps(caster, state):
+    for pid in state.players:
+        if pid != caster:
+            yield pid
+
+
+def _bf_creatures(state):
+    return [o for o in state.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in o.characteristics.types]
+
+
+def _opp_creature(caster, state):
+    for o in _bf_creatures(state):
+        if o.controller != caster:
+            return o.id
+    return None
+
+
+def _friendly_creature(caster, state):
+    for o in _bf_creatures(state):
+        if o.controller == caster:
+            return o.id
+    return None
+
+
+def _any_creature(caster, state):
+    fb = None
+    for o in _bf_creatures(state):
+        if o.controller != caster:
+            return o.id
+        fb = fb or o.id
+    return fb
+
+
+def _gy_creature(caster, state):
+    gy = state.zones.get(f"graveyard_{caster}")
+    if gy:
+        for cid in gy.objects:
+            c = state.objects.get(cid)
+            if c and CardType.CREATURE in c.characteristics.types:
+                return cid
+    return None
+
+
+def assert_perfection_resolve(targets, state):
+    """Assert Perfection: Target creature you control gets +1/+0 until end of turn. It deals damage equal to its power to up to one target creature an opponent controls."""
+    sid, caster = _spell_src('Assert Perfection', state)
+    def _eff():
+        events = []
+        _tid = _friendly_creature(caster, state) or _any_creature(caster, state)
+        _p = {'power_mod': 1, 'toughness_mod': 0, 'duration': 'end_of_turn', 'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.PT_MODIFICATION, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def aunties_favor_resolve(targets, state):
+    """Auntie's Favor: Target creature gets +2/+0 and gains menace until end of turn. If you control a Goblin, draw a card."""
+    sid, caster = _spell_src("Auntie's Favor", state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': caster, 'count': 1}, source=sid))
+        _tid = _friendly_creature(caster, state) or _any_creature(caster, state)
+        _p = {'power_mod': 2, 'toughness_mod': 0, 'duration': 'end_of_turn', 'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.PT_MODIFICATION, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def blight_rot_resolve(targets, state):
+    """Blight Rot: Put four -1/-1 counters on target creature."""
+    sid, caster = _spell_src('Blight Rot', state)
+    def _eff():
+        events = []
+        _tid = _any_creature(caster, state)
+        _p = {'counter_type': '-1/-1', 'amount': 4, 'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.COUNTER_ADDED, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def bloodline_bidding_resolve(targets, state):
+    """Bloodline Bidding: Convoke. Choose a creature type. Return all creature cards of that type from your graveyard to the battlefield."""
+    sid, caster = _spell_src('Bloodline Bidding', state)
+    def _eff():
+        events = []
+        _cid = _gy_creature(caster, state)
+        _p = {'player': caster, 'to': 'battlefield', 'target_filter': 'creature_in_your_graveyard'}
+        if _cid:
+            _p['object_id'] = _cid
+        events.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def blossoming_defense_resolve(targets, state):
+    """Blossoming Defense: Target creature you control gets +2/+2 and gains hexproof until end of turn."""
+    sid, caster = _spell_src('Blossoming Defense', state)
+    def _eff():
+        events = []
+        _tid = _friendly_creature(caster, state) or _any_creature(caster, state)
+        _p = {'power_mod': 2, 'toughness_mod': 2, 'duration': 'end_of_turn', 'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.PT_MODIFICATION, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def bogslithers_embrace_resolve(targets, state):
+    """Bogslither's Embrace: As an additional cost to cast this spell, blight 1 or pay {3}. Exile target creature."""
+    sid, caster = _spell_src("Bogslither's Embrace", state)
+    def _eff():
+        events = []
+        _tid = _any_creature(caster, state)
+        _p = {'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.EXILE, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def boulder_dash_resolve(targets, state):
+    """Boulder Dash: Boulder Dash deals 2 damage to any target and 1 damage to any other target."""
+    sid, caster = _spell_src('Boulder Dash', state)
+    def _eff():
+        events = []
+        _opp = next(_opps(caster, state), None)
+        events.append(Event(type=EventType.DAMAGE, payload={'target': _opp, 'amount': 2, 'target_type': 'player'}, source=sid))
+        return events
+    return _eff()
+
+
+def catharsis_resolve(targets, state):
+    """Catharsis: Destroy all creatures. For each creature destroyed this way, its controller creates a 1/1 white Kithkin creature token."""
+    sid, caster = _spell_src('Catharsis', state)
+    def _eff():
+        events = []
+        for _o in _bf_creatures(state):
+            events.append(Event(type=EventType.OBJECT_DESTROYED, payload={'object_id': _o.id}, source=sid))
+        if not events:
+            events.append(Event(type=EventType.OBJECT_DESTROYED, payload={'target_filter': 'all_creatures'}, source=sid))
+        return events
+    return _eff()
+
+
+def cinder_strike_resolve(targets, state):
+    """Cinder Strike: As an additional cost to cast this spell, you may blight 1. Cinder Strike deals 2 damage to target creature. It deals 4 damage to that creature instead if this spell's additional cost was paid."""
+    sid, caster = _spell_src('Cinder Strike', state)
+    def _eff():
+        events = []
+        _tid = _opp_creature(caster, state)
+        _p = {'amount': 2, 'target_filter': 'creature'}
+        if _tid:
+            _p['target'] = _tid; _p['target_type'] = 'creature'
+        events.append(Event(type=EventType.DAMAGE, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def crib_swap_resolve(targets, state):
+    """Crib Swap: Changeling. Exile target creature. Its controller creates a 1/1 colorless Shapeshifter creature token with changeling."""
+    sid, caster = _spell_src('Crib Swap', state)
+    def _eff():
+        events = []
+        _tid = _any_creature(caster, state)
+        _p = {'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.EXILE, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def darkness_descends_resolve(targets, state):
+    """Darkness Descends: Put two -1/-1 counters on each creature."""
+    sid, caster = _spell_src('Darkness Descends', state)
+    def _eff():
+        events = []
+        for _o in _bf_creatures(state):
+            events.append(Event(type=EventType.COUNTER_ADDED, payload={'object_id': _o.id, 'counter_type': '-1/-1', 'amount': 2}, source=sid))
+        if not events:
+            events.append(Event(type=EventType.COUNTER_ADDED, payload={'counter_type': '-1/-1', 'amount': 2, 'target_filter': 'each_creature'}, source=sid))
+        return events
+    return _eff()
+
+
+def death_denied_resolve(targets, state):
+    """Death Denied: Return X target creature cards from your graveyard to your hand."""
+    sid, caster = _spell_src('Death Denied', state)
+    def _eff():
+        events = []
+        _cid = _gy_creature(caster, state)
+        _p = {'player': caster, 'to': 'hand', 'target_filter': 'creature_in_your_graveyard'}
+        if _cid:
+            _p['object_id'] = _cid
+        events.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def dose_of_dawnglow_resolve(targets, state):
+    """Dose of Dawnglow: Return target creature card from your graveyard to the battlefield. If it's not your main phase, blight 2."""
+    sid, caster = _spell_src('Dose of Dawnglow', state)
+    def _eff():
+        events = []
+        _cid = _gy_creature(caster, state)
+        _p = {'player': caster, 'to': 'battlefield', 'target_filter': 'creature_in_your_graveyard'}
+        if _cid:
+            _p['object_id'] = _cid
+        events.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def feed_the_flames_resolve(targets, state):
+    """Feed the Flames: Feed the Flames deals 5 damage to target creature. If that creature would die this turn, exile it instead."""
+    sid, caster = _spell_src('Feed the Flames', state)
+    def _eff():
+        events = []
+        _tid = _opp_creature(caster, state)
+        _p = {'amount': 5, 'target_filter': 'creature'}
+        if _tid:
+            _p['target'] = _tid; _p['target_type'] = 'creature'
+        events.append(Event(type=EventType.DAMAGE, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def fiery_justice_resolve(targets, state):
+    """Fiery Justice: Fiery Justice deals 5 damage divided as you choose among any number of targets. Target opponent gains 5 life."""
+    sid, caster = _spell_src('Fiery Justice', state)
+    def _eff():
+        events = []
+        _tid = _opp_creature(caster, state)
+        _p = {'amount': 5, 'target_filter': 'creature'}
+        if _tid:
+            _p['target'] = _tid; _p['target_type'] = 'creature'
+        events.append(Event(type=EventType.DAMAGE, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def firespout_resolve(targets, state):
+    """Firespout: Firespout deals 3 damage to each creature without flying if {R} was spent to cast this spell and 3 damage to each creature with flying if {G} was spent to cast this spell."""
+    sid, caster = _spell_src('Firespout', state)
+    def _eff():
+        events = []
+        for _o in _bf_creatures(state):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': _o.id, 'amount': 3, 'target_type': 'creature'}, source=sid))
+        if not any(e.type==EventType.DAMAGE for e in events):
+            events.append(Event(type=EventType.DAMAGE, payload={'amount': 3, 'target_type': 'creature', 'target_filter': 'each_creature'}, source=sid))
+        return events
+    return _eff()
+
+
+def fodder_launch_resolve(targets, state):
+    """Fodder Launch: Tribal Sorcery — Goblin. As an additional cost to cast this spell, sacrifice a Goblin. Target creature gets -5/-5 until end of turn. Its controller loses 5 life."""
+    sid, caster = _spell_src('Fodder Launch', state)
+    def _eff():
+        events = []
+        _tid = _any_creature(caster, state)
+        _p = {'power_mod': -5, 'toughness_mod': -5, 'duration': 'end_of_turn', 'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.PT_MODIFICATION, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def harmonized_crescendo_resolve(targets, state):
+    """Harmonized Crescendo: Convoke. Choose a creature type. Draw a card for each permanent you control of the chosen type."""
+    sid, caster = _spell_src('Harmonized Crescendo', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': caster, 'count': 1}, source=sid))
+        return events
+    return _eff()
+
+
+def hunting_triad_resolve(targets, state):
+    """Hunting Triad: Tribal Sorcery — Elf. Create three 1/1 green Elf Warrior creature tokens. Reinforce 3—{3}{G}"""
+    sid, caster = _spell_src('Hunting Triad', state)
+    def _eff():
+        events = []
+        for _i in range(3):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': caster, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=sid))
+        return events
+    return _eff()
+
+
+def impolite_entrance_resolve(targets, state):
+    """Impolite Entrance: Creatures you control get +2/+0 and gain haste until end of turn."""
+    sid, caster = _spell_src('Impolite Entrance', state)
+    def _eff():
+        events = []
+        for _o in _bf_creatures(state):
+            if _o.controller == caster:
+                events.append(Event(type=EventType.PT_MODIFICATION, payload={'object_id': _o.id, 'power_mod': 2, 'toughness_mod': 0, 'duration': 'end_of_turn'}, source=sid))
+        if not events:
+            events.append(Event(type=EventType.PT_MODIFICATION, payload={'power_mod': 2, 'toughness_mod': 0, 'duration': 'end_of_turn', 'target_filter': 'creatures_you_control'}, source=sid))
+        return events
+    return _eff()
+
+
+def lasting_tarfire_resolve(targets, state):
+    """Lasting Tarfire: Lasting Tarfire deals 2 damage to any target. If that permanent or player is dealt damage this way, Lasting Tarfire deals 1 damage to them at the beginning of the next upkeep."""
+    sid, caster = _spell_src('Lasting Tarfire', state)
+    def _eff():
+        events = []
+        _opp = next(_opps(caster, state), None)
+        events.append(Event(type=EventType.DAMAGE, payload={'target': _opp, 'amount': 2, 'target_type': 'player'}, source=sid))
+        return events
+    return _eff()
+
+
+def lofty_dreams_resolve(targets, state):
+    """Lofty Dreams: Draw two cards. If you control a Faerie, draw three cards instead."""
+    sid, caster = _spell_src('Lofty Dreams', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': caster, 'count': 2}, source=sid))
+        return events
+    return _eff()
+
+
+def makeshift_mannequin_resolve(targets, state):
+    """Makeshift Mannequin: Return target creature card from your graveyard to the battlefield with a mannequin counter on it. For as long as that creature has a mannequin counter on it, it has 'When this creature becomes the target of a spell or ability, sacrifice it.'"""
+    sid, caster = _spell_src('Makeshift Mannequin', state)
+    def _eff():
+        events = []
+        _cid = _gy_creature(caster, state)
+        _p = {'player': caster, 'to': 'battlefield', 'target_filter': 'creature_in_your_graveyard'}
+        if _cid:
+            _p['object_id'] = _cid
+        events.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def manamorphose_resolve(targets, state):
+    """Manamorphose: Add two mana in any combination of colors. Draw a card."""
+    sid, caster = _spell_src('Manamorphose', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': caster, 'count': 1}, source=sid))
+        return events
+    return _eff()
+
+
+def midnight_tilling_resolve(targets, state):
+    """Midnight Tilling: Mill four cards, then you may return a permanent card from among them to your hand."""
+    sid, caster = _spell_src('Midnight Tilling', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.MILL, payload={'player': caster, 'amount': 4}, source=sid))
+        return events
+    return _eff()
+
+
+def mirrorform_resolve(targets, state):
+    """Mirrorform: Create a token that's a copy of target creature you control. Sacrifice it at the beginning of the next end step."""
+    sid, caster = _spell_src('Mirrorform', state)
+    def _eff():
+        events = []
+        for _i in range(1):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': caster, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=sid))
+        return events
+    return _eff()
+
+
+def morningtides_light_resolve(targets, state):
+    """Morningtide's Light: Destroy target creature with power 4 or greater. You gain 4 life."""
+    sid, caster = _spell_src("Morningtide's Light", state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': caster, 'amount': 4}, source=sid))
+        _tid = _opp_creature(caster, state) or _any_creature(caster, state)
+        _p = {'target_filter': 'permanent'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.OBJECT_DESTROYED, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def peppersmoke_resolve(targets, state):
+    """Peppersmoke: Tribal Instant — Faerie. Target creature gets -1/-1 until end of turn. If you control a Faerie, draw a card."""
+    sid, caster = _spell_src('Peppersmoke', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': caster, 'count': 1}, source=sid))
+        _tid = _any_creature(caster, state)
+        _p = {'power_mod': -1, 'toughness_mod': -1, 'duration': 'end_of_turn', 'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.PT_MODIFICATION, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def perfect_intimidation_resolve(targets, state):
+    """Perfect Intimidation: Each opponent sacrifices a creature. You gain life equal to the greatest power among creatures sacrificed this way."""
+    sid, caster = _spell_src('Perfect Intimidation', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': caster, 'amount': 1, 'variable': True}, source=sid))
+        return events
+    return _eff()
+
+
+def personify_resolve(targets, state):
+    """Personify: Exile target creature you control, then return that card to the battlefield under its owner's control. Create a 1/1 colorless Shapeshifter creature token with changeling."""
+    sid, caster = _spell_src('Personify', state)
+    def _eff():
+        events = []
+        _tid = _any_creature(caster, state)
+        _p = {'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.EXILE, payload=_p, source=sid))
+        for _i in range(1):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': caster, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=sid))
+        return events
+    return _eff()
+
+
+def ponder_resolve(targets, state):
+    """Ponder: Look at the top three cards of your library, then put them back in any order. You may shuffle. Draw a card."""
+    sid, caster = _spell_src('Ponder', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': caster, 'count': 1}, source=sid))
+        return events
+    return _eff()
+
+
+def protective_response_resolve(targets, state):
+    """Protective Response: Convoke. Destroy target attacking or blocking creature."""
+    sid, caster = _spell_src('Protective Response', state)
+    def _eff():
+        events = []
+        _tid = _opp_creature(caster, state) or _any_creature(caster, state)
+        _p = {'target_filter': 'permanent'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.OBJECT_DESTROYED, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def pyrrhic_strike_resolve(targets, state):
+    """Pyrrhic Strike: As an additional cost to cast this spell, you may blight 2. Choose one. If the blight cost was paid, choose both instead — Destroy target artifact or enchantment; Destroy target creature with mana value 3 or greater."""
+    sid, caster = _spell_src('Pyrrhic Strike', state)
+    def _eff():
+        events = []
+        _tid = _opp_creature(caster, state) or _any_creature(caster, state)
+        _p = {'target_filter': 'permanent'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.OBJECT_DESTROYED, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def reckless_ransacking_resolve(targets, state):
+    """Reckless Ransacking: Target creature gets +3/+2 until end of turn. Create a Treasure token."""
+    sid, caster = _spell_src('Reckless Ransacking', state)
+    def _eff():
+        events = []
+        _tid = _friendly_creature(caster, state) or _any_creature(caster, state)
+        _p = {'power_mod': 3, 'toughness_mod': 2, 'duration': 'end_of_turn', 'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.PT_MODIFICATION, payload=_p, source=sid))
+        for _i in range(1):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': caster, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=sid))
+        return events
+    return _eff()
+
+
+def requiting_hex_resolve(targets, state):
+    """Requiting Hex: As an additional cost to cast this spell, you may blight 1. Destroy target creature with mana value 2 or less. If the additional cost was paid, you gain 2 life."""
+    sid, caster = _spell_src('Requiting Hex', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': caster, 'amount': 2}, source=sid))
+        _tid = _opp_creature(caster, state) or _any_creature(caster, state)
+        _p = {'target_filter': 'permanent'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.OBJECT_DESTROYED, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def riverguards_reflexes_resolve(targets, state):
+    """Riverguard's Reflexes: Target creature gets +2/+2 and gains first strike until end of turn. Untap it."""
+    sid, caster = _spell_src("Riverguard's Reflexes", state)
+    def _eff():
+        events = []
+        _tid = _friendly_creature(caster, state) or _any_creature(caster, state)
+        _p = {'power_mod': 2, 'toughness_mod': 2, 'duration': 'end_of_turn', 'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.PT_MODIFICATION, payload=_p, source=sid))
+        if _tid:
+            events.append(Event(type=EventType.UNTAP, payload={'object_id': _tid}, source=sid))
+        return events
+    return _eff()
+
+
+def sear_resolve(targets, state):
+    """Sear: Sear deals 3 damage to target creature or planeswalker."""
+    sid, caster = _spell_src('Sear', state)
+    def _eff():
+        events = []
+        _tid = _opp_creature(caster, state)
+        _p = {'amount': 3, 'target_filter': 'creature'}
+        if _tid:
+            _p['target'] = _tid; _p['target_type'] = 'creature'
+        events.append(Event(type=EventType.DAMAGE, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def soul_immolation_resolve(targets, state):
+    """Soul Immolation: Soul Immolation deals 6 damage to each creature."""
+    sid, caster = _spell_src('Soul Immolation', state)
+    def _eff():
+        events = []
+        for _o in _bf_creatures(state):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': _o.id, 'amount': 6, 'target_type': 'creature'}, source=sid))
+        if not any(e.type==EventType.DAMAGE for e in events):
+            events.append(Event(type=EventType.DAMAGE, payload={'amount': 6, 'target_type': 'creature', 'target_filter': 'each_creature'}, source=sid))
+        return events
+    return _eff()
+
+
+def spectral_procession_resolve(targets, state):
+    """Spectral Procession: Create three 1/1 white Spirit creature tokens with flying."""
+    sid, caster = _spell_src('Spectral Procession', state)
+    def _eff():
+        events = []
+        for _i in range(3):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': caster, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=sid))
+        return events
+    return _eff()
+
+
+def spry_and_mighty_resolve(targets, state):
+    """Spry and Mighty: Target creature gets +3/+3 until end of turn. Untap it."""
+    sid, caster = _spell_src('Spry and Mighty', state)
+    def _eff():
+        events = []
+        _tid = _friendly_creature(caster, state) or _any_creature(caster, state)
+        _p = {'power_mod': 3, 'toughness_mod': 3, 'duration': 'end_of_turn', 'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.PT_MODIFICATION, payload=_p, source=sid))
+        if _tid:
+            events.append(Event(type=EventType.UNTAP, payload={'object_id': _tid}, source=sid))
+        return events
+    return _eff()
+
+
+def sunderflock_resolve(targets, state):
+    """Sunderflock: Return all creatures to their owners' hands."""
+    sid, caster = _spell_src('Sunderflock', state)
+    def _eff():
+        events = []
+        for _o in _bf_creatures(state):
+            events.append(Event(type=EventType.RETURN_TO_HAND, payload={'object_id': _o.id}, source=sid))
+        if not events:
+            events.append(Event(type=EventType.RETURN_TO_HAND, payload={'target_filter': 'all_creatures'}, source=sid))
+        return events
+    return _eff()
+
+
+def swat_away_resolve(targets, state):
+    """Swat Away: Return target creature with flying to its owner's hand."""
+    sid, caster = _spell_src('Swat Away', state)
+    def _eff():
+        events = []
+        _tid = _any_creature(caster, state)
+        _p = {'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.RETURN_TO_HAND, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def tarfire_resolve(targets, state):
+    """Tarfire: Tribal Instant — Goblin. Tarfire deals 2 damage to any target."""
+    sid, caster = _spell_src('Tarfire', state)
+    def _eff():
+        events = []
+        _opp = next(_opps(caster, state), None)
+        events.append(Event(type=EventType.DAMAGE, payload={'target': _opp, 'amount': 2, 'target_type': 'player'}, source=sid))
+        return events
+    return _eff()
+
+
+def tend_the_sprigs_resolve(targets, state):
+    """Tend the Sprigs: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle. Then if you control seven or more lands and/or Treefolk, create a 3/4 green Treefolk creature token with reach."""
+    sid, caster = _spell_src('Tend the Sprigs', state)
+    def _eff():
+        events = []
+        for _i in range(1):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': caster, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=sid))
+        events.append(Event(type=EventType.SEARCH_LIBRARY, payload={'player': caster, 'card_type': 'basic land', 'destination': 'battlefield'}, source=sid))
+        return events
+    return _eff()
+
+
+def thirst_for_identity_resolve(targets, state):
+    """Thirst for Identity: Draw two cards. Then discard a card unless you reveal a Shapeshifter card from your hand."""
+    sid, caster = _spell_src('Thirst for Identity', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': caster, 'count': 2}, source=sid))
+        events.append(Event(type=EventType.DISCARD, payload={'player': caster, 'count': 1, 'optional': True}, source=sid))
+        return events
+    return _eff()
+
+
+def thoughtweft_charge_resolve(targets, state):
+    """Thoughtweft Charge: Target creature gets +3/+3 until end of turn. If a creature entered the battlefield under your control this turn, draw a card."""
+    sid, caster = _spell_src('Thoughtweft Charge', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': caster, 'count': 1}, source=sid))
+        _tid = _friendly_creature(caster, state) or _any_creature(caster, state)
+        _p = {'power_mod': 3, 'toughness_mod': 3, 'duration': 'end_of_turn', 'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.PT_MODIFICATION, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def thoughtweft_gambit_resolve(targets, state):
+    """Thoughtweft Gambit: Tap all creatures your opponents control and untap all creatures you control."""
+    sid, caster = _spell_src('Thoughtweft Gambit', state)
+    def _eff():
+        events = []
+        for _o in _bf_creatures(state):
+            if _o.controller != caster:
+                events.append(Event(type=EventType.TAP, payload={'object_id': _o.id}, source=sid))
+        if not any(e.type==EventType.TAP for e in events):
+            events.append(Event(type=EventType.TAP, payload={'target_filter': 'all_opponent_creatures'}, source=sid))
+        return events
+    return _eff()
+
+
+def tweeze_resolve(targets, state):
+    """Tweeze: Tweeze deals 2 damage to target creature or planeswalker. Create a Treasure token."""
+    sid, caster = _spell_src('Tweeze', state)
+    def _eff():
+        events = []
+        _tid = _opp_creature(caster, state)
+        _p = {'amount': 2, 'target_filter': 'creature'}
+        if _tid:
+            _p['target'] = _tid; _p['target_type'] = 'creature'
+        events.append(Event(type=EventType.DAMAGE, payload=_p, source=sid))
+        for _i in range(1):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': caster, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=sid))
+        return events
+    return _eff()
+
+
+def unbury_resolve(targets, state):
+    """Unbury: Return target creature card from your graveyard to the battlefield. It enters with a -1/-1 counter on it."""
+    sid, caster = _spell_src('Unbury', state)
+    def _eff():
+        events = []
+        _cid = _gy_creature(caster, state)
+        _p = {'player': caster, 'to': 'battlefield', 'target_filter': 'creature_in_your_graveyard'}
+        if _cid:
+            _p['object_id'] = _cid
+        events.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def unexpected_assistance_resolve(targets, state):
+    """Unexpected Assistance: Draw three cards."""
+    sid, caster = _spell_src('Unexpected Assistance', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': caster, 'count': 3}, source=sid))
+        return events
+    return _eff()
+
+
+def unforgiving_aim_resolve(targets, state):
+    """Unforgiving Aim: Target creature you control deals damage equal to its power to target creature an opponent controls. You gain life equal to the damage dealt this way."""
+    sid, caster = _spell_src('Unforgiving Aim', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': caster, 'amount': 1, 'variable': True}, source=sid))
+        _tid = _opp_creature(caster, state)
+        _p = {'amount': 1, 'variable': True, 'target_filter': 'creature'}
+        if _tid:
+            _p['target'] = _tid; _p['target_type'] = 'creature'
+        events.append(Event(type=EventType.DAMAGE, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def unmake_resolve(targets, state):
+    """Unmake: Exile target creature."""
+    sid, caster = _spell_src('Unmake', state)
+    def _eff():
+        events = []
+        _tid = _any_creature(caster, state)
+        _p = {'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.EXILE, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def wanderwine_farewell_resolve(targets, state):
+    """Wanderwine Farewell: Return all nonland permanents to their owners' hands. Each player draws a card for each permanent they own that was returned this way."""
+    sid, caster = _spell_src('Wanderwine Farewell', state)
+    def _eff():
+        events = []
+        for _o in _bf_creatures(state):
+            events.append(Event(type=EventType.RETURN_TO_HAND, payload={'object_id': _o.id}, source=sid))
+        if not events:
+            events.append(Event(type=EventType.RETURN_TO_HAND, payload={'target_filter': 'all_creatures'}, source=sid))
+        return events
+    return _eff()
+
+
+def winnowing_resolve(targets, state):
+    """Winnowing: Destroy all creatures with power 4 or greater."""
+    sid, caster = _spell_src('Winnowing', state)
+    def _eff():
+        events = []
+        for _o in _bf_creatures(state):
+            events.append(Event(type=EventType.OBJECT_DESTROYED, payload={'object_id': _o.id}, source=sid))
+        if not events:
+            events.append(Event(type=EventType.OBJECT_DESTROYED, payload={'target_filter': 'all_creatures'}, source=sid))
+        return events
+    return _eff()
+
+
+def wretched_banquet_resolve(targets, state):
+    """Wretched Banquet: Destroy target creature if it has the least power or is tied for least power among creatures on the battlefield."""
+    sid, caster = _spell_src('Wretched Banquet', state)
+    def _eff():
+        events = []
+        _tid = _opp_creature(caster, state) or _any_creature(caster, state)
+        _p = {'target_filter': 'permanent'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.OBJECT_DESTROYED, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+
+def _register_section2_instants():
+    FAE_BUT_MID_CARDS['Assert Perfection'].resolve = assert_perfection_resolve
+    FAE_BUT_MID_CARDS["Auntie's Favor"].resolve = aunties_favor_resolve
+    FAE_BUT_MID_CARDS['Blight Rot'].resolve = blight_rot_resolve
+    FAE_BUT_MID_CARDS['Bloodline Bidding'].resolve = bloodline_bidding_resolve
+    FAE_BUT_MID_CARDS['Blossoming Defense'].resolve = blossoming_defense_resolve
+    FAE_BUT_MID_CARDS["Bogslither's Embrace"].resolve = bogslithers_embrace_resolve
+    FAE_BUT_MID_CARDS['Boulder Dash'].resolve = boulder_dash_resolve
+    FAE_BUT_MID_CARDS['Catharsis'].resolve = catharsis_resolve
+    FAE_BUT_MID_CARDS['Cinder Strike'].resolve = cinder_strike_resolve
+    FAE_BUT_MID_CARDS['Crib Swap'].resolve = crib_swap_resolve
+    FAE_BUT_MID_CARDS['Darkness Descends'].resolve = darkness_descends_resolve
+    FAE_BUT_MID_CARDS['Death Denied'].resolve = death_denied_resolve
+    FAE_BUT_MID_CARDS['Dose of Dawnglow'].resolve = dose_of_dawnglow_resolve
+    FAE_BUT_MID_CARDS['Feed the Flames'].resolve = feed_the_flames_resolve
+    FAE_BUT_MID_CARDS['Fiery Justice'].resolve = fiery_justice_resolve
+    FAE_BUT_MID_CARDS['Firespout'].resolve = firespout_resolve
+    FAE_BUT_MID_CARDS['Fodder Launch'].resolve = fodder_launch_resolve
+    FAE_BUT_MID_CARDS['Harmonized Crescendo'].resolve = harmonized_crescendo_resolve
+    FAE_BUT_MID_CARDS['Hunting Triad'].resolve = hunting_triad_resolve
+    FAE_BUT_MID_CARDS['Impolite Entrance'].resolve = impolite_entrance_resolve
+    FAE_BUT_MID_CARDS['Lasting Tarfire'].resolve = lasting_tarfire_resolve
+    FAE_BUT_MID_CARDS['Lofty Dreams'].resolve = lofty_dreams_resolve
+    FAE_BUT_MID_CARDS['Makeshift Mannequin'].resolve = makeshift_mannequin_resolve
+    FAE_BUT_MID_CARDS['Manamorphose'].resolve = manamorphose_resolve
+    FAE_BUT_MID_CARDS['Midnight Tilling'].resolve = midnight_tilling_resolve
+    FAE_BUT_MID_CARDS['Mirrorform'].resolve = mirrorform_resolve
+    FAE_BUT_MID_CARDS["Morningtide's Light"].resolve = morningtides_light_resolve
+    FAE_BUT_MID_CARDS['Peppersmoke'].resolve = peppersmoke_resolve
+    FAE_BUT_MID_CARDS['Perfect Intimidation'].resolve = perfect_intimidation_resolve
+    FAE_BUT_MID_CARDS['Personify'].resolve = personify_resolve
+    FAE_BUT_MID_CARDS['Ponder'].resolve = ponder_resolve
+    FAE_BUT_MID_CARDS['Protective Response'].resolve = protective_response_resolve
+    FAE_BUT_MID_CARDS['Pyrrhic Strike'].resolve = pyrrhic_strike_resolve
+    FAE_BUT_MID_CARDS['Reckless Ransacking'].resolve = reckless_ransacking_resolve
+    FAE_BUT_MID_CARDS['Requiting Hex'].resolve = requiting_hex_resolve
+    FAE_BUT_MID_CARDS["Riverguard's Reflexes"].resolve = riverguards_reflexes_resolve
+    FAE_BUT_MID_CARDS['Sear'].resolve = sear_resolve
+    FAE_BUT_MID_CARDS['Soul Immolation'].resolve = soul_immolation_resolve
+    FAE_BUT_MID_CARDS['Spectral Procession'].resolve = spectral_procession_resolve
+    FAE_BUT_MID_CARDS['Spry and Mighty'].resolve = spry_and_mighty_resolve
+    FAE_BUT_MID_CARDS['Sunderflock'].resolve = sunderflock_resolve
+    FAE_BUT_MID_CARDS['Swat Away'].resolve = swat_away_resolve
+    FAE_BUT_MID_CARDS['Tarfire'].resolve = tarfire_resolve
+    FAE_BUT_MID_CARDS['Tend the Sprigs'].resolve = tend_the_sprigs_resolve
+    FAE_BUT_MID_CARDS['Thirst for Identity'].resolve = thirst_for_identity_resolve
+    FAE_BUT_MID_CARDS['Thoughtweft Charge'].resolve = thoughtweft_charge_resolve
+    FAE_BUT_MID_CARDS['Thoughtweft Gambit'].resolve = thoughtweft_gambit_resolve
+    FAE_BUT_MID_CARDS['Tweeze'].resolve = tweeze_resolve
+    FAE_BUT_MID_CARDS['Unbury'].resolve = unbury_resolve
+    FAE_BUT_MID_CARDS['Unexpected Assistance'].resolve = unexpected_assistance_resolve
+    FAE_BUT_MID_CARDS['Unforgiving Aim'].resolve = unforgiving_aim_resolve
+    FAE_BUT_MID_CARDS['Unmake'].resolve = unmake_resolve
+    FAE_BUT_MID_CARDS['Wanderwine Farewell'].resolve = wanderwine_farewell_resolve
+    FAE_BUT_MID_CARDS['Winnowing'].resolve = winnowing_resolve
+    FAE_BUT_MID_CARDS['Wretched Banquet'].resolve = wretched_banquet_resolve
+
+_register_section2_instants()
