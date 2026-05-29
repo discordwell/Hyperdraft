@@ -33,6 +33,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 #   - nodejs (Node 20 via NodeSource): host for the npm-installed claude CLI
 #   - @anthropic-ai/claude-code: the CLI invoked by scripts/launch_ultra_agent.sh,
 #     auto_repair.py (Phase 3), and the /api/admin/train endpoint (Phase 4)
+# Pinned for reproducible builds AND to defeat Docker layer-caching: editing
+# this version (or passing --build-arg CLAUDE_CODE_VERSION=...) busts the cache
+# so `npm install` actually re-runs and the in-container claude CLI updates.
+# An unpinned install stays frozen at whatever version was first cached.
+# Must be >= 2.1.154 for Opus 4.8 support.
+ARG CLAUDE_CODE_VERSION=2.1.154
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -41,7 +47,7 @@ RUN apt-get update \
         gnupg \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
-    && npm install -g @anthropic-ai/claude-code \
+    && npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
