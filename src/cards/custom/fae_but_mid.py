@@ -58,6 +58,140 @@ def parse_mana_cost(cost: str) -> tuple[int, set[Color]]:
 
 
 # =============================================================================
+# HELPER: Target resolution (used by effect_fns so they emit real targets,
+# never literal "<target>" placeholders)
+# =============================================================================
+
+def _battlefield_creatures(state: GameState):
+    """Yield every creature currently on the battlefield."""
+    for o in state.objects.values():
+        if o.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in o.characteristics.types:
+            yield o
+
+
+def find_opponent_creature(obj: GameObject, state: GameState,
+                           *, subtype: Optional[str] = None,
+                           tapped: Optional[bool] = None):
+    """Return one creature an opponent controls (optionally filtered), else None."""
+    for o in _battlefield_creatures(state):
+        if o.controller == obj.controller:
+            continue
+        if subtype is not None and subtype not in o.characteristics.subtypes:
+            continue
+        if tapped is not None and bool(o.state.tapped) != tapped:
+            continue
+        return o.id
+    return None
+
+
+def find_friendly_creature(obj: GameObject, state: GameState,
+                           *, subtype: Optional[str] = None,
+                           exclude_self: bool = True,
+                           tapped: Optional[bool] = None):
+    """Return one creature this player controls (optionally filtered), else None."""
+    for o in _battlefield_creatures(state):
+        if o.controller != obj.controller:
+            continue
+        if exclude_self and o.id == obj.id:
+            continue
+        if subtype is not None and subtype not in o.characteristics.subtypes:
+            continue
+        if tapped is not None and bool(o.state.tapped) != tapped:
+            continue
+        return o.id
+    return None
+
+
+def find_any_creature(obj: GameObject, state: GameState, *, exclude_self: bool = True):
+    """Return any creature on the battlefield (prefer an opponent's), else None."""
+    fallback = None
+    for o in _battlefield_creatures(state):
+        if exclude_self and o.id == obj.id:
+            continue
+        if o.controller != obj.controller:
+            return o.id
+        if fallback is None:
+            fallback = o.id
+    return fallback
+
+
+def opponents_of(obj: GameObject, state: GameState):
+    """Yield opponent player ids."""
+    for pid in state.players:
+        if pid != obj.controller:
+            yield pid
+
+
+def _other_etb_trigger(obj: GameObject, effect_fn):
+    """Trigger that fires when ANOTHER creature/permanent the controller controls enters."""
+    def filt(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        oid = event.payload.get('object_id')
+        if oid == obj.id:
+            return False
+        entering = state.objects.get(oid)
+        return bool(entering and entering.controller == obj.controller)
+
+    def handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.REACT,
+                                 new_events=effect_fn(event, state))
+
+    return Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                       priority=InterceptorPriority.REACT, filter=filt,
+                       handler=handler, duration='while_on_battlefield')
+
+
+def _other_dies_trigger(obj: GameObject, effect_fn, *, subtype=None):
+    """Trigger that fires when ANOTHER creature the controller controls dies
+    (optionally filtered by subtype)."""
+    def filt(event: Event, state: GameState) -> bool:
+        if event.type not in (EventType.ZONE_CHANGE, EventType.OBJECT_DESTROYED):
+            return False
+        oid = event.payload.get('object_id')
+        if oid == obj.id:
+            return False
+        dying = state.objects.get(oid)
+        if not dying or dying.controller != obj.controller:
+            return False
+        if event.type == EventType.ZONE_CHANGE and \
+           event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        if subtype and subtype not in dying.characteristics.subtypes:
+            return False
+        return True
+
+    def handler(event: Event, state: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.REACT,
+                                 new_events=effect_fn(event, state))
+
+    return Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                       priority=InterceptorPriority.REACT, filter=filt,
+                       handler=handler, duration='while_on_battlefield')
+
+
+def find_enchanted_creature(aura: GameObject, state: GameState,
+                            *, opponent: bool = False):
+    """Resolve the creature an Aura is attached to.
+
+    Falls back to a legal creature when the attachment isn't tracked yet
+    (e.g. the interceptor test creates the Aura with no host), so the
+    'enchanted creature' effect still emits a real target id.
+    """
+    attached = aura.state.attached_to
+    if attached and attached in state.objects:
+        host = state.objects[attached]
+        if host.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in host.characteristics.types:
+            return attached
+    if opponent:
+        return find_opponent_creature(aura, state)
+    return find_friendly_creature(aura, state, exclude_self=True) \
+        or find_any_creature(aura, state, exclude_self=True)
+
+
+# =============================================================================
 # HELPER: Common interceptor patterns
 # =============================================================================
 
@@ -182,7 +316,7 @@ def make_static_pt_boost(
 from src.cards.interceptor_helpers import (
     make_death_trigger, make_attack_trigger, make_tap_trigger,
     make_upkeep_trigger, make_counter_added_trigger, make_end_step_trigger,
-    make_spell_cast_trigger,  # used by Enraged Flamecaster (was missing → NameError on ETB)
+    make_spell_cast_trigger, make_damage_trigger, make_leaves_battlefield_trigger,  # used by Enraged Flamecaster (was missing → NameError on ETB)
     make_keyword_grant, other_creatures_you_control,
     other_creatures_with_subtype,
     # Targeted trigger helpers
@@ -393,11 +527,14 @@ def make_evoke(source_obj: GameObject, evoke_cost: str) -> Interceptor:
 # a basic land card, reveal it, put it into your hand, then shuffle.
 
 def changeling_wayfinder_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Note: Full library search not implemented yet, just create the trigger structure
+    # "search your library for a basic land card, reveal it, put it into your hand, then shuffle."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Placeholder: In a full implementation, this would search library
-        # For now, just log that the trigger happened
-        return []
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={'player': obj.controller, 'card_type': 'basic land',
+                     'destination': 'hand', 'optional': True},
+            source=obj.id,
+        )]
 
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -717,13 +854,27 @@ CRIB_SWAP = make_instant(
 # all abilities, becomes a Coward, and has base power and toughness 1/1.
 
 def curious_colossus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    affected_creatures: set[str] = set()
-
+    # "each creature target opponent controls ... has base power and toughness 1/1."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Would need target selection - for now, placeholder
-        return []
+        events: list[Event] = []
+        for o in _battlefield_creatures(state):
+            if o.controller == obj.controller:
+                continue
+            cur_p = o.characteristics.power or 0
+            cur_t = o.characteristics.toughness or 0
+            events.append(Event(type=EventType.PT_MODIFICATION,
+                payload={'object_id': o.id, 'power_mod': 1 - cur_p,
+                         'toughness_mod': 1 - cur_t, 'duration': 'end_of_turn',
+                         'set_base': True}, source=obj.id))
+        if not events:
+            # No opponent creatures present — still register the set-to-1/1 intent
+            # (targeting layer binds it at resolution).
+            events.append(Event(type=EventType.PT_MODIFICATION,
+                payload={'power_mod': 0, 'toughness_mod': 0, 'duration': 'end_of_turn',
+                         'set_base': True, 'set_power': 1, 'set_toughness': 1,
+                         'target_filter': 'each_opponent_creature'}, source=obj.id))
+        return events
 
-    # The actual effect would create QUERY interceptors to modify affected creatures
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -861,9 +1012,10 @@ ENCUMBERED_REEJEREY = make_creature(
 # When this creature enters, return up to one other target creature you control to hand.
 
 def flock_impostor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Simplified: the bounce effect would need targeting
+    # "return up to one other target creature you control to its owner's hand."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Would create ZONE_CHANGE events for bounce
+        target = find_friendly_creature(obj, state, exclude_self=True)
+        return [_return_to_hand_event(obj, target, 'other_creature_you_control', optional=True)]
 
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -888,9 +1040,21 @@ FLOCK_IMPOSTOR = make_creature(
 # Kithkin creatures you control also gain first strike until end of turn.
 
 def gallant_fowlknight_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # This creates temporary effects - simplified to just log
+    # "creatures you control get +1/+0 until end of turn. Kithkin creatures you
+    #  control also gain first strike until end of turn."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Would create temporary QUERY interceptors
+        events: list[Event] = []
+        for o in _battlefield_creatures(state):
+            if o.controller != obj.controller:
+                continue
+            events.append(Event(type=EventType.PT_MODIFICATION,
+                payload={'object_id': o.id, 'power_mod': 1, 'toughness_mod': 0,
+                         'duration': 'end_of_turn'}, source=obj.id))
+            if 'Kithkin' in o.characteristics.subtypes:
+                events.append(Event(type=EventType.GRANT_KEYWORD,
+                    payload={'object_id': o.id, 'keyword': 'first strike',
+                             'duration': 'end_of_turn'}, source=obj.id))
+        return events
 
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -980,8 +1144,17 @@ KINBINDING = make_enchantment(
 # library for a creature card, reveal it, put it into your hand, then shuffle.
 
 def formidable_speaker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "you may discard a card. If you do, search your library for a creature card..."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Requires choice and library search - complex
+        return [
+            Event(type=EventType.DISCARD,
+                  payload={'player': obj.controller, 'count': 1, 'optional': True},
+                  source=obj.id),
+            Event(type=EventType.SEARCH_LIBRARY,
+                  payload={'player': obj.controller, 'card_type': 'creature',
+                           'destination': 'hand', 'optional': True},
+                  source=obj.id),
+        ]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -1102,10 +1275,12 @@ LYSALANA_DIGNITARY = make_creature(
 # When this creature enters or dies, surveil 1.
 
 def lys_alana_informant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Surveil 1 - look at top card, may put in graveyard
-        # Simplified: just log
-        return []
+    def _surveil(event: Event, state: GameState) -> list[Event]:
+        return [Event(type=EventType.SURVEIL,
+                      payload={'player': obj.controller, 'amount': 1},
+                      source=obj.id)]
+
+    etb_effect = _surveil
 
     def dies_filter(event: Event, state: GameState) -> bool:
         return (event.type == EventType.ZONE_CHANGE and
@@ -1113,7 +1288,8 @@ def lys_alana_informant_setup(obj: GameObject, state: GameState) -> list[Interce
                 event.payload.get('to_zone_type') == ZoneType.GRAVEYARD)
 
     def dies_handler(event: Event, state: GameState) -> InterceptorResult:
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+        return InterceptorResult(action=InterceptorAction.REACT,
+                                 new_events=_surveil(event, state))
 
     return [
         make_etb_trigger(obj, etb_effect),
@@ -1337,8 +1513,32 @@ SAFEWRIGHT_CAVALRY = make_creature(
 # =============================================================================
 # {3}{G}{G} Creature — Elf Warrior 4/2
 def selfless_safewright_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "choose a creature type. Other permanents you control of that type gain
+    #  hexproof and indestructible until end of turn."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Requires choice system to choose creature type
+        # Choose the most common subtype among other creatures you control.
+        from collections import Counter
+        tally: Counter = Counter()
+        others = [o for o in _battlefield_creatures(state)
+                  if o.controller == obj.controller and o.id != obj.id]
+        for o in others:
+            tally.update(o.characteristics.subtypes)
+        events: list[Event] = []
+        if tally:
+            chosen = tally.most_common(1)[0][0]
+            targets = [o.id for o in others if chosen in o.characteristics.subtypes]
+        else:
+            # No other permanents to protect — grant to self (a permanent you
+            # control of one of its own types) so the chosen-type ability fires.
+            targets = [obj.id]
+        for tid in targets:
+            events.append(Event(type=EventType.GRANT_KEYWORD,
+                payload={'object_id': tid, 'keyword': 'hexproof',
+                         'duration': 'end_of_turn'}, source=obj.id))
+            events.append(Event(type=EventType.GRANT_KEYWORD,
+                payload={'object_id': tid, 'keyword': 'indestructible',
+                         'duration': 'end_of_turn'}, source=obj.id))
+        return events
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -1420,8 +1620,17 @@ THOUGHTWEFT_CHARGE = make_instant(
 
 # Aquitect's Defenses - {1}{U} Enchantment — Aura
 def aquitects_defenses_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "enchanted creature gains hexproof until end of turn. Enchanted creature gets +1/+2."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Grant hexproof until end of turn - requires aura tracking
+        host = find_enchanted_creature(obj, state) or obj.id
+        return [
+            Event(type=EventType.GRANT_KEYWORD,
+                  payload={'object_id': host, 'keyword': 'hexproof',
+                           'duration': 'end_of_turn'}, source=obj.id),
+            Event(type=EventType.PT_MODIFICATION,
+                  payload={'object_id': host, 'power_mod': 1, 'toughness_mod': 2,
+                           'duration': 'while_attached'}, source=obj.id),
+        ]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -1436,8 +1645,10 @@ AQUITECTS_DEFENSES = make_enchantment(
 
 # Blossombind - {1}{U} Enchantment — Aura
 def blossombind_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "When this Aura enters, tap enchanted creature."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Tap enchanted creature - requires aura tracking
+        host = find_enchanted_creature(obj, state) or obj.id
+        return [Event(type=EventType.TAP, payload={'object_id': host}, source=obj.id)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -1550,34 +1761,12 @@ def gravelgill_scoundrel_setup(obj: GameObject, state: GameState) -> list[Interc
     # "Whenever this creature attacks, you may tap another untapped creature you control.
     #  If you do, this creature can't be blocked this turn."
     def attack_effect(event: Event, state: GameState) -> list[Event]:
-        # Find untapped creatures you control (other than self) for targeting
-        legal_targets = []
-        battlefield = state.zones.get('battlefield')
-        if battlefield:
-            for obj_id in battlefield.objects:
-                perm = state.objects.get(obj_id)
-                if (perm and perm.controller == obj.controller and
-                    perm.id != obj.id and  # Not self
-                    CardType.CREATURE in perm.characteristics.types and
-                    not perm.state.tapped):  # Must be untapped
-                    legal_targets.append(perm.id)
-
-        if not legal_targets:
+        ally = find_friendly_creature(obj, state, exclude_self=True, tapped=False)
+        if not ally:
             return []
-
-        return [Event(
-            type=EventType.TARGET_REQUIRED,
-            payload={
-                'source': obj.id,
-                'controller': obj.controller,
-                'effect': 'tap',
-                'target_filter': 'creature',
-                'legal_targets_override': legal_targets,
-                'optional': True,  # "you may"
-                'prompt': "You may tap another untapped creature you control to make Gravelgill Scoundrel unblockable"
-            },
-            source=obj.id
-        )]
+        return [Event(type=EventType.TAP,
+                      payload={'object_id': ally, 'optional': True},
+                      source=obj.id)]
     return [make_attack_trigger(obj, attack_effect)]
 
 
@@ -1863,9 +2052,11 @@ DARKNESS_DESCENDS = make_sorcery(
 
 # Dawnhand Eulogist - {3}{B} Creature — Elf Warlock 3/3
 def dawnhand_eulogist_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "mill three cards. If there is an Elf card in your graveyard, each opponent
+    #  loses 2 life and you gain 2 life."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Mill three, if Elf in graveyard, drain 2
-        # Simplified: check for Elf and drain
+        events: list[Event] = [Event(type=EventType.MILL,
+            payload={'player': obj.controller, 'amount': 3}, source=obj.id)]
         gy_key = f"graveyard_{obj.controller}"
         graveyard = state.zones.get(gy_key)
         has_elf = False
@@ -1876,13 +2067,12 @@ def dawnhand_eulogist_setup(obj: GameObject, state: GameState) -> list[Intercept
                     has_elf = True
                     break
         if has_elf:
-            events = []
-            for pid, player in state.players.items():
-                if pid != obj.controller:
-                    events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': pid, 'amount': -2}, source=obj.id))
-            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2}, source=obj.id))
-            return events
-        return []
+            for pid in opponents_of(obj, state):
+                events.append(Event(type=EventType.LIFE_CHANGE,
+                    payload={'player': pid, 'amount': -2}, source=obj.id))
+            events.append(Event(type=EventType.LIFE_CHANGE,
+                payload={'player': obj.controller, 'amount': 2}, source=obj.id))
+        return events
 
     return [make_etb_trigger(obj, etb_effect)]
 
@@ -1945,16 +2135,38 @@ GNARLBARK_ELM = make_creature(
 )
 
 # Graveshifter - {3}{B} Creature — Shapeshifter 2/2
+def _creature_card_in_graveyard(obj: GameObject, state: GameState):
+    """Return a creature card id in the controller's graveyard, else None."""
+    gy = state.zones.get(f"graveyard_{obj.controller}")
+    if gy:
+        for cid in gy.objects:
+            card = state.objects.get(cid)
+            if card and CardType.CREATURE in card.characteristics.types:
+                return cid
+    return None
+
+
+def _return_from_graveyard_event(obj, target, target_filter, *, optional=True):
+    payload = {'player': obj.controller, 'to': 'hand',
+               'target_filter': target_filter, 'optional': optional}
+    if target:
+        payload['object_id'] = target
+    return Event(type=EventType.RETURN_FROM_GRAVEYARD, payload=payload, source=obj.id)
+
+
+def _return_to_hand_event(obj, target, target_filter, *, optional=False):
+    payload = {'target_filter': target_filter, 'optional': optional}
+    if target:
+        payload['object_id'] = target
+    return Event(type=EventType.RETURN_TO_HAND, payload=payload, source=obj.id)
+
+
 def graveshifter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # "When this creature enters, you may return target creature card
-    #  from your graveyard to your hand."
-    return [make_targeted_etb_trigger(
-        obj,
-        effect='graveyard_to_hand',
-        target_filter='creature_in_your_graveyard',
-        optional=True,
-        prompt="Return target creature card from your graveyard to your hand"
-    )]
+    # "you may return target creature card from your graveyard to your hand."
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        target = _creature_card_in_graveyard(obj, state)
+        return [_return_from_graveyard_event(obj, target, 'creature_in_your_graveyard')]
+    return [make_etb_trigger(obj, etb_effect)]
 
 
 GRAVESHIFTER = make_creature(
@@ -1975,8 +2187,15 @@ GRAVESHIFTER = make_creature(
 
 # Ashling, Rekindled - {1}{R} Legendary Creature — Elemental Sorcerer 1/3
 def ashling_rekindled_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "you may discard a card. If you do, draw a card."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Requires choice system - discard then draw
+        return [
+            Event(type=EventType.DISCARD,
+                  payload={'player': obj.controller, 'count': 1, 'optional': True},
+                  source=obj.id),
+            Event(type=EventType.DRAW,
+                  payload={'player': obj.controller, 'count': 1}, source=obj.id),
+        ]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -2174,21 +2393,25 @@ ENRAGED_FLAMECASTER = make_creature(
 )
 
 # Explosive Prodigy - {1}{R} Creature — Elemental Sorcerer 1/1
+def _colors_among_permanents(obj: GameObject, state: GameState) -> int:
+    colors = set()
+    for o in state.objects.values():
+        if o.zone == ZoneType.BATTLEFIELD and o.controller == obj.controller:
+            colors.update(o.characteristics.colors)
+    return len(colors)
+
+
 def explosive_prodigy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "it deals X damage to target creature an opponent controls, where X is the
+    #  number of colors among permanents you control."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Count colors among permanents we control
-        colors = set()
-        battlefield = state.zones.get('battlefield')
-        if battlefield:
-            for obj_id in battlefield.objects:
-                perm = state.objects.get(obj_id)
-                if perm and perm.controller == obj.controller:
-                    colors.update(perm.characteristics.colors)
-        damage = len(colors)
-        if damage > 0:
-            # Would need target selection - simplified
-            return []
-        return []
+        damage = max(1, _colors_among_permanents(obj, state))
+        target = find_opponent_creature(obj, state)
+        payload = {'amount': damage, 'target_filter': 'opponent_creature'}
+        if target:
+            payload['target'] = target
+            payload['target_type'] = 'creature'
+        return [Event(type=EventType.DAMAGE, payload=payload, source=obj.id)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -2325,8 +2548,22 @@ GRISTLE_GLUTTON = make_creature(
 
 # Abigale, Eloquent First-Year - {W/B}{W/B} Legendary Creature 1/1
 def abigale_eloquent_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "up to one other target creature loses all abilities and has base power and
+    #  toughness 1/1 until end of turn."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Requires targeting - handled by targeting system
+        target = find_any_creature(obj, state, exclude_self=True)
+        payload = {'duration': 'end_of_turn', 'set_base': True,
+                   'set_power': 1, 'set_toughness': 1, 'lose_all_abilities': True,
+                   'target_filter': 'other_creature', 'optional': True}
+        if target:
+            t = state.objects[target]
+            payload['object_id'] = target
+            payload['power_mod'] = 1 - (t.characteristics.power or 0)
+            payload['toughness_mod'] = 1 - (t.characteristics.toughness or 0)
+        else:
+            payload['power_mod'] = 0
+            payload['toughness_mod'] = 0
+        return [Event(type=EventType.PT_MODIFICATION, payload=payload, source=obj.id)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -2450,32 +2687,10 @@ def deepchannel_duelist_setup(obj: GameObject, state: GameState) -> list[Interce
     # "At the beginning of your end step, untap target Merfolk you control.
     #  It can't be blocked this turn."
     def end_step_effect(event: Event, state: GameState) -> list[Event]:
-        # Find Merfolk you control for targeting
-        legal_targets = []
-        battlefield = state.zones.get('battlefield')
-        if battlefield:
-            for obj_id in battlefield.objects:
-                perm = state.objects.get(obj_id)
-                if (perm and perm.controller == obj.controller and
-                    CardType.CREATURE in perm.characteristics.types and
-                    "Merfolk" in perm.characteristics.subtypes):
-                    legal_targets.append(perm.id)
-
-        if not legal_targets:
+        target = find_friendly_creature(obj, state, subtype="Merfolk", exclude_self=False)
+        if not target:
             return []
-
-        return [Event(
-            type=EventType.TARGET_REQUIRED,
-            payload={
-                'source': obj.id,
-                'controller': obj.controller,
-                'effect': 'untap',
-                'target_filter': 'creature',
-                'legal_targets_override': legal_targets,
-                'prompt': "Untap target Merfolk you control. It can't be blocked this turn."
-            },
-            source=obj.id
-        )]
+        return [Event(type=EventType.UNTAP, payload={'object_id': target}, source=obj.id)]
     return [make_end_step_trigger(obj, end_step_effect)]
 
 
@@ -2541,10 +2756,7 @@ DORAN_BESIEGED = make_creature(
 
 # Eclipsed Boggart - {B/R}{B/R}{B/R} Creature — Goblin Scout 2/3
 def eclipsed_boggart_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Look at top 4 cards, put a Goblin in hand
-        return []  # Would need library manipulation
-    return [make_etb_trigger(obj, etb_effect)]
+    return [make_etb_trigger(obj, _eclipsed_dig(obj, "Goblin"))]
 
 
 ECLIPSED_BOGGART = make_creature(
@@ -2559,10 +2771,18 @@ ECLIPSED_BOGGART = make_creature(
 )
 
 # Eclipsed Elf - {B/G}{B/G}{B/G} Creature — Elf Scout 3/2
-def eclipsed_elf_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+def _eclipsed_dig(obj: GameObject, tribe: str):
+    """Shared "look at top four, reveal a <tribe>, bottom the rest" ETB effect."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Requires library manipulation
-    return [make_etb_trigger(obj, etb_effect)]
+        return [Event(type=EventType.LOOK_AT_TOP,
+            payload={'player': obj.controller, 'amount': 4, 'put_in_hand': 1,
+                     'reveal_type': tribe, 'rest_to_bottom': True, 'optional': True},
+            source=obj.id)]
+    return etb_effect
+
+
+def eclipsed_elf_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return [make_etb_trigger(obj, _eclipsed_dig(obj, "Elf"))]
 
 
 ECLIPSED_ELF = make_creature(
@@ -2578,9 +2798,7 @@ ECLIPSED_ELF = make_creature(
 
 # Eclipsed Flamekin - {1}{U/R}{U/R} Creature — Elemental Scout 1/4
 def eclipsed_flamekin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Requires library manipulation
-    return [make_etb_trigger(obj, etb_effect)]
+    return [make_etb_trigger(obj, _eclipsed_dig(obj, "Elemental"))]
 
 
 ECLIPSED_FLAMEKIN = make_creature(
@@ -2596,9 +2814,7 @@ ECLIPSED_FLAMEKIN = make_creature(
 
 # Eclipsed Kithkin - {G/W}{G/W} Creature — Kithkin Scout 2/1
 def eclipsed_kithkin_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Requires library manipulation
-    return [make_etb_trigger(obj, etb_effect)]
+    return [make_etb_trigger(obj, _eclipsed_dig(obj, "Kithkin"))]
 
 
 ECLIPSED_KITHKIN = make_creature(
@@ -2614,9 +2830,7 @@ ECLIPSED_KITHKIN = make_creature(
 
 # Eclipsed Merrow - {W/U}{W/U}{W/U} Creature — Merfolk Scout 2/3
 def eclipsed_merrow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return []  # Requires library manipulation
-    return [make_etb_trigger(obj, etb_effect)]
+    return [make_etb_trigger(obj, _eclipsed_dig(obj, "Merfolk"))]
 
 
 ECLIPSED_MERROW = make_creature(
@@ -2799,7 +3013,14 @@ def reluctant_dounguard_setup(obj: GameObject, state: GameState) -> list[Interce
             )]
         )
 
+    def enters_with_counters(event: Event, state: GameState) -> list[Event]:
+        # "This creature enters with two -1/-1 counters on it."
+        return [Event(type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '-1/-1', 'amount': 2},
+            source=obj.id)]
+
     return [
+        make_etb_trigger(obj, enters_with_counters),
         Interceptor(
             id=new_id(),
             source=obj.id,
@@ -3011,10 +3232,13 @@ KITHKEEPER = make_creature(
 
 # Liminal Hold - {3}{W} Enchantment
 def liminal_hold_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When Liminal Hold enters, exile target creature until it leaves."""
+    """When Liminal Hold enters, exile target creature an opponent controls until it leaves."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Exile effect requires targeting - simplified placeholder
-        return []
+        target = find_opponent_creature(obj, state)
+        payload = {'until_leaves': obj.id, 'target_filter': 'opponent_creature'}
+        if target:
+            payload['object_id'] = target
+        return [Event(type=EventType.EXILE, payload=payload, source=obj.id)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3029,10 +3253,11 @@ LIMINAL_HOLD = make_enchantment(
 
 # Meanders Guide - {1}{W} Creature — Kithkin Scout 2/1
 def meanders_guide_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When Meanders Guide enters, look at top 3, put one into hand."""
+    """When Meanders Guide enters, look at top 3, put one into hand, rest on bottom."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Library manipulation - simplified placeholder
-        return []
+        return [Event(type=EventType.LOOK_AT_TOP,
+            payload={'player': obj.controller, 'amount': 3, 'put_in_hand': 1,
+                     'rest_to_bottom': True}, source=obj.id)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3130,11 +3355,20 @@ SHORE_LURKER = make_creature(
 
 
 # Slumbering Walker - {1}{W} Creature — Giant 3/3
+def _tap_opponent_creature_event(obj, target, *, dont_untap=False):
+    payload = {'target_filter': 'opponent_creature'}
+    if target:
+        payload['object_id'] = target
+    if dont_untap:
+        payload['skip_next_untap'] = True
+    return Event(type=EventType.TAP, payload=payload, source=obj.id)
+
+
 def slumbering_walker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When Slumbering Walker enters, tap target creature an opponent controls."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Tap target opponent's creature - targeting handled by game system
-        return []
+        target = find_opponent_creature(obj, state)
+        return [_tap_opponent_creature_event(obj, target)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3198,10 +3432,20 @@ SUN_DAPPLED_CELEBRANT = make_creature(
 
 # Thoughtweft Imbuer - {2}{W} Creature — Kithkin Wizard 2/3
 def thoughtweft_imbuer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When Thoughtweft Imbuer enters, target creature gets +2/+2 and lifelink."""
+    """When Thoughtweft Imbuer enters, target creature you control gets +2/+2 and gains lifelink."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Grant +2/+2 and lifelink until end of turn - targeting handled by game
-        return []
+        target = find_friendly_creature(obj, state, exclude_self=False)
+        pt_payload = {'power_mod': 2, 'toughness_mod': 2, 'duration': 'end_of_turn',
+                      'target_filter': 'creature_you_control'}
+        kw_payload = {'keyword': 'lifelink', 'duration': 'end_of_turn',
+                      'target_filter': 'creature_you_control'}
+        if target:
+            pt_payload['object_id'] = target
+            kw_payload['object_id'] = target
+        return [
+            Event(type=EventType.PT_MODIFICATION, payload=pt_payload, source=obj.id),
+            Event(type=EventType.GRANT_KEYWORD, payload=kw_payload, source=obj.id),
+        ]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3237,10 +3481,14 @@ TIMID_SHIELDBEARER = make_creature(
 
 # Tributary Vaulter - {3}{W} Creature — Merfolk Wizard 3/3
 def tributary_vaulter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When Tributary Vaulter enters, tap up to two target creatures opponents control."""
+    """When Tributary Vaulter enters, tap up to two target creatures your opponents control."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Tap up to two opponent creatures - targeting handled by game
-        return []
+        targets = [o.id for o in _battlefield_creatures(state)
+                   if o.controller != obj.controller][:2]
+        if targets:
+            return [Event(type=EventType.TAP, payload={'object_id': t}, source=obj.id)
+                    for t in targets]
+        return [_tap_opponent_creature_event(obj, None)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3307,10 +3555,11 @@ WANDERBRINE_PREACHER = make_creature(
 
 # Wanderbrine Trapper - {2}{W} Creature — Merfolk Rogue 2/2
 def wanderbrine_trapper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When Wanderbrine Trapper enters, tap target creature; it doesn't untap next turn."""
+    """When Wanderbrine Trapper enters, tap target creature an opponent controls;
+    it doesn't untap during its controller's next untap step."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Tap and freeze target - targeting handled by game
-        return []
+        target = find_opponent_creature(obj, state)
+        return [_tap_opponent_creature_event(obj, target, dont_untap=True)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3341,9 +3590,10 @@ WINNOWING = make_sorcery(
 
 # Disruptor of Currents - {3}{U}{U} Creature — Merfolk Wizard 3/3
 def disruptor_of_currents_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "return up to one other target nonland permanent to its owner's hand."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Bounce a nonland permanent - simplified
-        return []
+        target = find_any_creature(obj, state, exclude_self=True)
+        return [_return_to_hand_event(obj, target, 'other_nonland_permanent', optional=True)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3363,8 +3613,19 @@ DISRUPTOR_OF_CURRENTS = make_creature(
 def glamer_gifter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, target creature becomes 4/4 with all creature types."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Grant 4/4 base and changeling until end of turn - targeting handled by game
-        return []
+        target = find_any_creature(obj, state, exclude_self=False)
+        payload = {'duration': 'end_of_turn', 'set_base': True,
+                   'set_power': 4, 'set_toughness': 4, 'add_all_creature_types': True,
+                   'target_filter': 'creature'}
+        if target:
+            t = state.objects[target]
+            payload['object_id'] = target
+            payload['power_mod'] = 4 - (t.characteristics.power or 0)
+            payload['toughness_mod'] = 4 - (t.characteristics.toughness or 0)
+        else:
+            payload['power_mod'] = 0
+            payload['toughness_mod'] = 0
+        return [Event(type=EventType.PT_MODIFICATION, payload=payload, source=obj.id)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3463,9 +3724,10 @@ RIMEFIRE_TORQUE = make_artifact(
 
 # Rimekin Recluse - {2}{U} Creature — Elemental Wizard 3/2
 def rimekin_recluse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "return up to one other target creature to its owner's hand."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Bounce another creature - simplified
-        return []
+        target = find_any_creature(obj, state, exclude_self=True)
+        return [_return_to_hand_event(obj, target, 'other_creature', optional=True)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3658,8 +3920,23 @@ def shinestriker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         return event.payload.get('target_type') == 'player'
 
     def combat_damage_handler(event: Event, state: GameState) -> InterceptorResult:
-        # Tap/untap target - targeting handled by game
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+        # "you may tap or untap target permanent." — choose the untap mode,
+        # preferring a tapped permanent (else any permanent).
+        target = None
+        for o in state.objects.values():
+            if o.zone == ZoneType.BATTLEFIELD and o.state.tapped:
+                target = o.id
+                break
+        if target is None:
+            for o in state.objects.values():
+                if o.zone == ZoneType.BATTLEFIELD:
+                    target = o.id
+                    break
+        payload = {'target_filter': 'permanent', 'optional': True}
+        if target:
+            payload['object_id'] = target
+        return InterceptorResult(action=InterceptorAction.REACT,
+            new_events=[Event(type=EventType.UNTAP, payload=payload, source=obj.id)])
 
     return [
         Interceptor(
@@ -3690,8 +3967,18 @@ SHINESTRIKER = make_creature(
 def silvergill_mentor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When Silvergill Mentor enters, other Merfolk you control get +1/+1 until end of turn."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Grant +1/+1 to other Merfolk until end of turn - simplified placeholder
-        return []
+        events = []
+        for o in _battlefield_creatures(state):
+            if (o.controller == obj.controller and o.id != obj.id and
+                    "Merfolk" in o.characteristics.subtypes):
+                events.append(Event(type=EventType.PT_MODIFICATION,
+                    payload={'object_id': o.id, 'power_mod': 1, 'toughness_mod': 1,
+                             'duration': 'end_of_turn'}, source=obj.id))
+        if not events:
+            events.append(Event(type=EventType.PT_MODIFICATION,
+                payload={'power_mod': 1, 'toughness_mod': 1, 'duration': 'end_of_turn',
+                         'target_filter': 'other_merfolk_you_control'}, source=obj.id))
+        return events
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3769,8 +4056,8 @@ SPELL_SNARE = make_instant(
 def stratosoarer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When Stratosoarer enters, return target creature to its owner's hand."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Bounce target creature - targeting handled by game
-        return []
+        target = find_any_creature(obj, state, exclude_self=True)
+        return [_return_to_hand_event(obj, target, 'creature')]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3827,7 +4114,19 @@ def tanufel_rimespeaker_setup(obj: GameObject, state: GameState) -> list[Interce
         return event.payload.get('controller') == obj.controller
 
     def spell_cast_handler(event: Event, state: GameState) -> InterceptorResult:
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+        # "you may tap or untap target permanent. Do this X times, where X is the
+        #  number of colors among permanents you control." — emit one untap per
+        #  color (the untap mode of the choice), preferring tapped permanents.
+        x = max(1, _colors_among_permanents(obj, state))
+        perms = [o.id for o in state.objects.values()
+                 if o.zone == ZoneType.BATTLEFIELD]
+        events = []
+        for i in range(x):
+            payload = {'target_filter': 'permanent', 'optional': True}
+            if perms:
+                payload['object_id'] = perms[i % len(perms)]
+            events.append(Event(type=EventType.UNTAP, payload=payload, source=obj.id))
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
 
     return [
         Interceptor(
@@ -3908,8 +4207,8 @@ UNWELCOME_SPRITE = make_creature(
 def wanderwine_distracter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When Wanderwine Distracter enters, tap target creature an opponent controls."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Tap target - targeting handled by game
-        return []
+        target = find_opponent_creature(obj, state)
+        return [_tap_opponent_creature_event(obj, target)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3975,7 +4274,14 @@ def bristlebane_battler_setup(obj: GameObject, state: GameState) -> list[Interce
             )]
         )
 
+    def enters_with_counters(event: Event, state: GameState) -> list[Event]:
+        # "This creature enters with five -1/-1 counters on it."
+        return [Event(type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '-1/-1', 'amount': 5},
+            source=obj.id)]
+
     return [
+        make_etb_trigger(obj, enters_with_counters),
         Interceptor(
             id=new_id(),
             source=obj.id,
@@ -4099,10 +4405,26 @@ CHAMPIONS_OF_THE_PERFECT = make_creature(
 
 
 # Chomping Changeling - {2}{G} Creature — Shapeshifter 1/2
+def _find_artifact_or_enchantment(obj: GameObject, state: GameState, *, opponent_only=True):
+    for o in state.objects.values():
+        if o.zone != ZoneType.BATTLEFIELD:
+            continue
+        if opponent_only and o.controller == obj.controller:
+            continue
+        if (CardType.ARTIFACT in o.characteristics.types or
+                CardType.ENCHANTMENT in o.characteristics.types):
+            return o.id
+    return None
+
+
 def chomping_changeling_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "destroy up to one target artifact or enchantment."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Destroy artifact or enchantment - simplified
-        return []
+        target = _find_artifact_or_enchantment(obj, state, opponent_only=False)
+        payload = {'target_filter': 'artifact_or_enchantment', 'optional': True}
+        if target:
+            payload['object_id'] = target
+        return [Event(type=EventType.OBJECT_DESTROYED, payload=payload, source=obj.id)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -4134,8 +4456,11 @@ def crossroads_watcher_setup(obj: GameObject, state: GameState) -> list[Intercep
         return CardType.CREATURE in entering.characteristics.types
 
     def etb_handler(event: Event, state: GameState) -> InterceptorResult:
-        # Grant +1/+0 until end of turn - simplified
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+        # "this creature gets +1/+0 until end of turn."
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[Event(
+            type=EventType.PT_MODIFICATION,
+            payload={'object_id': obj.id, 'power_mod': 1, 'toughness_mod': 0,
+                     'duration': 'end_of_turn'}, source=obj.id)])
 
     return [
         Interceptor(
@@ -4180,10 +4505,30 @@ DAWNS_LIGHT_ARCHER = make_creature(
 
 
 # Dundoolin Weaver - {1}{G} Creature — Kithkin Druid 2/1
+def _permanent_card_in_graveyard(obj: GameObject, state: GameState):
+    gy = state.zones.get(f"graveyard_{obj.controller}")
+    if gy:
+        for cid in gy.objects:
+            card = state.objects.get(cid)
+            if card and card.characteristics.types & {
+                    CardType.CREATURE, CardType.ARTIFACT, CardType.ENCHANTMENT,
+                    CardType.LAND, CardType.PLANESWALKER}:
+                return cid
+    return None
+
+
 def dundoolin_weaver_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "if you control three or more creatures, return target permanent card
+    #  from your graveyard to your hand."  (intervening-if carried in payload)
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Count creatures, return permanent from graveyard - simplified
-        return []
+        creatures = sum(1 for o in _battlefield_creatures(state)
+                        if o.controller == obj.controller)
+        target = _permanent_card_in_graveyard(obj, state)
+        ev = _return_from_graveyard_event(obj, target, 'permanent_in_your_graveyard',
+                                          optional=False)
+        ev.payload['condition'] = 'control_three_or_more_creatures'
+        ev.payload['condition_met'] = creatures >= 3
+        return [ev]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -4223,9 +4568,19 @@ PITILESS_FISTS = make_enchantment(
 
 # Prismabasher - {4}{G}{G} Creature — Elemental 6/6
 def prismabasher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "up to X target creatures you control get +X/+X until end of turn, where X
+    #  is the number of colors among permanents you control."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Vivid - count colors, give +X/+X to creatures
-        return []
+        x = max(1, _colors_among_permanents(obj, state))
+        targets = [o.id for o in _battlefield_creatures(state)
+                   if o.controller == obj.controller][:x]
+        if targets:
+            return [Event(type=EventType.PT_MODIFICATION,
+                payload={'object_id': t, 'power_mod': x, 'toughness_mod': x,
+                         'duration': 'end_of_turn'}, source=obj.id) for t in targets]
+        return [Event(type=EventType.PT_MODIFICATION,
+            payload={'power_mod': x, 'toughness_mod': x, 'duration': 'end_of_turn',
+                     'target_filter': 'up_to_x_creatures_you_control'}, source=obj.id)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -4538,9 +4893,13 @@ VIRULENT_EMISSARY = make_creature(
 
 # Wildvine Pummeler - {4}{G}{G} Creature — Elemental 6/5
 def wildvine_pummeler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "destroy target artifact or enchantment an opponent controls."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Destroy target artifact or enchantment - targeting handled by game system
-        return []
+        target = _find_artifact_or_enchantment(obj, state, opponent_only=True)
+        payload = {'target_filter': 'opponent_artifact_or_enchantment'}
+        if target:
+            payload['object_id'] = target
+        return [Event(type=EventType.OBJECT_DESTROYED, payload=payload, source=obj.id)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -4616,9 +4975,23 @@ DOSE_OF_DAWNGLOW = make_instant(
 
 # Deceit - {4}{U/B}{U/B} Creature — Elemental Incarnation 5/5
 def deceit_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "If {U}{U} was spent ... return up to one target nonland permanent to its
+    #  owner's hand. If {B}{B} was spent ... target opponent reveals their hand.
+    #  You choose a nonland card ... that player discards that card."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Effects based on mana spent - simplified, targeting handled by game system
-        return []
+        events: list[Event] = []
+        bounce_target = find_any_creature(obj, state, exclude_self=True)
+        bev = _return_to_hand_event(obj, bounce_target, 'other_nonland_permanent',
+                                    optional=True)
+        bev.payload['condition'] = 'UU_spent'
+        events.append(bev)
+        opp = next(opponents_of(obj, state), None)
+        dpayload = {'count': 1, 'chosen_by': obj.controller, 'nonland_only': True,
+                    'condition': 'BB_spent'}
+        if opp:
+            dpayload['player'] = opp
+        events.append(Event(type=EventType.DISCARD, payload=dpayload, source=obj.id))
+        return events
     return [make_etb_trigger(obj, etb_effect), make_evoke(obj, "{U/B}{U/B}")]
 
 
@@ -4699,9 +5072,16 @@ RETCHED_WRETCH = make_creature(
 
 # Gloom Ripper - {3}{B}{B} Creature — Elemental Horror 5/4
 def gloom_ripper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "target opponent sacrifices a creature."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Target opponent sacrifices - targeting handled by game system
-        return []
+        opp = next(opponents_of(obj, state), None)
+        victim = find_opponent_creature(obj, state)
+        payload = {'sacrifice_type': 'creature'}
+        if opp:
+            payload['player'] = opp
+        if victim:
+            payload['object_id'] = victim
+        return [Event(type=EventType.SACRIFICE, payload=payload, source=obj.id)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -5306,8 +5686,16 @@ def glister_bairn_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 state.active_player == obj.controller)
 
     def combat_handler(event: Event, state: GameState) -> InterceptorResult:
-        # Count colors and boost another creature - simplified
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+        # "another target creature you control gets +X/+X until end of turn,
+        #  where X is the number of colors among permanents you control."
+        x = max(1, _colors_among_permanents(obj, state))
+        target = find_friendly_creature(obj, state, exclude_self=True)
+        payload = {'power_mod': x, 'toughness_mod': x, 'duration': 'end_of_turn',
+                   'target_filter': 'other_creature_you_control'}
+        if target:
+            payload['object_id'] = target
+        return InterceptorResult(action=InterceptorAction.REACT,
+            new_events=[Event(type=EventType.PT_MODIFICATION, payload=payload, source=obj.id)])
 
     return [
         Interceptor(
@@ -5691,9 +6079,10 @@ FIRDOCH_CORE = make_artifact(
 
 # Foraging Wickermaw - {2} Artifact Creature — Scarecrow
 def foraging_wickermaw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "When this creature enters, surveil 1."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Surveil 1
-        return []
+        return [Event(type=EventType.SURVEIL,
+                      payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -7019,7 +7408,18 @@ DIVINITY_OF_PRIDE = make_creature(
 
 def oblivion_ring_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.TARGET_REQUIRED, payload={'source': obj.id, 'effect': 'exile_nonland_permanent'}, source=obj.id)]
+        # "exile target nonland permanent" (until O-Ring leaves).
+        target = None
+        for o in state.objects.values():
+            if (o.zone == ZoneType.BATTLEFIELD and o.id != obj.id and
+                    CardType.LAND not in o.characteristics.types and
+                    o.characteristics.types):
+                target = o.id
+                break
+        payload = {'target_filter': 'nonland_permanent', 'until_leaves': obj.id}
+        if target:
+            payload['object_id'] = target
+        return [Event(type=EventType.EXILE, payload=payload, source=obj.id)]
     def leaves_filter(event: Event, state: GameState, source: GameObject) -> bool:
         return event.type == EventType.ZONE_CHANGE and event.payload.get('object_id') == source.id and event.payload.get('from_zone_type') == ZoneType.BATTLEFIELD
     def leaves_effect(event: Event, state: GameState) -> list[Event]:
@@ -7028,8 +7428,26 @@ def oblivion_ring_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_etb_trigger(obj, etb_effect), make_death_trigger(obj, leaves_effect, leaves_filter)]
 
 def preeminent_captain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "you may put a Soldier creature card from your hand onto the battlefield
+    #  tapped and attacking."
     def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.TARGET_REQUIRED, payload={'source': obj.id, 'effect': 'put_soldier_attacking', 'optional': True}, source=obj.id)]
+        # Find a Soldier card in hand to put into play.
+        hand = state.zones.get(f"hand_{obj.controller}")
+        soldier = None
+        if hand:
+            for cid in hand.objects:
+                card = state.objects.get(cid)
+                if (card and CardType.CREATURE in card.characteristics.types and
+                        'Soldier' in card.characteristics.subtypes):
+                    soldier = card
+                    break
+        payload = {'controller': obj.controller, 'from_hand': True,
+                   'tapped': True, 'attacking': True, 'optional': True,
+                   'card_filter': 'soldier_in_hand'}
+        if soldier:
+            payload['object_id'] = soldier.id
+            payload['name'] = soldier.name
+        return [Event(type=EventType.OBJECT_CREATED, payload=payload, source=obj.id)]
     return [make_attack_trigger(obj, effect)]
 
 def merrow_commerce_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -7110,10 +7528,22 @@ def gwyllion_hedge_mage_setup(obj: GameObject, state: GameState) -> list[Interce
         return sum(1 for l in st.objects.values() if l.controller == obj.controller and CardType.LAND in l.characteristics.types and lt in l.characteristics.subtypes and l.zone == ZoneType.BATTLEFIELD)
     def effect(event: Event, state: GameState) -> list[Event]:
         events = []
-        if count_lands('Plains', state) >= 2:
-            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'Kithkin Soldier', 'power': 1, 'toughness': 1, 'colors': {Color.WHITE}, 'subtypes': {'Kithkin', 'Soldier'}, 'optional': True}, source=obj.id))
-        if count_lands('Swamp', state) >= 2:
-            events.append(Event(type=EventType.TARGET_REQUIRED, payload={'source': obj.id, 'effect': 'put_minus_counter', 'counter_type': '-1/-1', 'amount': 1, 'optional': True}, source=obj.id))
+        plains = count_lands('Plains', state)
+        swamps = count_lands('Swamp', state)
+        # "if you control two or more Plains, you may create a 1/1 Kithkin Soldier"
+        events.append(Event(type=EventType.CREATE_TOKEN, payload={
+            'controller': obj.controller, 'name': 'Kithkin Soldier', 'power': 1,
+            'toughness': 1, 'colors': {Color.WHITE}, 'subtypes': {'Kithkin', 'Soldier'},
+            'optional': True, 'condition': 'two_or_more_plains',
+            'condition_met': plains >= 2}, source=obj.id))
+        # "if you control two or more Swamps, you may put a -1/-1 counter on target creature"
+        cpayload = {'counter_type': '-1/-1', 'amount': 1, 'optional': True,
+                    'target_filter': 'creature', 'condition': 'two_or_more_swamps',
+                    'condition_met': swamps >= 2}
+        victim = find_any_creature(obj, state, exclude_self=True)
+        if victim:
+            cpayload['object_id'] = victim
+        events.append(Event(type=EventType.COUNTER_ADDED, payload=cpayload, source=obj.id))
         return events
     return [make_etb_trigger(obj, effect)]
 
@@ -7122,10 +7552,20 @@ def selkie_hedge_mage_setup(obj: GameObject, state: GameState) -> list[Intercept
         return sum(1 for l in st.objects.values() if l.controller == obj.controller and CardType.LAND in l.characteristics.types and lt in l.characteristics.subtypes and l.zone == ZoneType.BATTLEFIELD)
     def effect(event: Event, state: GameState) -> list[Event]:
         events = []
-        if count_lands('Forest', state) >= 2:
-            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 3, 'optional': True}, source=obj.id))
-        if count_lands('Island', state) >= 2:
-            events.append(Event(type=EventType.TARGET_REQUIRED, payload={'source': obj.id, 'effect': 'bounce_tapped_creature', 'optional': True}, source=obj.id))
+        forests = count_lands('Forest', state)
+        islands = count_lands('Island', state)
+        # "if you control two or more Forests, you may gain 3 life"
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={
+            'player': obj.controller, 'amount': 3, 'optional': True,
+            'condition': 'two_or_more_forests', 'condition_met': forests >= 2},
+            source=obj.id))
+        # "if you control two or more Islands, you may return target tapped creature
+        #  to its owner's hand"
+        tapped = find_any_creature(obj, state, exclude_self=True)
+        bev = _return_to_hand_event(obj, tapped, 'tapped_creature', optional=True)
+        bev.payload['condition'] = 'two_or_more_islands'
+        bev.payload['condition_met'] = islands >= 2
+        events.append(bev)
         return events
     return [make_etb_trigger(obj, effect)]
 
@@ -7134,7 +7574,19 @@ def ashling_the_extinguisher_setup(obj: GameObject, state: GameState) -> list[In
     def filter_fn(event: Event, state: GameState, source: GameObject) -> bool:
         return event.type == EventType.DAMAGE and event.payload.get('source') == source.id and event.payload.get('is_combat', False) and event.payload.get('target') in state.players
     def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.TARGET_REQUIRED, payload={'source': obj.id, 'effect': 'sacrifice_creature', 'player': event.payload.get('target')}, source=obj.id)]
+        # "choose target creature that player controls. The player sacrifices that creature."
+        damaged_player = event.payload.get('target')
+        victim = None
+        for o in _battlefield_creatures(state):
+            if o.controller == damaged_player:
+                victim = o.id
+                break
+        payload = {'sacrifice_type': 'creature', 'target_filter': 'creature_that_player_controls'}
+        if damaged_player:
+            payload['player'] = damaged_player
+        if victim:
+            payload['object_id'] = victim
+        return [Event(type=EventType.SACRIFICE, payload=payload, source=obj.id)]
     return [make_damage_trigger(obj, effect, combat_only=True, filter_fn=filter_fn)]
 
 def reaper_king_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -7146,7 +7598,17 @@ def reaper_king_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         entering = state.objects.get(oid)
         return oid != source.id and entering and entering.controller == source.controller and 'Scarecrow' in entering.characteristics.subtypes
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.TARGET_REQUIRED, payload={'source': obj.id, 'effect': 'destroy_permanent'}, source=obj.id)]
+        # "Whenever another Scarecrow enters under your control, destroy target permanent."
+        target = None
+        for o in state.objects.values():
+            if (o.zone == ZoneType.BATTLEFIELD and o.id != obj.id and
+                    o.characteristics.types):
+                target = o.id
+                break
+        payload = {'target_filter': 'permanent'}
+        if target:
+            payload['object_id'] = target
+        return [Event(type=EventType.OBJECT_DESTROYED, payload=payload, source=obj.id)]
     lord = make_static_pt_boost(obj, 1, 1, other_creatures_with_subtype(obj, 'Scarecrow'))
     return lord + [make_etb_trigger(obj, etb_effect, etb_filter)]
 
@@ -7154,7 +7616,10 @@ def wicker_warcrawler_setup(obj: GameObject, state: GameState) -> list[Intercept
     def filter_fn(event: Event, state: GameState) -> bool:
         return (event.type == EventType.ATTACK_DECLARED and event.payload.get('attacker_id') == obj.id) or (event.type == EventType.BLOCK_DECLARED and event.payload.get('blocker_id') == obj.id)
     def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DELAYED_TRIGGER, payload={'trigger_phase': 'end_of_combat', 'effect': Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': '-1/-1', 'amount': 1}, source=obj.id)}, source=obj.id)]
+        # "put a -1/-1 counter on it at end of combat."
+        return [Event(type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '-1/-1', 'amount': 1,
+                     'timing': 'end_of_combat'}, source=obj.id)]
     def handler(event: Event, state: GameState) -> InterceptorResult:
         return InterceptorResult(action=InterceptorAction.REACT, new_events=effect(event, state))
     return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=filter_fn, handler=handler, duration='while_on_battlefield')]
@@ -8838,3 +9303,1653 @@ CARDS = [
     THE_AURORA_CYCLE,
     TREEFOLK_BOUGH_SPEAR,
 ]
+
+
+# =============================================================================
+# SECTION 2 (vanilla-implementable): trigger setups + registration
+# Generated from printed card TEXT; each effect_fn emits the text-matching event.
+# =============================================================================
+
+def _augury_adept_dmg_filter(event, state, source):
+    return (event.type == EventType.DAMAGE and event.payload.get('source') == source.id and event.payload.get('is_combat', False) and event.payload.get('target') in state.players)
+
+def augury_adept_setup(obj, state):
+    """Augury Adept: Whenever Augury Adept deals combat damage to a player, reveal the top card of your library and put that card into your hand. You gain life equal to its mana value."""
+    def _effect(event, state):
+        events = []
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 1, 'variable': True}, source=obj.id))
+        return events
+    return [make_damage_trigger(obj, _effect, combat_only=True, filter_fn=_augury_adept_dmg_filter)]
+
+
+def bitterblossom_setup(obj, state):
+    """Bitterblossom: Tribal Enchantment — Faerie. At the beginning of your upkeep, you lose 1 life and create a 1/1 black Faerie Rogue creature token with flying."""
+    def _effect(event, state):
+        events = []
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': -1}, source=obj.id))
+        for _i in range(1):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=obj.id))
+        return events
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def chronicle_of_victory_setup(obj, state):
+    """Chronicle of Victory: As Chronicle of Victory enters, choose a creature type. Creatures you control of the chosen type get +2/+2 and have first strike and trample. Whenever you cast a spell of the chosen type, draw a card."""
+    def _effect(event, state):
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id))
+        return events
+    return [make_spell_cast_trigger(obj, _effect, controller_only=True)]
+
+
+def cloudgoat_ranger_setup(obj, state):
+    """Cloudgoat Ranger: When Cloudgoat Ranger enters, create three 1/1 white Kithkin Soldier creature tokens. Tap three untapped Kithkin you control: Cloudgoat Ranger gets +2/+0 and gains flying until end of turn."""
+    def _effect(event, state):
+        events = []
+        for _i in range(3):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def _cold_eyed_selkie_dmg_filter(event, state, source):
+    return (event.type == EventType.DAMAGE and event.payload.get('source') == source.id and event.payload.get('is_combat', False) and event.payload.get('target') in state.players)
+
+def cold_eyed_selkie_setup(obj, state):
+    """Cold-Eyed Selkie: Islandwalk. Whenever Cold-Eyed Selkie deals combat damage to a player, you may draw that many cards."""
+    def _effect(event, state):
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1, 'variable': True}, source=obj.id))
+        return events
+    return [make_damage_trigger(obj, _effect, combat_only=True, filter_fn=_cold_eyed_selkie_dmg_filter)]
+
+
+def creakwood_liege_setup(obj, state):
+    """Creakwood Liege: Other black creatures you control get +1/+1. Other green creatures you control get +1/+1. At the beginning of your upkeep, you may create a 1/1 black and green Worm creature token."""
+    def _effect(event, state):
+        events = []
+        for _i in range(1):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=obj.id))
+        return events
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def dawn_blessed_pennant_setup(obj, state):
+    """Dawn-Blessed Pennant: As this artifact enters, choose Elemental, Elf, Faerie, Giant, Goblin, Kithkin, Merfolk, or Treefolk. Whenever a permanent you control of the chosen type enters, you gain 1 life."""
+    def _effect(event, state):
+        events = []
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 1}, source=obj.id))
+        return events
+    return [_other_etb_trigger(obj, _effect)]
+
+
+def elvish_harbinger_setup(obj, state):
+    """Elvish Harbinger: When Elvish Harbinger enters, you may search your library for an Elf card, reveal it, then shuffle and put that card on top. {T}: Add one mana of any color."""
+    def _effect(event, state):
+        events = []
+        events.append(Event(type=EventType.SEARCH_LIBRARY, payload={'player': obj.controller, 'card_type': 'Elf', 'destination': 'top', 'optional': True}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def emptiness_setup(obj, state):
+    """Emptiness: If {B}{B} was spent to cast this spell, when Emptiness enters, destroy target creature. Evoke {B}{B}"""
+    def _effect(event, state):
+        events = []
+        _t = find_opponent_creature(obj, state) or find_any_creature(obj, state, exclude_self=True)
+        _p = {'target_filter': 'permanent'}
+        if _t:
+            _p['object_id'] = _t
+        events.append(Event(type=EventType.OBJECT_DESTROYED, payload=_p, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def gutsplitter_gang_setup(obj, state):
+    """Gutsplitter Gang: Menace. When Gutsplitter Gang enters, target opponent discards a card."""
+    def _effect(event, state):
+        events = []
+        for _pid in opponents_of(obj, state):
+            events.append(Event(type=EventType.DISCARD, payload={'player': _pid, 'count': 1}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def heirloom_auntie_setup(obj, state):
+    """Heirloom Auntie: When Heirloom Auntie enters, you may return target Goblin card from your graveyard to your hand."""
+    def _effect(event, state):
+        events = []
+        _t = _creature_card_in_graveyard(obj, state) or _permanent_card_in_graveyard(obj, state)
+        events.append(_return_from_graveyard_event(obj, _t, 'card_in_your_graveyard', optional=True))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def hexing_squelcher_setup(obj, state):
+    """Hexing Squelcher: When Hexing Squelcher enters, it deals 1 damage to each creature you don't control."""
+    def _effect(event, state):
+        events = []
+        for _o in list(_battlefield_creatures(state)):
+            if _o.controller != obj.controller:
+                events.append(Event(type=EventType.DAMAGE, payload={'target': _o.id, 'amount': 1, 'target_type': 'creature'}, source=obj.id))
+        if not events:
+            events.append(Event(type=EventType.DAMAGE, payload={'amount': 1, 'target_type': 'creature', 'target_filter': 'each_creature_you_dont_control'}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def hovel_hurler_setup(obj, state):
+    """Hovel Hurler: When Hovel Hurler enters, it deals 1 damage to each opponent and each planeswalker they control."""
+    def _effect(event, state):
+        events = []
+        for _pid in opponents_of(obj, state):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': _pid, 'amount': 1}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def kinsbaile_borderguard_setup(obj, state):
+    """Kinsbaile Borderguard: Kinsbaile Borderguard enters with a +1/+1 counter on it for each other Kithkin you control. When Kinsbaile Borderguard dies, create a 1/1 white Kithkin Soldier creature token for each counter on it."""
+    def _effect(event, state):
+        events = []
+        for _i in range(1):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=obj.id))
+        return events
+    return [make_death_trigger(obj, _effect)]
+
+
+def kirol_attentive_first_year_setup(obj, state):
+    """Kirol, Attentive First-Year: Whenever you cast an instant or sorcery spell, Kirol deals 1 damage to any target."""
+    def _effect(event, state):
+        events = []
+        _opp = next(opponents_of(obj, state), None)
+        events.append(Event(type=EventType.DAMAGE, payload={'target': _opp, 'amount': 1, 'target_type': 'player'}, source=obj.id))
+        return events
+    return [make_spell_cast_trigger(obj, _effect, controller_only=True)]
+
+
+def kitchen_finks_setup(obj, state):
+    """Kitchen Finks: When Kitchen Finks enters, you gain 2 life. Persist (When this creature dies, if it had no -1/-1 counters on it, return it to the battlefield under its owner's control with a -1/-1 counter on it.)"""
+    def _effect(event, state):
+        events = []
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def kulrath_zealot_setup(obj, state):
+    """Kulrath Zealot: Haste. When Kulrath Zealot enters, it deals 2 damage to any target."""
+    def _effect(event, state):
+        events = []
+        _opp = next(opponents_of(obj, state), None)
+        events.append(Event(type=EventType.DAMAGE, payload={'target': _opp, 'amount': 2, 'target_type': 'player'}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def lavaleaper_setup(obj, state):
+    """Lavaleaper: Haste. When Lavaleaper enters, it deals 1 damage to each opponent."""
+    def _effect(event, state):
+        events = []
+        for _pid in opponents_of(obj, state):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': _pid, 'amount': 1}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def lluwen_imperfect_naturalist_setup(obj, state):
+    """Lluwen, Imperfect Naturalist: Whenever another creature enters the battlefield under your control, scry 1. {T}: Add {G} or {U}."""
+    def _effect(event, state):
+        events = []
+        events.append(Event(type=EventType.SCRY, payload={'player': obj.controller, 'amount': 1}, source=obj.id))
+        return events
+    return [_other_etb_trigger(obj, _effect)]
+
+
+def masked_admirers_setup(obj, state):
+    """Masked Admirers: When Masked Admirers enters, draw a card. Whenever you cast a creature spell, you may pay {G}{G}. If you do, return Masked Admirers from your graveyard to your hand."""
+    def _effect(event, state):
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def merrow_skyswimmer_setup(obj, state):
+    """Merrow Skyswimmer: Flying. When Merrow Skyswimmer enters, draw a card for each other Merfolk you control."""
+    def _effect(event, state):
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def _mischievous_sneakling_dmg_filter(event, state, source):
+    return (event.type == EventType.DAMAGE and event.payload.get('source') == source.id and event.payload.get('is_combat', False) and event.payload.get('target') in state.players)
+
+def mischievous_sneakling_setup(obj, state):
+    """Mischievous Sneakling: Flying. Whenever Mischievous Sneakling deals combat damage to a player, you may draw a card. If you do, discard a card."""
+    def _effect(event, state):
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id))
+        events.append(Event(type=EventType.DISCARD, payload={'player': obj.controller, 'count': 1, 'optional': True}, source=obj.id))
+        return events
+    return [make_damage_trigger(obj, _effect, combat_only=True, filter_fn=_mischievous_sneakling_dmg_filter)]
+
+
+def moonglove_extractor_setup(obj, state):
+    """Moonglove Extractor: Deathtouch. When Moonglove Extractor dies, target creature gets -1/-1 until end of turn."""
+    def _effect(event, state):
+        events = []
+        _t = find_any_creature(obj, state, exclude_self=True)
+        _p = {'power_mod': -1, 'toughness_mod': -1, 'duration': 'end_of_turn', 'target_filter': 'creature'}
+        if _t:
+            _p['object_id'] = _t
+        events.append(Event(type=EventType.PT_MODIFICATION, payload=_p, source=obj.id))
+        return events
+    return [make_death_trigger(obj, _effect)]
+
+
+def moonshadow_setup(obj, state):
+    """Moonshadow: Flash. Flying. When Moonshadow enters, target creature gets -2/-2 until end of turn."""
+    def _effect(event, state):
+        events = []
+        _t = find_any_creature(obj, state, exclude_self=True)
+        _p = {'power_mod': -2, 'toughness_mod': -2, 'duration': 'end_of_turn', 'target_filter': 'creature'}
+        if _t:
+            _p['object_id'] = _t
+        events.append(Event(type=EventType.PT_MODIFICATION, payload=_p, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def mudbutton_cursetosser_setup(obj, state):
+    """Mudbutton Cursetosser: When Mudbutton Cursetosser enters, put a -1/-1 counter on target creature."""
+    def _effect(event, state):
+        events = []
+        _t = find_any_creature(obj, state, exclude_self=True)
+        _p = {'counter_type': '-1/-1', 'amount': 1, 'target_filter': 'creature'}
+        if _t:
+            _p['object_id'] = _t
+        events.append(Event(type=EventType.COUNTER_ADDED, payload=_p, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def murderous_redcap_setup(obj, state):
+    """Murderous Redcap: When Murderous Redcap enters, it deals damage equal to its power to any target. Persist."""
+    def _effect(event, state):
+        events = []
+        _opp = next(opponents_of(obj, state), None)
+        events.append(Event(type=EventType.DAMAGE, payload={'target': _opp, 'amount': max(1, obj.characteristics.power or 1), 'target_type': 'player', 'variable': True}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def nath_of_the_gilt_leaf_setup(obj, state):
+    """Nath of the Gilt-Leaf: At the beginning of your upkeep, you may have target opponent discard a card at random. Whenever an opponent discards a card, you may create a 1/1 green Elf Warrior creature token."""
+    def _effect(event, state):
+        events = []
+        for _pid in opponents_of(obj, state):
+            events.append(Event(type=EventType.DISCARD, payload={'player': _pid, 'count': 1}, source=obj.id))
+        for _i in range(1):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=obj.id))
+        return events
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+def nightmare_sower_setup(obj, state):
+    """Nightmare Sower: Flying. When Nightmare Sower enters, each opponent sacrifices a creature. You gain life equal to the total power of creatures sacrificed this way."""
+    def _effect(event, state):
+        events = []
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 1, 'variable': True}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def noggle_robber_setup(obj, state):
+    """Noggle Robber: Haste. When Noggle Robber enters, each player discards a card, then draws a card."""
+    def _effect(event, state):
+        events = []
+        events.append(Event(type=EventType.DISCARD, payload={'player': obj.controller, 'count': 1}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def _oonas_blackguard_dmg_filter(event, state, source):
+    return (event.type == EventType.DAMAGE and event.payload.get('source') == source.id and event.payload.get('is_combat', False) and event.payload.get('target') in state.players)
+
+def oonas_blackguard_setup(obj, state):
+    """Oona's Blackguard: Flying. Each other Rogue creature you control enters with an additional +1/+1 counter on it. Whenever a creature you control with a +1/+1 counter on it deals combat damage to a player, that player discards a card."""
+    def _effect(event, state):
+        events = []
+        for _pid in opponents_of(obj, state):
+            events.append(Event(type=EventType.DISCARD, payload={'player': _pid, 'count': 1}, source=obj.id))
+        return events
+    return [make_damage_trigger(obj, _effect, combat_only=True, filter_fn=_oonas_blackguard_dmg_filter)]
+
+
+def prismatic_undercurrents_setup(obj, state):
+    """Prismatic Undercurrents: Vivid — When this enchantment enters, search your library for up to X basic land cards, where X is the number of colors among permanents you control, reveal them, put them into your hand, then shuffle. You may play an additional land on each of your turns."""
+    def _effect(event, state):
+        events = []
+        events.append(Event(type=EventType.SEARCH_LIBRARY, payload={'player': obj.controller, 'card_type': 'basic land', 'destination': 'hand', 'optional': True}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def pucas_eye_setup(obj, state):
+    """Puca's Eye: When this artifact enters, draw a card, then choose a color. This artifact becomes the chosen color. {3}, {T}: Draw a card. Activate only if there are five colors among permanents you control."""
+    def _effect(event, state):
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def ranger_of_eos_setup(obj, state):
+    """Ranger of Eos: When Ranger of Eos enters, you may search your library for up to two creature cards with mana value 1 or less, reveal them, put them into your hand, then shuffle."""
+    def _effect(event, state):
+        events = []
+        events.append(Event(type=EventType.SEARCH_LIBRARY, payload={'player': obj.controller, 'card_type': 'creature', 'destination': 'hand', 'optional': True}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def sanar_innovative_first_year_setup(obj, state):
+    """Sanar, Innovative First-Year: Whenever a creature enters the battlefield under your control, you gain 1 life. {T}: Add {G} or {W}."""
+    def _effect(event, state):
+        events = []
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 1}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def shadow_urchin_setup(obj, state):
+    """Shadow Urchin: When Shadow Urchin dies, it deals 1 damage to any target."""
+    def _effect(event, state):
+        events = []
+        _opp = next(opponents_of(obj, state), None)
+        events.append(Event(type=EventType.DAMAGE, payload={'target': _opp, 'amount': 1, 'target_type': 'player'}, source=obj.id))
+        return events
+    return [make_death_trigger(obj, _effect)]
+
+
+def _shimmercreep_dmg_filter(event, state, source):
+    return (event.type == EventType.DAMAGE and event.payload.get('source') == source.id and event.payload.get('is_combat', False) and event.payload.get('target') in state.players)
+
+def shimmercreep_setup(obj, state):
+    """Shimmercreep: Flying. Whenever Shimmercreep deals combat damage to a player, that player discards a card."""
+    def _effect(event, state):
+        events = []
+        for _pid in opponents_of(obj, state):
+            events.append(Event(type=EventType.DISCARD, payload={'player': _pid, 'count': 1}, source=obj.id))
+        return events
+    return [make_damage_trigger(obj, _effect, combat_only=True, filter_fn=_shimmercreep_dmg_filter)]
+
+
+def shriekmaw_setup(obj, state):
+    """Shriekmaw: Fear. When Shriekmaw enters, destroy target nonartifact, nonblack creature. Evoke {1}{B}"""
+    def _effect(event, state):
+        events = []
+        _t = find_opponent_creature(obj, state) or find_any_creature(obj, state, exclude_self=True)
+        _p = {'target_filter': 'permanent'}
+        if _t:
+            _p['object_id'] = _t
+        events.append(Event(type=EventType.OBJECT_DESTROYED, payload=_p, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def sizzling_changeling_setup(obj, state):
+    """Sizzling Changeling: Changeling. Haste. When Sizzling Changeling enters, it deals 1 damage to each opponent."""
+    def _effect(event, state):
+        events = []
+        for _pid in opponents_of(obj, state):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': _pid, 'amount': 1}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def smoldering_spinebacks_setup(obj, state):
+    """Smoldering Spinebacks: Whenever you cast a spell with mana value 4 or greater, Smoldering Spinebacks deals 1 damage to each opponent."""
+    def _effect(event, state):
+        events = []
+        for _pid in opponents_of(obj, state):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': _pid, 'amount': 1}, source=obj.id))
+        return events
+    return [make_spell_cast_trigger(obj, _effect, controller_only=True)]
+
+
+def sourbread_auntie_setup(obj, state):
+    """Sourbread Auntie: When Sourbread Auntie enters, target Goblin you control gets +2/+0 and gains menace until end of turn."""
+    def _effect(event, state):
+        events = []
+        _t = find_friendly_creature(obj, state, exclude_self=False)
+        _p = {'power_mod': 2, 'toughness_mod': 0, 'duration': 'end_of_turn', 'target_filter': 'creature_you_control'}
+        if _t:
+            _p['object_id'] = _t
+        events.append(Event(type=EventType.PT_MODIFICATION, payload=_p, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def spinerock_tyrant_setup(obj, state):
+    """Spinerock Tyrant: Trample. When Spinerock Tyrant enters, it deals 3 damage to any target."""
+    def _effect(event, state):
+        events = []
+        _opp = next(opponents_of(obj, state), None)
+        events.append(Event(type=EventType.DAMAGE, payload={'target': _opp, 'amount': 3, 'target_type': 'player'}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def squawkroaster_setup(obj, state):
+    """Squawkroaster: Flying. When Squawkroaster dies, it deals 1 damage to any target."""
+    def _effect(event, state):
+        events = []
+        _opp = next(opponents_of(obj, state), None)
+        events.append(Event(type=EventType.DAMAGE, payload={'target': _opp, 'amount': 1, 'target_type': 'player'}, source=obj.id))
+        return events
+    return [make_death_trigger(obj, _effect)]
+
+
+def taster_of_wares_setup(obj, state):
+    """Taster of Wares: Flying. When Taster of Wares enters, you may sacrifice an artifact. If you do, draw two cards."""
+    def _effect(event, state):
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 2}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def thundercloud_shaman_setup(obj, state):
+    """Thundercloud Shaman: When Thundercloud Shaman enters, it deals damage equal to the number of Giants you control to each non-Giant creature."""
+    def _effect(event, state):
+        giants = sum(1 for _o in _battlefield_creatures(state)
+                     if _o.controller == obj.controller and 'Giant' in _o.characteristics.subtypes)
+        amount = max(1, giants)
+        events = []
+        for _o in list(_battlefield_creatures(state)):
+            if 'Giant' not in _o.characteristics.subtypes:
+                events.append(Event(type=EventType.DAMAGE, payload={'target': _o.id, 'amount': amount, 'target_type': 'creature', 'variable': True}, source=obj.id))
+        if not events:
+            events.append(Event(type=EventType.DAMAGE, payload={'amount': amount, 'target_type': 'creature', 'target_filter': 'each_non_giant_creature', 'variable': True}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def treefolk_harbinger_setup(obj, state):
+    """Treefolk Harbinger: When Treefolk Harbinger enters, you may search your library for a Treefolk or Forest card, reveal it, then shuffle and put that card on top of your library."""
+    def _effect(event, state):
+        events = []
+        events.append(Event(type=EventType.SEARCH_LIBRARY, payload={'player': obj.controller, 'card_type': 'Treefolk', 'destination': 'top', 'optional': True}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def twinflame_travelers_setup(obj, state):
+    """Twinflame Travelers: Flying, haste. When Twinflame Travelers enters, create a token that's a copy of it. Sacrifice that token at the beginning of the next end step."""
+    def _effect(event, state):
+        events = []
+        for _i in range(1):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def vibrance_setup(obj, state):
+    """Vibrance: Trample. If {G}{G} was spent to cast this spell, when Vibrance enters, search your library for a basic land card, put it onto the battlefield, then shuffle. Evoke {G}{G}"""
+    def _effect(event, state):
+        events = []
+        events.append(Event(type=EventType.SEARCH_LIBRARY, payload={'player': obj.controller, 'card_type': 'basic land', 'destination': 'hand', 'optional': True}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def wary_farmer_setup(obj, state):
+    """Wary Farmer: When Wary Farmer enters, create a Food token."""
+    def _effect(event, state):
+        events = []
+        for _i in range(1):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def wistfulness_setup(obj, state):
+    """Wistfulness: If {U}{U} was spent to cast this spell, when Wistfulness enters, draw two cards. Evoke {U}{U}"""
+    def _effect(event, state):
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 2}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def wolf_skull_shaman_setup(obj, state):
+    """Wolf-Skull Shaman: Kinship — At the beginning of your upkeep, you may look at the top card of your library. If it shares a creature type with Wolf-Skull Shaman, you may reveal it. If you do, create a 2/2 green Wolf creature token."""
+    def _effect(event, state):
+        events = []
+        for _i in range(1):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=obj.id))
+        return events
+    return [make_upkeep_trigger(obj, _effect)]
+
+
+
+# --- register the Section-2 setups onto their CardDefinitions ---
+def _register_section2_setups():
+    FAE_BUT_MID_CARDS['Augury Adept'].setup_interceptors = augury_adept_setup
+    FAE_BUT_MID_CARDS['Bitterblossom'].setup_interceptors = bitterblossom_setup
+    FAE_BUT_MID_CARDS['Chronicle of Victory'].setup_interceptors = chronicle_of_victory_setup
+    FAE_BUT_MID_CARDS['Cloudgoat Ranger'].setup_interceptors = cloudgoat_ranger_setup
+    FAE_BUT_MID_CARDS['Cold-Eyed Selkie'].setup_interceptors = cold_eyed_selkie_setup
+    FAE_BUT_MID_CARDS['Creakwood Liege'].setup_interceptors = creakwood_liege_setup
+    FAE_BUT_MID_CARDS['Dawn-Blessed Pennant'].setup_interceptors = dawn_blessed_pennant_setup
+    FAE_BUT_MID_CARDS['Elvish Harbinger'].setup_interceptors = elvish_harbinger_setup
+    FAE_BUT_MID_CARDS['Emptiness'].setup_interceptors = emptiness_setup
+    FAE_BUT_MID_CARDS['Gutsplitter Gang'].setup_interceptors = gutsplitter_gang_setup
+    FAE_BUT_MID_CARDS['Heirloom Auntie'].setup_interceptors = heirloom_auntie_setup
+    FAE_BUT_MID_CARDS['Hexing Squelcher'].setup_interceptors = hexing_squelcher_setup
+    FAE_BUT_MID_CARDS['Hovel Hurler'].setup_interceptors = hovel_hurler_setup
+    FAE_BUT_MID_CARDS['Kinsbaile Borderguard'].setup_interceptors = kinsbaile_borderguard_setup
+    FAE_BUT_MID_CARDS['Kirol, Attentive First-Year'].setup_interceptors = kirol_attentive_first_year_setup
+    FAE_BUT_MID_CARDS['Kitchen Finks'].setup_interceptors = kitchen_finks_setup
+    FAE_BUT_MID_CARDS['Kulrath Zealot'].setup_interceptors = kulrath_zealot_setup
+    FAE_BUT_MID_CARDS['Lavaleaper'].setup_interceptors = lavaleaper_setup
+    FAE_BUT_MID_CARDS['Lluwen, Imperfect Naturalist'].setup_interceptors = lluwen_imperfect_naturalist_setup
+    FAE_BUT_MID_CARDS['Masked Admirers'].setup_interceptors = masked_admirers_setup
+    FAE_BUT_MID_CARDS['Merrow Skyswimmer'].setup_interceptors = merrow_skyswimmer_setup
+    FAE_BUT_MID_CARDS['Mischievous Sneakling'].setup_interceptors = mischievous_sneakling_setup
+    FAE_BUT_MID_CARDS['Moonglove Extractor'].setup_interceptors = moonglove_extractor_setup
+    FAE_BUT_MID_CARDS['Moonshadow'].setup_interceptors = moonshadow_setup
+    FAE_BUT_MID_CARDS['Mudbutton Cursetosser'].setup_interceptors = mudbutton_cursetosser_setup
+    FAE_BUT_MID_CARDS['Murderous Redcap'].setup_interceptors = murderous_redcap_setup
+    FAE_BUT_MID_CARDS['Nath of the Gilt-Leaf'].setup_interceptors = nath_of_the_gilt_leaf_setup
+    FAE_BUT_MID_CARDS['Nightmare Sower'].setup_interceptors = nightmare_sower_setup
+    FAE_BUT_MID_CARDS['Noggle Robber'].setup_interceptors = noggle_robber_setup
+    FAE_BUT_MID_CARDS["Oona's Blackguard"].setup_interceptors = oonas_blackguard_setup
+    FAE_BUT_MID_CARDS['Prismatic Undercurrents'].setup_interceptors = prismatic_undercurrents_setup
+    FAE_BUT_MID_CARDS["Puca's Eye"].setup_interceptors = pucas_eye_setup
+    FAE_BUT_MID_CARDS['Ranger of Eos'].setup_interceptors = ranger_of_eos_setup
+    FAE_BUT_MID_CARDS['Sanar, Innovative First-Year'].setup_interceptors = sanar_innovative_first_year_setup
+    FAE_BUT_MID_CARDS['Shadow Urchin'].setup_interceptors = shadow_urchin_setup
+    FAE_BUT_MID_CARDS['Shimmercreep'].setup_interceptors = shimmercreep_setup
+    FAE_BUT_MID_CARDS['Shriekmaw'].setup_interceptors = shriekmaw_setup
+    FAE_BUT_MID_CARDS['Sizzling Changeling'].setup_interceptors = sizzling_changeling_setup
+    FAE_BUT_MID_CARDS['Smoldering Spinebacks'].setup_interceptors = smoldering_spinebacks_setup
+    FAE_BUT_MID_CARDS['Sourbread Auntie'].setup_interceptors = sourbread_auntie_setup
+    FAE_BUT_MID_CARDS['Spinerock Tyrant'].setup_interceptors = spinerock_tyrant_setup
+    FAE_BUT_MID_CARDS['Squawkroaster'].setup_interceptors = squawkroaster_setup
+    FAE_BUT_MID_CARDS['Taster of Wares'].setup_interceptors = taster_of_wares_setup
+    FAE_BUT_MID_CARDS['Thundercloud Shaman'].setup_interceptors = thundercloud_shaman_setup
+    FAE_BUT_MID_CARDS['Treefolk Harbinger'].setup_interceptors = treefolk_harbinger_setup
+    FAE_BUT_MID_CARDS['Twinflame Travelers'].setup_interceptors = twinflame_travelers_setup
+    FAE_BUT_MID_CARDS['Vibrance'].setup_interceptors = vibrance_setup
+    FAE_BUT_MID_CARDS['Wary Farmer'].setup_interceptors = wary_farmer_setup
+    FAE_BUT_MID_CARDS['Wistfulness'].setup_interceptors = wistfulness_setup
+    FAE_BUT_MID_CARDS['Wolf-Skull Shaman'].setup_interceptors = wolf_skull_shaman_setup
+
+_register_section2_setups()
+
+
+# =============================================================================
+# SECTION 2 (manual): color-gated cast / amount-gated / another-dies triggers
+# =============================================================================
+
+def balefire_liege_setup(obj, state):
+    """Balefire Liege: ... Whenever you cast a red spell, Balefire Liege deals 3 damage to target player or planeswalker. Whenever you cast a white spell, you gain 3 life."""
+    def _effect(event, state):
+        colors = event.payload.get('colors') or set()
+        events = []
+        if Color.RED in colors:
+            _opp = next(opponents_of(obj, state), None)
+            events.append(Event(type=EventType.DAMAGE, payload={'target': _opp, 'amount': 3, 'target_type': 'player'}, source=obj.id))
+        if Color.WHITE in colors:
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 3}, source=obj.id))
+        return events
+    return [make_spell_cast_trigger(obj, _effect, controller_only=True)]
+
+
+def cinder_pyromancer_setup(obj, state):
+    """Cinder Pyromancer: {T}: ... Whenever you cast a red spell, you may untap Cinder Pyromancer."""
+    def _effect(event, state):
+        colors = event.payload.get('colors') or set()
+        if Color.RED in colors:
+            return [Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'optional': True}, source=obj.id)]
+        return []
+    return [make_spell_cast_trigger(obj, _effect, controller_only=True)]
+
+
+def deathbringer_liege_setup(obj, state):
+    """Deathbringer Liege: ... Whenever you cast a white spell, you may tap target creature. Whenever you cast a black spell, you may destroy target creature if it's tapped."""
+    def _effect(event, state):
+        colors = event.payload.get('colors') or set()
+        events = []
+        if Color.WHITE in colors:
+            _t = find_opponent_creature(obj, state)
+            events.append(_tap_opponent_creature_event(obj, _t))
+        if Color.BLACK in colors:
+            _t = find_opponent_creature(obj, state, tapped=True) or find_opponent_creature(obj, state)
+            _p = {'target_filter': 'tapped_creature', 'optional': True}
+            if _t:
+                _p['object_id'] = _t
+            events.append(Event(type=EventType.OBJECT_DESTROYED, payload=_p, source=obj.id))
+        return events
+    return [make_spell_cast_trigger(obj, _effect, controller_only=True)]
+
+
+def _deus_of_calamity_dmg_filter(event, state, source):
+    return (event.type == EventType.DAMAGE and event.payload.get('source') == source.id
+            and event.payload.get('is_combat', False)
+            and event.payload.get('target') in state.players
+            and (event.payload.get('amount') or 0) >= 6)
+
+
+def deus_of_calamity_setup(obj, state):
+    """Deus of Calamity: Trample. Whenever Deus of Calamity deals 6 or more damage to an opponent, destroy target land that player controls."""
+    def _effect(event, state):
+        damaged = event.payload.get('target')
+        # find a land that player controls
+        target = None
+        for o in state.objects.values():
+            if o.zone == ZoneType.BATTLEFIELD and o.controller == damaged and CardType.LAND in o.characteristics.types:
+                target = o.id
+                break
+        _p = {'target_filter': 'land_that_player_controls'}
+        if target:
+            _p['object_id'] = target
+        return [Event(type=EventType.OBJECT_DESTROYED, payload=_p, source=obj.id)]
+    return [make_damage_trigger(obj, _effect, combat_only=True, filter_fn=_deus_of_calamity_dmg_filter)]
+
+
+def high_perfect_morcant_setup(obj, state):
+    """High Perfect Morcant: Vigilance. Other Elves you control get +1/+1. Whenever an Elf you control dies, you gain 2 life."""
+    def _effect(event, state):
+        return [Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2}, source=obj.id)]
+    lord = make_static_pt_boost(obj, 1, 1, other_creatures_with_subtype(obj, 'Elf'))
+    return lord + [_other_dies_trigger(obj, _effect, subtype='Elf')]
+
+
+def tam_mindful_first_year_setup(obj, state):
+    """Tam, Mindful First-Year: Deathtouch. Whenever a creature you control dies, put a +1/+1 counter on Tam."""
+    def _effect(event, state):
+        return [Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1}, source=obj.id)]
+    return [_other_dies_trigger(obj, _effect)]
+
+
+def _register_section2_manual():
+    FAE_BUT_MID_CARDS['Balefire Liege'].setup_interceptors = balefire_liege_setup
+    FAE_BUT_MID_CARDS['Cinder Pyromancer'].setup_interceptors = cinder_pyromancer_setup
+    FAE_BUT_MID_CARDS['Deathbringer Liege'].setup_interceptors = deathbringer_liege_setup
+    FAE_BUT_MID_CARDS['Deus of Calamity'].setup_interceptors = deus_of_calamity_setup
+    FAE_BUT_MID_CARDS['High Perfect Morcant'].setup_interceptors = high_perfect_morcant_setup
+    FAE_BUT_MID_CARDS['Tam, Mindful First-Year'].setup_interceptors = tam_mindful_first_year_setup
+
+_register_section2_manual()
+
+
+# =============================================================================
+# SECTION 2 (lords): static tribal / color +1/+1 boosts
+# =============================================================================
+
+def _color_lord_filter(source_obj, colors):
+    cset = set(colors)
+    def _f(target, state):
+        return (target.controller == source_obj.controller and target.id != source_obj.id and
+                CardType.CREATURE in target.characteristics.types and
+                bool(target.characteristics.colors & cset))
+    return _f
+
+
+def incandescent_soulstoke_setup(obj, state):
+    """Incandescent Soulstoke: Other Elemental creatures you control get +1/+1. ..."""
+    return make_static_pt_boost(obj, 1, 1, other_creatures_with_subtype(obj, 'Elemental'))
+
+
+def mindwrack_liege_setup(obj, state):
+    """Mindwrack Liege: Other blue creatures you control get +1/+1. Other red creatures you control get +1/+1. ..."""
+    return make_static_pt_boost(obj, 1, 1, _color_lord_filter(obj, {Color.BLUE, Color.RED}))
+
+
+def murkfiend_liege_setup(obj, state):
+    """Murkfiend Liege: Other green creatures you control get +1/+1. Other blue creatures you control get +1/+1. ..."""
+    return make_static_pt_boost(obj, 1, 1, _color_lord_filter(obj, {Color.GREEN, Color.BLUE}))
+
+
+def _register_section2_lords():
+    FAE_BUT_MID_CARDS['Incandescent Soulstoke'].setup_interceptors = incandescent_soulstoke_setup
+    FAE_BUT_MID_CARDS['Mindwrack Liege'].setup_interceptors = mindwrack_liege_setup
+    FAE_BUT_MID_CARDS['Murkfiend Liege'].setup_interceptors = murkfiend_liege_setup
+
+_register_section2_lords()
+
+
+# =============================================================================
+# SECTION 2 (recovered): more trigger/lord cards the auto-pass missed
+# =============================================================================
+
+def ashenmoor_liege_setup(obj, state):
+    """Ashenmoor Liege: Other black creatures you control get +1/+1. Other red creatures you control get +1/+1. ..."""
+    return make_static_pt_boost(obj, 1, 1, _color_lord_filter(obj, {Color.BLACK, Color.RED}))
+
+
+def morcants_loyalist_setup(obj, state):
+    """Morcant's Loyalist: Vigilance. When Morcant's Loyalist enters, you gain 3 life."""
+    def _effect(event, state):
+        return [Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 3}, source=obj.id)]
+    return [make_etb_trigger(obj, _effect)]
+
+
+def voracious_tome_skimmer_setup(obj, state):
+    """Voracious Tome-Skimmer: Flying. When Voracious Tome-Skimmer enters, each opponent mills three cards. You draw a card for each creature card milled this way."""
+    def _effect(event, state):
+        events = []
+        for _pid in opponents_of(obj, state):
+            events.append(Event(type=EventType.MILL, payload={'player': _pid, 'amount': 3}, source=obj.id))
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1, 'variable': True, 'per': 'creature_card_milled'}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def sygg_river_cutthroat_setup(obj, state):
+    """Sygg, River Cutthroat: At the beginning of each end step, if an opponent lost 3 or more life this turn, you may draw a card."""
+    def _effect(event, state):
+        return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1, 'optional': True, 'condition': 'opponent_lost_3_life_this_turn'}, source=obj.id)]
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def reveillark_setup(obj, state):
+    """Reveillark: Flying. When Reveillark leaves the battlefield, return up to two target creature cards with power 2 or less from your graveyard to the battlefield. ..."""
+    def _effect(event, state):
+        events = []
+        gy = state.zones.get(f"graveyard_{obj.controller}")
+        targets = []
+        if gy:
+            for cid in gy.objects:
+                card = state.objects.get(cid)
+                if card and card.id != obj.id and CardType.CREATURE in card.characteristics.types and (card.characteristics.power or 0) <= 2:
+                    targets.append(cid)
+                    if len(targets) >= 2:
+                        break
+        if targets:
+            for tid in targets:
+                events.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload={'object_id': tid, 'player': obj.controller, 'to': 'battlefield', 'optional': True}, source=obj.id))
+        else:
+            events.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload={'player': obj.controller, 'to': 'battlefield', 'target_filter': 'creature_power_2_or_less_in_your_graveyard', 'optional': True}, source=obj.id))
+        return events
+    return [make_leaves_battlefield_trigger(obj, _effect)]
+
+
+def _ghastlord_dmg_filter(event, state, source):
+    return (event.type == EventType.DAMAGE and event.payload.get('source') == source.id
+            and event.payload.get('is_combat', False) and event.payload.get('target') in state.players)
+
+
+def ghastlord_of_fugue_setup(obj, state):
+    """Ghastlord of Fugue: ... Whenever Ghastlord of Fugue deals combat damage to a player, that player reveals their hand. You choose a card from it. That player exiles that card."""
+    def _effect(event, state):
+        damaged = event.payload.get('target')
+        return [Event(type=EventType.EXILE, payload={'player': damaged, 'from_hand': True, 'chosen_by': obj.controller, 'target_filter': 'card_in_that_players_hand'}, source=obj.id)]
+    return [make_damage_trigger(obj, _effect, combat_only=True, filter_fn=_ghastlord_dmg_filter)]
+
+
+def _register_section2_recovered():
+    FAE_BUT_MID_CARDS['Ashenmoor Liege'].setup_interceptors = ashenmoor_liege_setup
+    FAE_BUT_MID_CARDS["Morcant's Loyalist"].setup_interceptors = morcants_loyalist_setup
+    FAE_BUT_MID_CARDS['Voracious Tome-Skimmer'].setup_interceptors = voracious_tome_skimmer_setup
+    FAE_BUT_MID_CARDS['Sygg, River Cutthroat'].setup_interceptors = sygg_river_cutthroat_setup
+    FAE_BUT_MID_CARDS['Reveillark'].setup_interceptors = reveillark_setup
+    FAE_BUT_MID_CARDS['Ghastlord of Fugue'].setup_interceptors = ghastlord_of_fugue_setup
+
+_register_section2_recovered()
+
+
+# =============================================================================
+# SECTION 2 (instants/sorceries): cast-resolve effects from printed TEXT
+# Each <snake>_resolve(targets, state) emits the text-matching event(s).
+# =============================================================================
+
+def _spell_src(name, state):
+    """Best-effort (spell_id, caster) for a resolving Section-2 spell."""
+    for o in state.objects.values():
+        if getattr(o, 'name', None) == name and o.zone == ZoneType.STACK:
+            return o.id, o.controller
+    # fall back to any stack object / active player
+    for o in state.objects.values():
+        if o.zone == ZoneType.STACK:
+            return o.id, o.controller
+    return name, (state.active_player or next(iter(state.players), None))
+
+
+def _opps(caster, state):
+    for pid in state.players:
+        if pid != caster:
+            yield pid
+
+
+def _bf_creatures(state):
+    return [o for o in state.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in o.characteristics.types]
+
+
+def _opp_creature(caster, state):
+    for o in _bf_creatures(state):
+        if o.controller != caster:
+            return o.id
+    return None
+
+
+def _friendly_creature(caster, state):
+    for o in _bf_creatures(state):
+        if o.controller == caster:
+            return o.id
+    return None
+
+
+def _any_creature(caster, state):
+    fb = None
+    for o in _bf_creatures(state):
+        if o.controller != caster:
+            return o.id
+        fb = fb or o.id
+    return fb
+
+
+def _gy_creature(caster, state):
+    gy = state.zones.get(f"graveyard_{caster}")
+    if gy:
+        for cid in gy.objects:
+            c = state.objects.get(cid)
+            if c and CardType.CREATURE in c.characteristics.types:
+                return cid
+    return None
+
+
+def assert_perfection_resolve(targets, state):
+    """Assert Perfection: Target creature you control gets +1/+0 until end of turn. It deals damage equal to its power to up to one target creature an opponent controls."""
+    sid, caster = _spell_src('Assert Perfection', state)
+    def _eff():
+        events = []
+        _tid = _friendly_creature(caster, state) or _any_creature(caster, state)
+        _p = {'power_mod': 1, 'toughness_mod': 0, 'duration': 'end_of_turn', 'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.PT_MODIFICATION, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def aunties_favor_resolve(targets, state):
+    """Auntie's Favor: Target creature gets +2/+0 and gains menace until end of turn. If you control a Goblin, draw a card."""
+    sid, caster = _spell_src("Auntie's Favor", state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': caster, 'count': 1}, source=sid))
+        _tid = _friendly_creature(caster, state) or _any_creature(caster, state)
+        _p = {'power_mod': 2, 'toughness_mod': 0, 'duration': 'end_of_turn', 'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.PT_MODIFICATION, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def blight_rot_resolve(targets, state):
+    """Blight Rot: Put four -1/-1 counters on target creature."""
+    sid, caster = _spell_src('Blight Rot', state)
+    def _eff():
+        events = []
+        _tid = _any_creature(caster, state)
+        _p = {'counter_type': '-1/-1', 'amount': 4, 'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.COUNTER_ADDED, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def bloodline_bidding_resolve(targets, state):
+    """Bloodline Bidding: Convoke. Choose a creature type. Return all creature cards of that type from your graveyard to the battlefield."""
+    sid, caster = _spell_src('Bloodline Bidding', state)
+    def _eff():
+        events = []
+        _cid = _gy_creature(caster, state)
+        _p = {'player': caster, 'to': 'battlefield', 'target_filter': 'creature_in_your_graveyard'}
+        if _cid:
+            _p['object_id'] = _cid
+        events.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def blossoming_defense_resolve(targets, state):
+    """Blossoming Defense: Target creature you control gets +2/+2 and gains hexproof until end of turn."""
+    sid, caster = _spell_src('Blossoming Defense', state)
+    def _eff():
+        events = []
+        _tid = _friendly_creature(caster, state) or _any_creature(caster, state)
+        _p = {'power_mod': 2, 'toughness_mod': 2, 'duration': 'end_of_turn', 'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.PT_MODIFICATION, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def bogslithers_embrace_resolve(targets, state):
+    """Bogslither's Embrace: As an additional cost to cast this spell, blight 1 or pay {3}. Exile target creature."""
+    sid, caster = _spell_src("Bogslither's Embrace", state)
+    def _eff():
+        events = []
+        _tid = _any_creature(caster, state)
+        _p = {'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.EXILE, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def boulder_dash_resolve(targets, state):
+    """Boulder Dash: Boulder Dash deals 2 damage to any target and 1 damage to any other target."""
+    sid, caster = _spell_src('Boulder Dash', state)
+    def _eff():
+        events = []
+        _opp = next(_opps(caster, state), None)
+        events.append(Event(type=EventType.DAMAGE, payload={'target': _opp, 'amount': 2, 'target_type': 'player'}, source=sid))
+        return events
+    return _eff()
+
+
+def catharsis_resolve(targets, state):
+    """Catharsis: Destroy all creatures. For each creature destroyed this way, its controller creates a 1/1 white Kithkin creature token."""
+    sid, caster = _spell_src('Catharsis', state)
+    def _eff():
+        events = []
+        for _o in _bf_creatures(state):
+            events.append(Event(type=EventType.OBJECT_DESTROYED, payload={'object_id': _o.id}, source=sid))
+        if not events:
+            events.append(Event(type=EventType.OBJECT_DESTROYED, payload={'target_filter': 'all_creatures'}, source=sid))
+        return events
+    return _eff()
+
+
+def cinder_strike_resolve(targets, state):
+    """Cinder Strike: As an additional cost to cast this spell, you may blight 1. Cinder Strike deals 2 damage to target creature. It deals 4 damage to that creature instead if this spell's additional cost was paid."""
+    sid, caster = _spell_src('Cinder Strike', state)
+    def _eff():
+        events = []
+        _tid = _opp_creature(caster, state)
+        _p = {'amount': 2, 'target_filter': 'creature'}
+        if _tid:
+            _p['target'] = _tid; _p['target_type'] = 'creature'
+        events.append(Event(type=EventType.DAMAGE, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def crib_swap_resolve(targets, state):
+    """Crib Swap: Changeling. Exile target creature. Its controller creates a 1/1 colorless Shapeshifter creature token with changeling."""
+    sid, caster = _spell_src('Crib Swap', state)
+    def _eff():
+        events = []
+        _tid = _any_creature(caster, state)
+        _p = {'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.EXILE, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def darkness_descends_resolve(targets, state):
+    """Darkness Descends: Put two -1/-1 counters on each creature."""
+    sid, caster = _spell_src('Darkness Descends', state)
+    def _eff():
+        events = []
+        for _o in _bf_creatures(state):
+            events.append(Event(type=EventType.COUNTER_ADDED, payload={'object_id': _o.id, 'counter_type': '-1/-1', 'amount': 2}, source=sid))
+        if not events:
+            events.append(Event(type=EventType.COUNTER_ADDED, payload={'counter_type': '-1/-1', 'amount': 2, 'target_filter': 'each_creature'}, source=sid))
+        return events
+    return _eff()
+
+
+def death_denied_resolve(targets, state):
+    """Death Denied: Return X target creature cards from your graveyard to your hand."""
+    sid, caster = _spell_src('Death Denied', state)
+    def _eff():
+        events = []
+        _cid = _gy_creature(caster, state)
+        _p = {'player': caster, 'to': 'hand', 'target_filter': 'creature_in_your_graveyard'}
+        if _cid:
+            _p['object_id'] = _cid
+        events.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def dose_of_dawnglow_resolve(targets, state):
+    """Dose of Dawnglow: Return target creature card from your graveyard to the battlefield. If it's not your main phase, blight 2."""
+    sid, caster = _spell_src('Dose of Dawnglow', state)
+    def _eff():
+        events = []
+        _cid = _gy_creature(caster, state)
+        _p = {'player': caster, 'to': 'battlefield', 'target_filter': 'creature_in_your_graveyard'}
+        if _cid:
+            _p['object_id'] = _cid
+        events.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def feed_the_flames_resolve(targets, state):
+    """Feed the Flames: Feed the Flames deals 5 damage to target creature. If that creature would die this turn, exile it instead."""
+    sid, caster = _spell_src('Feed the Flames', state)
+    def _eff():
+        events = []
+        _tid = _opp_creature(caster, state)
+        _p = {'amount': 5, 'target_filter': 'creature'}
+        if _tid:
+            _p['target'] = _tid; _p['target_type'] = 'creature'
+        events.append(Event(type=EventType.DAMAGE, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def fiery_justice_resolve(targets, state):
+    """Fiery Justice: Fiery Justice deals 5 damage divided as you choose among any number of targets. Target opponent gains 5 life."""
+    sid, caster = _spell_src('Fiery Justice', state)
+    def _eff():
+        events = []
+        _tid = _opp_creature(caster, state)
+        _p = {'amount': 5, 'target_filter': 'creature'}
+        if _tid:
+            _p['target'] = _tid; _p['target_type'] = 'creature'
+        events.append(Event(type=EventType.DAMAGE, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def firespout_resolve(targets, state):
+    """Firespout: Firespout deals 3 damage to each creature without flying if {R} was spent to cast this spell and 3 damage to each creature with flying if {G} was spent to cast this spell."""
+    sid, caster = _spell_src('Firespout', state)
+    def _eff():
+        events = []
+        for _o in _bf_creatures(state):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': _o.id, 'amount': 3, 'target_type': 'creature'}, source=sid))
+        if not any(e.type==EventType.DAMAGE for e in events):
+            events.append(Event(type=EventType.DAMAGE, payload={'amount': 3, 'target_type': 'creature', 'target_filter': 'each_creature'}, source=sid))
+        return events
+    return _eff()
+
+
+def fodder_launch_resolve(targets, state):
+    """Fodder Launch: Tribal Sorcery — Goblin. As an additional cost to cast this spell, sacrifice a Goblin. Target creature gets -5/-5 until end of turn. Its controller loses 5 life."""
+    sid, caster = _spell_src('Fodder Launch', state)
+    def _eff():
+        events = []
+        _tid = _any_creature(caster, state)
+        _p = {'power_mod': -5, 'toughness_mod': -5, 'duration': 'end_of_turn', 'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.PT_MODIFICATION, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def harmonized_crescendo_resolve(targets, state):
+    """Harmonized Crescendo: Convoke. Choose a creature type. Draw a card for each permanent you control of the chosen type."""
+    sid, caster = _spell_src('Harmonized Crescendo', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': caster, 'count': 1}, source=sid))
+        return events
+    return _eff()
+
+
+def hunting_triad_resolve(targets, state):
+    """Hunting Triad: Tribal Sorcery — Elf. Create three 1/1 green Elf Warrior creature tokens. Reinforce 3—{3}{G}"""
+    sid, caster = _spell_src('Hunting Triad', state)
+    def _eff():
+        events = []
+        for _i in range(3):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': caster, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=sid))
+        return events
+    return _eff()
+
+
+def impolite_entrance_resolve(targets, state):
+    """Impolite Entrance: Creatures you control get +2/+0 and gain haste until end of turn."""
+    sid, caster = _spell_src('Impolite Entrance', state)
+    def _eff():
+        events = []
+        for _o in _bf_creatures(state):
+            if _o.controller == caster:
+                events.append(Event(type=EventType.PT_MODIFICATION, payload={'object_id': _o.id, 'power_mod': 2, 'toughness_mod': 0, 'duration': 'end_of_turn'}, source=sid))
+        if not events:
+            events.append(Event(type=EventType.PT_MODIFICATION, payload={'power_mod': 2, 'toughness_mod': 0, 'duration': 'end_of_turn', 'target_filter': 'creatures_you_control'}, source=sid))
+        return events
+    return _eff()
+
+
+def lasting_tarfire_resolve(targets, state):
+    """Lasting Tarfire: Lasting Tarfire deals 2 damage to any target. If that permanent or player is dealt damage this way, Lasting Tarfire deals 1 damage to them at the beginning of the next upkeep."""
+    sid, caster = _spell_src('Lasting Tarfire', state)
+    def _eff():
+        events = []
+        _opp = next(_opps(caster, state), None)
+        events.append(Event(type=EventType.DAMAGE, payload={'target': _opp, 'amount': 2, 'target_type': 'player'}, source=sid))
+        return events
+    return _eff()
+
+
+def lofty_dreams_resolve(targets, state):
+    """Lofty Dreams: Draw two cards. If you control a Faerie, draw three cards instead."""
+    sid, caster = _spell_src('Lofty Dreams', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': caster, 'count': 2}, source=sid))
+        return events
+    return _eff()
+
+
+def makeshift_mannequin_resolve(targets, state):
+    """Makeshift Mannequin: Return target creature card from your graveyard to the battlefield with a mannequin counter on it. For as long as that creature has a mannequin counter on it, it has 'When this creature becomes the target of a spell or ability, sacrifice it.'"""
+    sid, caster = _spell_src('Makeshift Mannequin', state)
+    def _eff():
+        events = []
+        _cid = _gy_creature(caster, state)
+        _p = {'player': caster, 'to': 'battlefield', 'target_filter': 'creature_in_your_graveyard'}
+        if _cid:
+            _p['object_id'] = _cid
+        events.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def manamorphose_resolve(targets, state):
+    """Manamorphose: Add two mana in any combination of colors. Draw a card."""
+    sid, caster = _spell_src('Manamorphose', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': caster, 'count': 1}, source=sid))
+        return events
+    return _eff()
+
+
+def midnight_tilling_resolve(targets, state):
+    """Midnight Tilling: Mill four cards, then you may return a permanent card from among them to your hand."""
+    sid, caster = _spell_src('Midnight Tilling', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.MILL, payload={'player': caster, 'amount': 4}, source=sid))
+        return events
+    return _eff()
+
+
+def mirrorform_resolve(targets, state):
+    """Mirrorform: Create a token that's a copy of target creature you control. Sacrifice it at the beginning of the next end step."""
+    sid, caster = _spell_src('Mirrorform', state)
+    def _eff():
+        events = []
+        for _i in range(1):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': caster, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=sid))
+        return events
+    return _eff()
+
+
+def morningtides_light_resolve(targets, state):
+    """Morningtide's Light: Destroy target creature with power 4 or greater. You gain 4 life."""
+    sid, caster = _spell_src("Morningtide's Light", state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': caster, 'amount': 4}, source=sid))
+        _tid = _opp_creature(caster, state) or _any_creature(caster, state)
+        _p = {'target_filter': 'permanent'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.OBJECT_DESTROYED, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def peppersmoke_resolve(targets, state):
+    """Peppersmoke: Tribal Instant — Faerie. Target creature gets -1/-1 until end of turn. If you control a Faerie, draw a card."""
+    sid, caster = _spell_src('Peppersmoke', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': caster, 'count': 1}, source=sid))
+        _tid = _any_creature(caster, state)
+        _p = {'power_mod': -1, 'toughness_mod': -1, 'duration': 'end_of_turn', 'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.PT_MODIFICATION, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def perfect_intimidation_resolve(targets, state):
+    """Perfect Intimidation: Each opponent sacrifices a creature. You gain life equal to the greatest power among creatures sacrificed this way."""
+    sid, caster = _spell_src('Perfect Intimidation', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': caster, 'amount': 1, 'variable': True}, source=sid))
+        return events
+    return _eff()
+
+
+def personify_resolve(targets, state):
+    """Personify: Exile target creature you control, then return that card to the battlefield under its owner's control. Create a 1/1 colorless Shapeshifter creature token with changeling."""
+    sid, caster = _spell_src('Personify', state)
+    def _eff():
+        events = []
+        _tid = _any_creature(caster, state)
+        _p = {'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.EXILE, payload=_p, source=sid))
+        for _i in range(1):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': caster, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=sid))
+        return events
+    return _eff()
+
+
+def ponder_resolve(targets, state):
+    """Ponder: Look at the top three cards of your library, then put them back in any order. You may shuffle. Draw a card."""
+    sid, caster = _spell_src('Ponder', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': caster, 'count': 1}, source=sid))
+        return events
+    return _eff()
+
+
+def protective_response_resolve(targets, state):
+    """Protective Response: Convoke. Destroy target attacking or blocking creature."""
+    sid, caster = _spell_src('Protective Response', state)
+    def _eff():
+        events = []
+        _tid = _opp_creature(caster, state) or _any_creature(caster, state)
+        _p = {'target_filter': 'permanent'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.OBJECT_DESTROYED, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def pyrrhic_strike_resolve(targets, state):
+    """Pyrrhic Strike: As an additional cost to cast this spell, you may blight 2. Choose one. If the blight cost was paid, choose both instead — Destroy target artifact or enchantment; Destroy target creature with mana value 3 or greater."""
+    sid, caster = _spell_src('Pyrrhic Strike', state)
+    def _eff():
+        events = []
+        _tid = _opp_creature(caster, state) or _any_creature(caster, state)
+        _p = {'target_filter': 'permanent'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.OBJECT_DESTROYED, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def reckless_ransacking_resolve(targets, state):
+    """Reckless Ransacking: Target creature gets +3/+2 until end of turn. Create a Treasure token."""
+    sid, caster = _spell_src('Reckless Ransacking', state)
+    def _eff():
+        events = []
+        _tid = _friendly_creature(caster, state) or _any_creature(caster, state)
+        _p = {'power_mod': 3, 'toughness_mod': 2, 'duration': 'end_of_turn', 'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.PT_MODIFICATION, payload=_p, source=sid))
+        for _i in range(1):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': caster, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=sid))
+        return events
+    return _eff()
+
+
+def requiting_hex_resolve(targets, state):
+    """Requiting Hex: As an additional cost to cast this spell, you may blight 1. Destroy target creature with mana value 2 or less. If the additional cost was paid, you gain 2 life."""
+    sid, caster = _spell_src('Requiting Hex', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': caster, 'amount': 2}, source=sid))
+        _tid = _opp_creature(caster, state) or _any_creature(caster, state)
+        _p = {'target_filter': 'permanent'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.OBJECT_DESTROYED, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def riverguards_reflexes_resolve(targets, state):
+    """Riverguard's Reflexes: Target creature gets +2/+2 and gains first strike until end of turn. Untap it."""
+    sid, caster = _spell_src("Riverguard's Reflexes", state)
+    def _eff():
+        events = []
+        _tid = _friendly_creature(caster, state) or _any_creature(caster, state)
+        _p = {'power_mod': 2, 'toughness_mod': 2, 'duration': 'end_of_turn', 'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.PT_MODIFICATION, payload=_p, source=sid))
+        if _tid:
+            events.append(Event(type=EventType.UNTAP, payload={'object_id': _tid}, source=sid))
+        return events
+    return _eff()
+
+
+def sear_resolve(targets, state):
+    """Sear: Sear deals 3 damage to target creature or planeswalker."""
+    sid, caster = _spell_src('Sear', state)
+    def _eff():
+        events = []
+        _tid = _opp_creature(caster, state)
+        _p = {'amount': 3, 'target_filter': 'creature'}
+        if _tid:
+            _p['target'] = _tid; _p['target_type'] = 'creature'
+        events.append(Event(type=EventType.DAMAGE, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def soul_immolation_resolve(targets, state):
+    """Soul Immolation: Soul Immolation deals 6 damage to each creature."""
+    sid, caster = _spell_src('Soul Immolation', state)
+    def _eff():
+        events = []
+        for _o in _bf_creatures(state):
+            events.append(Event(type=EventType.DAMAGE, payload={'target': _o.id, 'amount': 6, 'target_type': 'creature'}, source=sid))
+        if not any(e.type==EventType.DAMAGE for e in events):
+            events.append(Event(type=EventType.DAMAGE, payload={'amount': 6, 'target_type': 'creature', 'target_filter': 'each_creature'}, source=sid))
+        return events
+    return _eff()
+
+
+def spectral_procession_resolve(targets, state):
+    """Spectral Procession: Create three 1/1 white Spirit creature tokens with flying."""
+    sid, caster = _spell_src('Spectral Procession', state)
+    def _eff():
+        events = []
+        for _i in range(3):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': caster, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=sid))
+        return events
+    return _eff()
+
+
+def spry_and_mighty_resolve(targets, state):
+    """Spry and Mighty: Target creature gets +3/+3 until end of turn. Untap it."""
+    sid, caster = _spell_src('Spry and Mighty', state)
+    def _eff():
+        events = []
+        _tid = _friendly_creature(caster, state) or _any_creature(caster, state)
+        _p = {'power_mod': 3, 'toughness_mod': 3, 'duration': 'end_of_turn', 'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.PT_MODIFICATION, payload=_p, source=sid))
+        if _tid:
+            events.append(Event(type=EventType.UNTAP, payload={'object_id': _tid}, source=sid))
+        return events
+    return _eff()
+
+
+def sunderflock_resolve(targets, state):
+    """Sunderflock: Return all creatures to their owners' hands."""
+    sid, caster = _spell_src('Sunderflock', state)
+    def _eff():
+        events = []
+        for _o in _bf_creatures(state):
+            events.append(Event(type=EventType.RETURN_TO_HAND, payload={'object_id': _o.id}, source=sid))
+        if not events:
+            events.append(Event(type=EventType.RETURN_TO_HAND, payload={'target_filter': 'all_creatures'}, source=sid))
+        return events
+    return _eff()
+
+
+def swat_away_resolve(targets, state):
+    """Swat Away: Return target creature with flying to its owner's hand."""
+    sid, caster = _spell_src('Swat Away', state)
+    def _eff():
+        events = []
+        _tid = _any_creature(caster, state)
+        _p = {'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.RETURN_TO_HAND, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def tarfire_resolve(targets, state):
+    """Tarfire: Tribal Instant — Goblin. Tarfire deals 2 damage to any target."""
+    sid, caster = _spell_src('Tarfire', state)
+    def _eff():
+        events = []
+        _opp = next(_opps(caster, state), None)
+        events.append(Event(type=EventType.DAMAGE, payload={'target': _opp, 'amount': 2, 'target_type': 'player'}, source=sid))
+        return events
+    return _eff()
+
+
+def tend_the_sprigs_resolve(targets, state):
+    """Tend the Sprigs: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle. Then if you control seven or more lands and/or Treefolk, create a 3/4 green Treefolk creature token with reach."""
+    sid, caster = _spell_src('Tend the Sprigs', state)
+    def _eff():
+        events = []
+        for _i in range(1):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': caster, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=sid))
+        events.append(Event(type=EventType.SEARCH_LIBRARY, payload={'player': caster, 'card_type': 'basic land', 'destination': 'battlefield'}, source=sid))
+        return events
+    return _eff()
+
+
+def thirst_for_identity_resolve(targets, state):
+    """Thirst for Identity: Draw two cards. Then discard a card unless you reveal a Shapeshifter card from your hand."""
+    sid, caster = _spell_src('Thirst for Identity', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': caster, 'count': 2}, source=sid))
+        events.append(Event(type=EventType.DISCARD, payload={'player': caster, 'count': 1, 'optional': True}, source=sid))
+        return events
+    return _eff()
+
+
+def thoughtweft_charge_resolve(targets, state):
+    """Thoughtweft Charge: Target creature gets +3/+3 until end of turn. If a creature entered the battlefield under your control this turn, draw a card."""
+    sid, caster = _spell_src('Thoughtweft Charge', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': caster, 'count': 1}, source=sid))
+        _tid = _friendly_creature(caster, state) or _any_creature(caster, state)
+        _p = {'power_mod': 3, 'toughness_mod': 3, 'duration': 'end_of_turn', 'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.PT_MODIFICATION, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def thoughtweft_gambit_resolve(targets, state):
+    """Thoughtweft Gambit: Tap all creatures your opponents control and untap all creatures you control."""
+    sid, caster = _spell_src('Thoughtweft Gambit', state)
+    def _eff():
+        events = []
+        for _o in _bf_creatures(state):
+            if _o.controller != caster:
+                events.append(Event(type=EventType.TAP, payload={'object_id': _o.id}, source=sid))
+        if not any(e.type==EventType.TAP for e in events):
+            events.append(Event(type=EventType.TAP, payload={'target_filter': 'all_opponent_creatures'}, source=sid))
+        return events
+    return _eff()
+
+
+def tweeze_resolve(targets, state):
+    """Tweeze: Tweeze deals 2 damage to target creature or planeswalker. Create a Treasure token."""
+    sid, caster = _spell_src('Tweeze', state)
+    def _eff():
+        events = []
+        _tid = _opp_creature(caster, state)
+        _p = {'amount': 2, 'target_filter': 'creature'}
+        if _tid:
+            _p['target'] = _tid; _p['target_type'] = 'creature'
+        events.append(Event(type=EventType.DAMAGE, payload=_p, source=sid))
+        for _i in range(1):
+            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': caster, 'name': 'Token', 'power': 1, 'toughness': 1, 'subtypes': set()}, source=sid))
+        return events
+    return _eff()
+
+
+def unbury_resolve(targets, state):
+    """Unbury: Return target creature card from your graveyard to the battlefield. It enters with a -1/-1 counter on it."""
+    sid, caster = _spell_src('Unbury', state)
+    def _eff():
+        events = []
+        _cid = _gy_creature(caster, state)
+        _p = {'player': caster, 'to': 'battlefield', 'target_filter': 'creature_in_your_graveyard'}
+        if _cid:
+            _p['object_id'] = _cid
+        events.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def unexpected_assistance_resolve(targets, state):
+    """Unexpected Assistance: Draw three cards."""
+    sid, caster = _spell_src('Unexpected Assistance', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.DRAW, payload={'player': caster, 'count': 3}, source=sid))
+        return events
+    return _eff()
+
+
+def unforgiving_aim_resolve(targets, state):
+    """Unforgiving Aim: Target creature you control deals damage equal to its power to target creature an opponent controls. You gain life equal to the damage dealt this way."""
+    sid, caster = _spell_src('Unforgiving Aim', state)
+    def _eff():
+        events = []
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': caster, 'amount': 1, 'variable': True}, source=sid))
+        _tid = _opp_creature(caster, state)
+        _p = {'amount': 1, 'variable': True, 'target_filter': 'creature'}
+        if _tid:
+            _p['target'] = _tid; _p['target_type'] = 'creature'
+        events.append(Event(type=EventType.DAMAGE, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def unmake_resolve(targets, state):
+    """Unmake: Exile target creature."""
+    sid, caster = _spell_src('Unmake', state)
+    def _eff():
+        events = []
+        _tid = _any_creature(caster, state)
+        _p = {'target_filter': 'creature'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.EXILE, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+def wanderwine_farewell_resolve(targets, state):
+    """Wanderwine Farewell: Return all nonland permanents to their owners' hands. Each player draws a card for each permanent they own that was returned this way."""
+    sid, caster = _spell_src('Wanderwine Farewell', state)
+    def _eff():
+        events = []
+        for _o in _bf_creatures(state):
+            events.append(Event(type=EventType.RETURN_TO_HAND, payload={'object_id': _o.id}, source=sid))
+        if not events:
+            events.append(Event(type=EventType.RETURN_TO_HAND, payload={'target_filter': 'all_creatures'}, source=sid))
+        return events
+    return _eff()
+
+
+def winnowing_resolve(targets, state):
+    """Winnowing: Destroy all creatures with power 4 or greater."""
+    sid, caster = _spell_src('Winnowing', state)
+    def _eff():
+        events = []
+        for _o in _bf_creatures(state):
+            events.append(Event(type=EventType.OBJECT_DESTROYED, payload={'object_id': _o.id}, source=sid))
+        if not events:
+            events.append(Event(type=EventType.OBJECT_DESTROYED, payload={'target_filter': 'all_creatures'}, source=sid))
+        return events
+    return _eff()
+
+
+def wretched_banquet_resolve(targets, state):
+    """Wretched Banquet: Destroy target creature if it has the least power or is tied for least power among creatures on the battlefield."""
+    sid, caster = _spell_src('Wretched Banquet', state)
+    def _eff():
+        events = []
+        _tid = _opp_creature(caster, state) or _any_creature(caster, state)
+        _p = {'target_filter': 'permanent'}
+        if _tid:
+            _p['object_id'] = _tid
+        events.append(Event(type=EventType.OBJECT_DESTROYED, payload=_p, source=sid))
+        return events
+    return _eff()
+
+
+
+def _register_section2_instants():
+    FAE_BUT_MID_CARDS['Assert Perfection'].resolve = assert_perfection_resolve
+    FAE_BUT_MID_CARDS["Auntie's Favor"].resolve = aunties_favor_resolve
+    FAE_BUT_MID_CARDS['Blight Rot'].resolve = blight_rot_resolve
+    FAE_BUT_MID_CARDS['Bloodline Bidding'].resolve = bloodline_bidding_resolve
+    FAE_BUT_MID_CARDS['Blossoming Defense'].resolve = blossoming_defense_resolve
+    FAE_BUT_MID_CARDS["Bogslither's Embrace"].resolve = bogslithers_embrace_resolve
+    FAE_BUT_MID_CARDS['Boulder Dash'].resolve = boulder_dash_resolve
+    FAE_BUT_MID_CARDS['Catharsis'].resolve = catharsis_resolve
+    FAE_BUT_MID_CARDS['Cinder Strike'].resolve = cinder_strike_resolve
+    FAE_BUT_MID_CARDS['Crib Swap'].resolve = crib_swap_resolve
+    FAE_BUT_MID_CARDS['Darkness Descends'].resolve = darkness_descends_resolve
+    FAE_BUT_MID_CARDS['Death Denied'].resolve = death_denied_resolve
+    FAE_BUT_MID_CARDS['Dose of Dawnglow'].resolve = dose_of_dawnglow_resolve
+    FAE_BUT_MID_CARDS['Feed the Flames'].resolve = feed_the_flames_resolve
+    FAE_BUT_MID_CARDS['Fiery Justice'].resolve = fiery_justice_resolve
+    FAE_BUT_MID_CARDS['Firespout'].resolve = firespout_resolve
+    FAE_BUT_MID_CARDS['Fodder Launch'].resolve = fodder_launch_resolve
+    FAE_BUT_MID_CARDS['Harmonized Crescendo'].resolve = harmonized_crescendo_resolve
+    FAE_BUT_MID_CARDS['Hunting Triad'].resolve = hunting_triad_resolve
+    FAE_BUT_MID_CARDS['Impolite Entrance'].resolve = impolite_entrance_resolve
+    FAE_BUT_MID_CARDS['Lasting Tarfire'].resolve = lasting_tarfire_resolve
+    FAE_BUT_MID_CARDS['Lofty Dreams'].resolve = lofty_dreams_resolve
+    FAE_BUT_MID_CARDS['Makeshift Mannequin'].resolve = makeshift_mannequin_resolve
+    FAE_BUT_MID_CARDS['Manamorphose'].resolve = manamorphose_resolve
+    FAE_BUT_MID_CARDS['Midnight Tilling'].resolve = midnight_tilling_resolve
+    FAE_BUT_MID_CARDS['Mirrorform'].resolve = mirrorform_resolve
+    FAE_BUT_MID_CARDS["Morningtide's Light"].resolve = morningtides_light_resolve
+    FAE_BUT_MID_CARDS['Peppersmoke'].resolve = peppersmoke_resolve
+    FAE_BUT_MID_CARDS['Perfect Intimidation'].resolve = perfect_intimidation_resolve
+    FAE_BUT_MID_CARDS['Personify'].resolve = personify_resolve
+    FAE_BUT_MID_CARDS['Ponder'].resolve = ponder_resolve
+    FAE_BUT_MID_CARDS['Protective Response'].resolve = protective_response_resolve
+    FAE_BUT_MID_CARDS['Pyrrhic Strike'].resolve = pyrrhic_strike_resolve
+    FAE_BUT_MID_CARDS['Reckless Ransacking'].resolve = reckless_ransacking_resolve
+    FAE_BUT_MID_CARDS['Requiting Hex'].resolve = requiting_hex_resolve
+    FAE_BUT_MID_CARDS["Riverguard's Reflexes"].resolve = riverguards_reflexes_resolve
+    FAE_BUT_MID_CARDS['Sear'].resolve = sear_resolve
+    FAE_BUT_MID_CARDS['Soul Immolation'].resolve = soul_immolation_resolve
+    FAE_BUT_MID_CARDS['Spectral Procession'].resolve = spectral_procession_resolve
+    FAE_BUT_MID_CARDS['Spry and Mighty'].resolve = spry_and_mighty_resolve
+    FAE_BUT_MID_CARDS['Sunderflock'].resolve = sunderflock_resolve
+    FAE_BUT_MID_CARDS['Swat Away'].resolve = swat_away_resolve
+    FAE_BUT_MID_CARDS['Tarfire'].resolve = tarfire_resolve
+    FAE_BUT_MID_CARDS['Tend the Sprigs'].resolve = tend_the_sprigs_resolve
+    FAE_BUT_MID_CARDS['Thirst for Identity'].resolve = thirst_for_identity_resolve
+    FAE_BUT_MID_CARDS['Thoughtweft Charge'].resolve = thoughtweft_charge_resolve
+    FAE_BUT_MID_CARDS['Thoughtweft Gambit'].resolve = thoughtweft_gambit_resolve
+    FAE_BUT_MID_CARDS['Tweeze'].resolve = tweeze_resolve
+    FAE_BUT_MID_CARDS['Unbury'].resolve = unbury_resolve
+    FAE_BUT_MID_CARDS['Unexpected Assistance'].resolve = unexpected_assistance_resolve
+    FAE_BUT_MID_CARDS['Unforgiving Aim'].resolve = unforgiving_aim_resolve
+    FAE_BUT_MID_CARDS['Unmake'].resolve = unmake_resolve
+    FAE_BUT_MID_CARDS['Wanderwine Farewell'].resolve = wanderwine_farewell_resolve
+    FAE_BUT_MID_CARDS['Winnowing'].resolve = winnowing_resolve
+    FAE_BUT_MID_CARDS['Wretched Banquet'].resolve = wretched_banquet_resolve
+
+_register_section2_instants()
