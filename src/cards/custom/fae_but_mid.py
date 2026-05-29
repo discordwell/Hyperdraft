@@ -316,7 +316,7 @@ def make_static_pt_boost(
 from src.cards.interceptor_helpers import (
     make_death_trigger, make_attack_trigger, make_tap_trigger,
     make_upkeep_trigger, make_counter_added_trigger, make_end_step_trigger,
-    make_spell_cast_trigger, make_damage_trigger,  # used by Enraged Flamecaster (was missing → NameError on ETB)
+    make_spell_cast_trigger, make_damage_trigger, make_leaves_battlefield_trigger,  # used by Enraged Flamecaster (was missing → NameError on ETB)
     make_keyword_grant, other_creatures_you_control,
     other_creatures_with_subtype,
     # Targeted trigger helpers
@@ -10023,3 +10023,83 @@ def _register_section2_lords():
     FAE_BUT_MID_CARDS['Murkfiend Liege'].setup_interceptors = murkfiend_liege_setup
 
 _register_section2_lords()
+
+
+# =============================================================================
+# SECTION 2 (recovered): more trigger/lord cards the auto-pass missed
+# =============================================================================
+
+def ashenmoor_liege_setup(obj, state):
+    """Ashenmoor Liege: Other black creatures you control get +1/+1. Other red creatures you control get +1/+1. ..."""
+    return make_static_pt_boost(obj, 1, 1, _color_lord_filter(obj, {Color.BLACK, Color.RED}))
+
+
+def morcants_loyalist_setup(obj, state):
+    """Morcant's Loyalist: Vigilance. When Morcant's Loyalist enters, you gain 3 life."""
+    def _effect(event, state):
+        return [Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 3}, source=obj.id)]
+    return [make_etb_trigger(obj, _effect)]
+
+
+def voracious_tome_skimmer_setup(obj, state):
+    """Voracious Tome-Skimmer: Flying. When Voracious Tome-Skimmer enters, each opponent mills three cards. You draw a card for each creature card milled this way."""
+    def _effect(event, state):
+        events = []
+        for _pid in opponents_of(obj, state):
+            events.append(Event(type=EventType.MILL, payload={'player': _pid, 'amount': 3}, source=obj.id))
+        events.append(Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1, 'variable': True, 'per': 'creature_card_milled'}, source=obj.id))
+        return events
+    return [make_etb_trigger(obj, _effect)]
+
+
+def sygg_river_cutthroat_setup(obj, state):
+    """Sygg, River Cutthroat: At the beginning of each end step, if an opponent lost 3 or more life this turn, you may draw a card."""
+    def _effect(event, state):
+        return [Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1, 'optional': True, 'condition': 'opponent_lost_3_life_this_turn'}, source=obj.id)]
+    return [make_end_step_trigger(obj, _effect)]
+
+
+def reveillark_setup(obj, state):
+    """Reveillark: Flying. When Reveillark leaves the battlefield, return up to two target creature cards with power 2 or less from your graveyard to the battlefield. ..."""
+    def _effect(event, state):
+        events = []
+        gy = state.zones.get(f"graveyard_{obj.controller}")
+        targets = []
+        if gy:
+            for cid in gy.objects:
+                card = state.objects.get(cid)
+                if card and card.id != obj.id and CardType.CREATURE in card.characteristics.types and (card.characteristics.power or 0) <= 2:
+                    targets.append(cid)
+                    if len(targets) >= 2:
+                        break
+        if targets:
+            for tid in targets:
+                events.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload={'object_id': tid, 'player': obj.controller, 'to': 'battlefield', 'optional': True}, source=obj.id))
+        else:
+            events.append(Event(type=EventType.RETURN_FROM_GRAVEYARD, payload={'player': obj.controller, 'to': 'battlefield', 'target_filter': 'creature_power_2_or_less_in_your_graveyard', 'optional': True}, source=obj.id))
+        return events
+    return [make_leaves_battlefield_trigger(obj, _effect)]
+
+
+def _ghastlord_dmg_filter(event, state, source):
+    return (event.type == EventType.DAMAGE and event.payload.get('source') == source.id
+            and event.payload.get('is_combat', False) and event.payload.get('target') in state.players)
+
+
+def ghastlord_of_fugue_setup(obj, state):
+    """Ghastlord of Fugue: ... Whenever Ghastlord of Fugue deals combat damage to a player, that player reveals their hand. You choose a card from it. That player exiles that card."""
+    def _effect(event, state):
+        damaged = event.payload.get('target')
+        return [Event(type=EventType.EXILE, payload={'player': damaged, 'from_hand': True, 'chosen_by': obj.controller, 'target_filter': 'card_in_that_players_hand'}, source=obj.id)]
+    return [make_damage_trigger(obj, _effect, combat_only=True, filter_fn=_ghastlord_dmg_filter)]
+
+
+def _register_section2_recovered():
+    FAE_BUT_MID_CARDS['Ashenmoor Liege'].setup_interceptors = ashenmoor_liege_setup
+    FAE_BUT_MID_CARDS["Morcant's Loyalist"].setup_interceptors = morcants_loyalist_setup
+    FAE_BUT_MID_CARDS['Voracious Tome-Skimmer'].setup_interceptors = voracious_tome_skimmer_setup
+    FAE_BUT_MID_CARDS['Sygg, River Cutthroat'].setup_interceptors = sygg_river_cutthroat_setup
+    FAE_BUT_MID_CARDS['Reveillark'].setup_interceptors = reveillark_setup
+    FAE_BUT_MID_CARDS['Ghastlord of Fugue'].setup_interceptors = ghastlord_of_fugue_setup
+
+_register_section2_recovered()
