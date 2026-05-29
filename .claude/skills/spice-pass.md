@@ -48,6 +48,63 @@ Reference audit: `docs/sets/pkm_brv_depth_audit.md`. The capability test gate
 below (`capability_score ≥ 0.30`) is **unchanged** — depth and capability
 are independent and both must pass.
 
+## ⛔ FORBIDDEN — never generate median-lift / slice-N / "thin-bust" stubs ⛔
+
+> This section is non-negotiable. It exists because this exact skill was once
+> misused to ship ~16 broken custom sets. Read it before you write a single
+> setup function.
+
+A "polish/depth" campaign once auto-generated stub helpers named
+`_<set>_s<N>_*` (a.k.a. "slice-N median-lift", "spice-pass autowire",
+"thin-bust") that wired **hundreds** of cards to emit generic **SCRY /
+SURVEIL / MILL / LIFE_CHANGE** "info-pulse" events **regardless of each
+card's printed rules text** — purely to push the `depth_v2_median` number up.
+Wiring tests passed because they only checked "some event fired," and in
+several cases the **card text was rewritten to match the stub** instead of the
+code being written to match the text. Net result: ~16 sets shipped where cards
+did **not** do what their text said. Reversing it across 17 sets was a huge
+effort. Do not recreate it.
+
+**Hard prohibitions — every one of these is a defect, not a shortcut:**
+
+1. **NEVER** auto-generate `_<set>_s<N>_*` / "median-lift" / "thin-bust" /
+   batch "autowire" stub helpers. If you catch yourself writing a loop or a
+   templated helper that attaches the *same* effect to many cards to move a
+   metric, stop — that is the prohibited pattern.
+2. **NEVER** wire a card to an effect that does not match its printed rules
+   text. The code implements the text; the text is the spec. If they disagree,
+   fix the **code**, not the text. (Editing a card's printed text to match a
+   convenient stub is the worst version of this — it launders the bug.)
+3. **NEVER** emit SCRY / SURVEIL / MILL / LIFE_CHANGE (or any event) as
+   generic "depth filler." Each emitted event must be something the card's
+   text actually instructs. A card whose text says "deal 3 damage" emits
+   DAMAGE — never SCRY.
+4. **If a card's text is keyword/stat-only, it stays vanilla** — no
+   `setup_interceptors`. A vanilla 3/3 is a correct, honest card. Inflating it
+   with an unrelated trigger to dodge the thin-card list is forbidden; the
+   thin-card list is *information*, not an enemy.
+5. **Depth is an OUTCOME of real design, never a target to optimize directly.**
+   `depth_v2_median`, `axis_diversity`, `code_diversity`, `tier_counts` are
+   *diagnostics that tell you where the design is shallow* — they are not
+   scoreboards to maximize by any means. The metric is now defended: the
+   Asymmetry axis (`src/depth/axis_scorer.py`) **refuses to credit any
+   info/asymmetric event whose mechanic the card's printed text doesn't
+   describe**, so a text-mismatched info-pulse scores **zero** and cannot move
+   the median. A stub strategy literally cannot raise the number anymore — but
+   the rule above stands regardless of what the tooling enforces.
+
+**Every wired effect MUST implement the card's actual printed text**, and must
+pass strict `/test-interceptors` (text-matching events — see that command):
+a "destroy" card emits DESTROY, a "draw" card emits DRAW, a "create N tokens"
+card emits CREATE_TOKEN. "Some event fired" is **not** sufficient evidence the
+card works.
+
+The legitimate way to raise depth is everything else in this doc: design
+format-defining cards targeting the 11 broken-card patterns, build real synergy
+packages, and do *honest* reskin-cluster cleanup (give clustered cards
+genuinely **distinct mechanics** — different helpers, different events, that
+each match their own text — not the same stub in N flavors).
+
 ## The 11 broken-card patterns
 
 Cards that warp formats almost always exhibit one or more of these. Mark
@@ -532,9 +589,13 @@ the "your set is one template wearing N flavors" failure mode.
    Champion / Antagonist / Royalty / Support / Artifact / Land / Vanilla
    buckets. Each bucket suggests a distinct mechanical role.
 3. Pick 6-10 cards across buckets and assign each a DISTINCT effect
-   shape. Distinct = different helpers, different events, different axes.
-   The depth-report's code-fingerprint hash is the success metric: 6
-   cluster-cleanup picks should land 6 different fingerprints.
+   shape. Distinct = different helpers, different events, different axes —
+   **and every effect must match its own card's printed text** (see the
+   FORBIDDEN section). The depth-report's code-fingerprint hash is a
+   *diagnostic* that 6 cleanup picks landed 6 different shapes; it is **not**
+   a target to satisfy by emitting 6 different filler events. If you can't
+   give a card a distinct mechanic that its flavor/role justifies, leave it
+   vanilla rather than bolt on an unrelated trigger to break the cluster.
 4. Do these alongside (not separately from) the 12-15 new spice picks.
    The cluster cleanup is the cheap-payoff axis — it moves code_diversity
    the most per card because each cleanup card breaks one fingerprint out

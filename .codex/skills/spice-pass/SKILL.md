@@ -33,6 +33,18 @@ Every spice card should intentionally hit 1-3 broken-card patterns:
 
 Pattern 11 needs special validation. Generic tournament deckbuilders often omit the support cards, so a good build-around can look bad in a generic tournament.
 
+## ⛔ FORBIDDEN — never generate median-lift / slice-N stubs ⛔
+
+This skill was once misused to ship ~16 broken custom sets, so this is non-negotiable:
+
+- **NEVER** auto-generate `_<set>_s<N>_*` / "median-lift" / "thin-bust" / batch "autowire" stub helpers that attach the same effect to many cards to move a metric.
+- **NEVER** wire a card to an effect that doesn't match its printed rules text. The code implements the text; if they disagree, fix the **code**, never the text.
+- **NEVER** emit SCRY / SURVEIL / MILL / LIFE_CHANGE (or any event) as generic "depth filler." A "deal 3 damage" card emits DAMAGE, never SCRY.
+- **Keyword/stat-only cards stay vanilla** — no `setup_interceptors`. A correct vanilla card beats an inflated dishonest one.
+- **Depth metrics (`depth_v2_median`, `axis_diversity`, `code_diversity`) are diagnostics, not targets.** The Asymmetry axis in `src/depth/axis_scorer.py` now refuses to credit info/asymmetric events whose mechanic the card's text doesn't describe, so a text-mismatched stub scores zero — but the rule stands regardless of tooling.
+
+Every wired effect MUST implement the card's actual text and pass strict `/test-interceptors` (text-matching events). Reskin-cluster cleanup means giving cards genuinely distinct mechanics that each match their own text — not the same stub in N flavors. Full rationale: `.claude/skills/spice-pass.md`.
+
 ## Workflow
 
 1. Pick one pilot set. Do not roll a spice methodology across many sets before validating one pass.
