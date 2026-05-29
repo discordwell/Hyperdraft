@@ -183,19 +183,24 @@ _REALITY_EATER.scp_on_contain = _emrakul_contain
 # Rules text: Annihilation Wave 1. When this anomaly breaches, opposing
 # personnel become exhausted.
 def _conscription_breach(obj, state):
-    """On breach, exhaust all opposing personnel (they cannot act next turn)."""
+    """On breach, exhaust all active opposing personnel (real effect, replacing a
+    placeholder): set scp_exhausted so they can't be assigned next turn."""
     opp = scp._first_opposing_player(state, obj.controller)
     if opp is None:
         return []
-    # TODO: engine primitive for mass-exhaust opposing personnel not yet
-    # implemented — emit an SCP_INCIDENT_RESOLVED info event as a placeholder.
+    exhausted = 0
+    for pid in list(state.scp_personnel.get(opp, [])):
+        person = state.objects.get(pid)
+        if person is not None and person.state.scp_status == "active" and not person.state.scp_exhausted:
+            person.state.scp_exhausted = True
+            exhausted += 1
     return [scp.Event(
         type=scp.EventType.SCP_INCIDENT_RESOLVED,
         payload={
             "player": obj.controller,
             "reason": "conscription_exhaustion",
             "target_player": opp,
-            "effect": "exhaust_all_personnel",
+            "exhausted": exhausted,
         },
         source=obj.id,
         controller=obj.controller,
@@ -228,19 +233,26 @@ _CONSCRIPTION_PATTERN.scp_on_breach = _conscription_breach
 # Rules text: Annihilation Wave 2. On reveal, hazard +1 per pending dossier
 # you control.
 def _hedron_caged_reveal(obj, state):
-    """On reveal, hazard +1 per pending dossier the controller has active."""
-    s = scp.site(state, obj.controller)
-    pending_count = len(s.get("pending_dossiers", []))
+    """On reveal, +1 effective hazard per pending dossier you control.
+
+    Fixes two bugs: the old code read a nonexistent site key
+    ("pending_dossiers", always empty) and wrote ``obj.scp_hazard`` — which the
+    engine never reads (effective hazard comes from card_def + mood/protocol -
+    suppressed). The real lever is ``scp_suppressed`` (negative = bonus hazard),
+    the same mechanism Leyline Saturation uses."""
+    pending_count = sum(
+        1 for o in state.objects.values()
+        if o.controller == obj.controller and o.state.scp_status == "pending"
+    )
     if pending_count > 0:
-        current_hazard = getattr(obj, "scp_hazard", obj.characteristics.get("hazard", 0))
-        obj.scp_hazard = current_hazard + pending_count
+        obj.state.scp_suppressed = int(getattr(obj.state, "scp_suppressed", 0) or 0) - pending_count
     return [scp.Event(
         type=scp.EventType.SCP_INCIDENT_RESOLVED,
         payload={
             "player": obj.controller,
             "reason": "hedron_titan_reveal_boost",
             "pending_count": pending_count,
-            "new_hazard": getattr(obj, "scp_hazard", 0),
+            "hazard_bonus": pending_count,
         },
         source=obj.id,
         controller=obj.controller,
@@ -1200,6 +1212,71 @@ _APOLLYON_BUNKER = _ea_card(
 _APOLLYON_BUNKER.scp_facility_bonus = {"contain": 1}
 
 
+# 31. Apollyon Convergence Array (verb-redesign signature bomb)
+# A one-shot "go off" finisher: at the cost of your own breach, every
+# Annihilation Wave anomaly you control fires at once. Win-more with a steep
+# self-cost — only correct when ahead/safe with AW anomalies online (the AI
+# gating lives in the value_hint). Counterplay is self-limiting (your breach +2)
+# plus the opponent's breach stabilizers; not reducible to "+1 task".
+def _apollyon_convergence_effect(obj, state):
+    game = getattr(state, "_game", None)
+    if game is None:
+        return []
+    s = scp.site(state, obj.controller)
+    s["breach"] = s.get("breach", 0) + 2
+    events = [scp.Event(
+        type=scp.EventType.SCP_INCIDENT_RESOLVED,
+        payload={"player": obj.controller, "reason": "apollyon_convergence_self_breach", "breach": s["breach"]},
+        source=obj.id,
+        controller=obj.controller,
+    )]
+    events.extend(scp.apply_annihilation_wave(game, obj.controller))
+    return events
+
+
+def _apollyon_convergence_value(obj, state, _mode):
+    s = scp.site(state, obj.controller)
+    if int(s.get("breach", 0) or 0) >= 8:
+        return -5.0  # too close to a breach loss — never self-immolate
+    aw = 0
+    for aid in state.scp_anomalies.get(obj.controller, []):
+        anom = state.objects.get(aid)
+        if (anom is not None and anom.state.scp_status == "active"
+                and int(getattr(anom.card_def, "scp_annihilation_wave", 0) or 0) >= 1):
+            aw += 1
+    return aw * 3.0  # ~3 opp-breach reach per AW anomaly online; 0 when none
+
+
+def _apollyon_convergence_setup(obj, state):
+    from src.engine.scp_abilities import make_scp_activated_ability
+    from src.engine.scp_costs import SCPCost, SCPValueHint
+    make_scp_activated_ability(
+        obj,
+        cost=SCPCost(exhaust_self=True),
+        once_per_turn=True,
+        description="Your breach +2; each Annihilation Wave anomaly you control fires once",
+        effect_fn=_apollyon_convergence_effect,
+        value_hint=SCPValueHint(custom_value_fn=_apollyon_convergence_value),
+    )
+    return []
+
+
+_APOLLYON_CONVERGENCE = _ea_card(
+    "Apollyon Convergence Array",
+    CardType.SCP_FACILITY,
+    red_tape=2,
+    clearance=1,
+    subtypes={"Containment Site", "Apollyon"},
+    text=(
+        "Exhaust: your breach +2, then each Annihilation Wave anomaly you "
+        "control fires once (redact + raise each opponent's breach). "
+        "The hedrons align. Everyone files at once."
+    ),
+    rarity="mythic",
+)
+_APOLLYON_CONVERGENCE.setup_interceptors = _apollyon_convergence_setup
+
+
 # ---------------------------------------------------------------------------
 # 1 MANDATE
 # ---------------------------------------------------------------------------
@@ -1304,6 +1381,7 @@ ELDRAZI_APEX_CARDS: list[CardDefinition] = [
     _APOLLYON_BUNKER,       # 29 Apollyon Ingress Containment Bunker
     # Mandate
     _MANDATE_AVI,           # 30 Mandate FBN-AVI: Apollyon Vector Inhibition
+    _APOLLYON_CONVERGENCE,  # 31 Apollyon Convergence Array (verb-redesign signature bomb)
 ]
 
 _CARDS = ELDRAZI_APEX_CARDS

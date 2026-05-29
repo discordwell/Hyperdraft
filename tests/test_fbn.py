@@ -21,10 +21,10 @@ from src.cards.scp.foundations_beyond import (
 
 
 def test_fbn_card_pool_size():
-    # 300 baseline + 1 verb-redesign signature bomb (Operative O5-7, Strain
-    # Harvester, added to Phyrexian Strain). Bump deliberately as the redesign
-    # adds marquee cards — the exact-count guard exists to catch unintended drift.
-    assert len(FBN_CARDS) == 301, f"expected 301 FBN cards, got {len(FBN_CARDS)}"
+    # 300 baseline + verb-redesign signature bombs (Wave A): O5-7 Strain Harvester
+    # (Phyrexian Strain) + Apollyon Convergence Array (Eldrazi Apex). Bump
+    # deliberately per bomb — the exact-count guard catches unintended drift.
+    assert len(FBN_CARDS) == 302, f"expected 302 FBN cards, got {len(FBN_CARDS)}"
 
 
 def test_fbn_merged_into_scp_registry():

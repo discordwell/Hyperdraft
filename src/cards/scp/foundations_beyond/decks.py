@@ -184,7 +184,7 @@ def build_fbn_eldrazi_apex() -> list[CardDefinition]:
         "Containment Site Ash-of-Zendikar",        # research+1, Eldrazi hazard+1
         "Void Approach Vector Suppression Site",   # research+1, archive on AW
         "Hedron Network Containment Grid",         # contain+1, archive on sac
-        "Apollyon Ingress Containment Bunker",     # contain+1
+        "Apollyon Convergence Array",              # signature bomb: fire all AW anomalies (self-breach cost)
         # ── Mandate (1) ───────────────────────────────────────────────────────
         "Mandate FBN-AVI: Apollyon Vector Inhibition",  # win on opp breach ≥ 12
     )

@@ -433,5 +433,58 @@ def test_hedron_audit_destubbed_to_real_effect():
     assert not any(e.payload.get("reason") == "scry_3_put_eldrazi_top" for e in events)
 
 
+# --------------------------------------------------------------------------- #
+# Wave A #1: Eldrazi Apex — bug fixes + Apollyon Convergence bomb
+# --------------------------------------------------------------------------- #
+
+
+def _bf_obj(game, player, card_name, status="active"):
+    cd = SCP_CARDS[card_name]
+    obj = game.create_object(
+        name=cd.name, owner_id=player.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=cd.characteristics, card_def=cd,
+    )
+    obj.controller = player.id
+    obj.state.scp_status = status
+    return obj
+
+
+def test_conscription_breach_exhausts_opposing_personnel():
+    from src.cards.scp.foundations_beyond.eldrazi_apex import _conscription_breach
+    game, p1, p2 = _setup()
+    opp = _play(game, p2, "Junior Researcher")
+    assert not opp.state.scp_exhausted
+    src = _bf_obj(game, p1, "SCP-FBN-2280: Eldrazi Conscription Pattern")
+    _conscription_breach(src, game.state)
+    assert opp.state.scp_exhausted, "conscription did not exhaust opposing personnel"
+
+
+def test_hedron_caged_reveal_boosts_hazard_via_suppressed():
+    from src.cards.scp.foundations_beyond.eldrazi_apex import _hedron_caged_reveal
+    game, p1, p2 = _setup()
+    pend = _bf_obj(game, p1, "Junior Researcher", status="pending")  # a pending dossier
+    titan = _bf_obj(game, p1, "SCP-FBN-2281: Hedron-Caged Titan")
+    s0 = int(getattr(titan.state, "scp_suppressed", 0) or 0)
+    _hedron_caged_reveal(titan, game.state)
+    assert titan.state.scp_suppressed == s0 - 1, "hedron titan did not add hazard (1 pending -> -1 suppressed)"
+
+
+def test_apollyon_convergence_bomb_fires_aw_and_self_breach():
+    game, p1, p2 = _setup()
+    aw = _bf_obj(game, p1, "SCP-FBN-2271: Apollyon-Class Void Eater (Ulamog)")  # AW 2
+    scp.ensure_scp_state(game.state, p1.id)
+    game.state.scp_anomalies.setdefault(p1.id, []).append(aw.id)
+    fac = _bf_obj(game, p1, "Apollyon Convergence Array")
+    game.state.scp_facilities.setdefault(p1.id, []).append(fac.id)
+    assert getattr(fac.state, "activated_abilities", []), "convergence ability not registered"
+
+    my_b0 = scp.site(game.state, p1.id)["breach"]
+    opp_b0 = scp.site(game.state, p2.id)["breach"]
+    ok, msg, _ev = scp.activate_ability(game, p1.id, fac.id, 0)
+    assert ok, msg
+    assert scp.site(game.state, p1.id)["breach"] == my_b0 + 2, "self-breach cost not applied"
+    assert scp.site(game.state, p2.id)["breach"] > opp_b0, "Annihilation Wave did not fire on activation"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
