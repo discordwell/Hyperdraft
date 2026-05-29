@@ -52,11 +52,22 @@ class EngineProfile:
     # represent asymmetric resource impact (energy discard, hand discard,
     # forced switch, etc). The scorer combines event_type ∈ this set with
     # cross_controller=True to award Asymmetry 2+.
+    #
+    # !! GAMEABLE SURFACE — see the anti-gaming guard in axis_scorer.py. !!
+    # The slice-N median-lift exploit emitted these (and the info events
+    # below) from stub helpers that ignored card text. `axis_scorer` now gates
+    # crediting on a text-match check (`_EVENT_TEXT_KEYWORDS`). If you ADD an
+    # event name here, add its corroborating text keywords to that map too, or
+    # a stub emitting the new event can game the score again.
     asymmetric_event_types: frozenset[str]
 
     # EventType names whose payload typically conveys hidden information or
     # forces opponent decisions (forced reveal, choose-from-hidden-set, etc).
-    # Pushes Asymmetry to 3.
+    # Pushes Asymmetry to 3 — the single most score-dense rule in the rubric,
+    # and therefore the prime target of stub-generation attacks. The
+    # axis_scorer text-match guard refuses to credit any of these unless the
+    # card's printed rules text corroborates the mechanic. Keep new entries in
+    # sync with `axis_scorer._EVENT_TEXT_KEYWORDS`.
     information_event_types: frozenset[str] = field(default_factory=frozenset)
 
     # Cross-module helper names that *imply* cross-controller interaction even

@@ -1,6 +1,15 @@
 """
 Set-level depth report.
 
+ANTI-GAMING NOTE (post slice-N median-lift incident): the per-card scores this
+report aggregates (`median_total`, axis distributions, tiers) come from
+`axis_scorer.score_card`, which now refuses to credit info/asymmetric events
+(SCRY/SURVEIL/MILL/LIFE_CHANGE/…) on the Asymmetry axis unless the card's
+printed rules text actually describes that mechanic. A stub helper that emits a
+generic info-pulse with no matching text scores 0 on Asymmetry, so it can NOT
+raise `depth_v2_median`. Do not "fix" a low median by wiring filler events —
+raise it with real, text-matching effects verified by strict /test-interceptors.
+
 Given an engine name and a card registry (a dict[str, CardDefinition]),
 produces a SetReport with:
 - Per-card axis scores + code fingerprint

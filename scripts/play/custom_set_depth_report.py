@@ -6,6 +6,17 @@ heuristic that catches reskins. The legacy fields are preserved with a
 `legacy_` prefix for one release cycle so the spice loops can diff old
 vs. new during migration.
 
+!! depth_v2_median IS NOT A FREE-STANDING TARGET. !! The slice-N median-lift
+retrofit gamed exactly this number by auto-wiring cards to emit generic
+SCRY/SURVEIL/MILL/LIFE_CHANGE info-pulse events that did not match the cards'
+printed text. The v2 scorer (`src/depth/axis_scorer.py`) now text-gates the
+Asymmetry axis, so an info-pulse with no corroborating rules text scores 0 and
+cannot move the median. Depth must come from REAL, text-matching effects that
+pass strict /test-interceptors — never from emitting filler event types. If you
+find yourself adding `_<set>_s<N>_*` / "median-lift" / "thin-bust" stub helpers
+to raise this report's numbers, STOP: that is the prohibited pattern this guard
+exists to defeat.
+
 See:
 - `src/depth/` for the v2 implementation
 - `docs/sets/pkm_brv_depth_audit.md` for an example audit deliverable
