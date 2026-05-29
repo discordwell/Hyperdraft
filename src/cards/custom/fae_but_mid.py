@@ -3182,10 +3182,13 @@ KITHKEEPER = make_creature(
 
 # Liminal Hold - {3}{W} Enchantment
 def liminal_hold_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When Liminal Hold enters, exile target creature until it leaves."""
+    """When Liminal Hold enters, exile target creature an opponent controls until it leaves."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Exile effect requires targeting - simplified placeholder
-        return []
+        target = find_opponent_creature(obj, state)
+        payload = {'until_leaves': obj.id, 'target_filter': 'opponent_creature'}
+        if target:
+            payload['object_id'] = target
+        return [Event(type=EventType.EXILE, payload=payload, source=obj.id)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3200,10 +3203,11 @@ LIMINAL_HOLD = make_enchantment(
 
 # Meanders Guide - {1}{W} Creature — Kithkin Scout 2/1
 def meanders_guide_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When Meanders Guide enters, look at top 3, put one into hand."""
+    """When Meanders Guide enters, look at top 3, put one into hand, rest on bottom."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Library manipulation - simplified placeholder
-        return []
+        return [Event(type=EventType.LOOK_AT_TOP,
+            payload={'player': obj.controller, 'amount': 3, 'put_in_hand': 1,
+                     'rest_to_bottom': True}, source=obj.id)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3301,11 +3305,20 @@ SHORE_LURKER = make_creature(
 
 
 # Slumbering Walker - {1}{W} Creature — Giant 3/3
+def _tap_opponent_creature_event(obj, target, *, dont_untap=False):
+    payload = {'target_filter': 'opponent_creature'}
+    if target:
+        payload['object_id'] = target
+    if dont_untap:
+        payload['skip_next_untap'] = True
+    return Event(type=EventType.TAP, payload=payload, source=obj.id)
+
+
 def slumbering_walker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When Slumbering Walker enters, tap target creature an opponent controls."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Tap target opponent's creature - targeting handled by game system
-        return []
+        target = find_opponent_creature(obj, state)
+        return [_tap_opponent_creature_event(obj, target)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3369,10 +3382,20 @@ SUN_DAPPLED_CELEBRANT = make_creature(
 
 # Thoughtweft Imbuer - {2}{W} Creature — Kithkin Wizard 2/3
 def thoughtweft_imbuer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When Thoughtweft Imbuer enters, target creature gets +2/+2 and lifelink."""
+    """When Thoughtweft Imbuer enters, target creature you control gets +2/+2 and gains lifelink."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Grant +2/+2 and lifelink until end of turn - targeting handled by game
-        return []
+        target = find_friendly_creature(obj, state, exclude_self=False)
+        pt_payload = {'power_mod': 2, 'toughness_mod': 2, 'duration': 'end_of_turn',
+                      'target_filter': 'creature_you_control'}
+        kw_payload = {'keyword': 'lifelink', 'duration': 'end_of_turn',
+                      'target_filter': 'creature_you_control'}
+        if target:
+            pt_payload['object_id'] = target
+            kw_payload['object_id'] = target
+        return [
+            Event(type=EventType.PT_MODIFICATION, payload=pt_payload, source=obj.id),
+            Event(type=EventType.GRANT_KEYWORD, payload=kw_payload, source=obj.id),
+        ]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3408,10 +3431,14 @@ TIMID_SHIELDBEARER = make_creature(
 
 # Tributary Vaulter - {3}{W} Creature — Merfolk Wizard 3/3
 def tributary_vaulter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When Tributary Vaulter enters, tap up to two target creatures opponents control."""
+    """When Tributary Vaulter enters, tap up to two target creatures your opponents control."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Tap up to two opponent creatures - targeting handled by game
-        return []
+        targets = [o.id for o in _battlefield_creatures(state)
+                   if o.controller != obj.controller][:2]
+        if targets:
+            return [Event(type=EventType.TAP, payload={'object_id': t}, source=obj.id)
+                    for t in targets]
+        return [_tap_opponent_creature_event(obj, None)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3478,10 +3505,11 @@ WANDERBRINE_PREACHER = make_creature(
 
 # Wanderbrine Trapper - {2}{W} Creature — Merfolk Rogue 2/2
 def wanderbrine_trapper_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """When Wanderbrine Trapper enters, tap target creature; it doesn't untap next turn."""
+    """When Wanderbrine Trapper enters, tap target creature an opponent controls;
+    it doesn't untap during its controller's next untap step."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Tap and freeze target - targeting handled by game
-        return []
+        target = find_opponent_creature(obj, state)
+        return [_tap_opponent_creature_event(obj, target, dont_untap=True)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3512,9 +3540,10 @@ WINNOWING = make_sorcery(
 
 # Disruptor of Currents - {3}{U}{U} Creature — Merfolk Wizard 3/3
 def disruptor_of_currents_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "return up to one other target nonland permanent to its owner's hand."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Bounce a nonland permanent - simplified
-        return []
+        target = find_any_creature(obj, state, exclude_self=True)
+        return [_return_to_hand_event(obj, target, 'other_nonland_permanent', optional=True)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3534,8 +3563,19 @@ DISRUPTOR_OF_CURRENTS = make_creature(
 def glamer_gifter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When this creature enters, target creature becomes 4/4 with all creature types."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Grant 4/4 base and changeling until end of turn - targeting handled by game
-        return []
+        target = find_any_creature(obj, state, exclude_self=False)
+        payload = {'duration': 'end_of_turn', 'set_base': True,
+                   'set_power': 4, 'set_toughness': 4, 'add_all_creature_types': True,
+                   'target_filter': 'creature'}
+        if target:
+            t = state.objects[target]
+            payload['object_id'] = target
+            payload['power_mod'] = 4 - (t.characteristics.power or 0)
+            payload['toughness_mod'] = 4 - (t.characteristics.toughness or 0)
+        else:
+            payload['power_mod'] = 0
+            payload['toughness_mod'] = 0
+        return [Event(type=EventType.PT_MODIFICATION, payload=payload, source=obj.id)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3634,9 +3674,10 @@ RIMEFIRE_TORQUE = make_artifact(
 
 # Rimekin Recluse - {2}{U} Creature — Elemental Wizard 3/2
 def rimekin_recluse_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "return up to one other target creature to its owner's hand."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Bounce another creature - simplified
-        return []
+        target = find_any_creature(obj, state, exclude_self=True)
+        return [_return_to_hand_event(obj, target, 'other_creature', optional=True)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3829,8 +3870,23 @@ def shinestriker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         return event.payload.get('target_type') == 'player'
 
     def combat_damage_handler(event: Event, state: GameState) -> InterceptorResult:
-        # Tap/untap target - targeting handled by game
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+        # "you may tap or untap target permanent." — choose the untap mode,
+        # preferring a tapped permanent (else any permanent).
+        target = None
+        for o in state.objects.values():
+            if o.zone == ZoneType.BATTLEFIELD and o.state.tapped:
+                target = o.id
+                break
+        if target is None:
+            for o in state.objects.values():
+                if o.zone == ZoneType.BATTLEFIELD:
+                    target = o.id
+                    break
+        payload = {'target_filter': 'permanent', 'optional': True}
+        if target:
+            payload['object_id'] = target
+        return InterceptorResult(action=InterceptorAction.REACT,
+            new_events=[Event(type=EventType.UNTAP, payload=payload, source=obj.id)])
 
     return [
         Interceptor(
@@ -3861,8 +3917,18 @@ SHINESTRIKER = make_creature(
 def silvergill_mentor_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When Silvergill Mentor enters, other Merfolk you control get +1/+1 until end of turn."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Grant +1/+1 to other Merfolk until end of turn - simplified placeholder
-        return []
+        events = []
+        for o in _battlefield_creatures(state):
+            if (o.controller == obj.controller and o.id != obj.id and
+                    "Merfolk" in o.characteristics.subtypes):
+                events.append(Event(type=EventType.PT_MODIFICATION,
+                    payload={'object_id': o.id, 'power_mod': 1, 'toughness_mod': 1,
+                             'duration': 'end_of_turn'}, source=obj.id))
+        if not events:
+            events.append(Event(type=EventType.PT_MODIFICATION,
+                payload={'power_mod': 1, 'toughness_mod': 1, 'duration': 'end_of_turn',
+                         'target_filter': 'other_merfolk_you_control'}, source=obj.id))
+        return events
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3940,8 +4006,8 @@ SPELL_SNARE = make_instant(
 def stratosoarer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When Stratosoarer enters, return target creature to its owner's hand."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Bounce target creature - targeting handled by game
-        return []
+        target = find_any_creature(obj, state, exclude_self=True)
+        return [_return_to_hand_event(obj, target, 'creature')]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -3998,7 +4064,19 @@ def tanufel_rimespeaker_setup(obj: GameObject, state: GameState) -> list[Interce
         return event.payload.get('controller') == obj.controller
 
     def spell_cast_handler(event: Event, state: GameState) -> InterceptorResult:
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+        # "you may tap or untap target permanent. Do this X times, where X is the
+        #  number of colors among permanents you control." — emit one untap per
+        #  color (the untap mode of the choice), preferring tapped permanents.
+        x = max(1, _colors_among_permanents(obj, state))
+        perms = [o.id for o in state.objects.values()
+                 if o.zone == ZoneType.BATTLEFIELD]
+        events = []
+        for i in range(x):
+            payload = {'target_filter': 'permanent', 'optional': True}
+            if perms:
+                payload['object_id'] = perms[i % len(perms)]
+            events.append(Event(type=EventType.UNTAP, payload=payload, source=obj.id))
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=events)
 
     return [
         Interceptor(
@@ -4079,8 +4157,8 @@ UNWELCOME_SPRITE = make_creature(
 def wanderwine_distracter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     """When Wanderwine Distracter enters, tap target creature an opponent controls."""
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Tap target - targeting handled by game
-        return []
+        target = find_opponent_creature(obj, state)
+        return [_tap_opponent_creature_event(obj, target)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
