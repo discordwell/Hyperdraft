@@ -411,5 +411,27 @@ def test_execute_action_dispatches_noop_and_ability():
     assert ok_noop and ok_act
 
 
+# --------------------------------------------------------------------------- #
+# Wave A: Eldrazi Apex — de-stubbed Hedron Audit (was a scry placeholder)
+# --------------------------------------------------------------------------- #
+
+
+def test_hedron_audit_destubbed_to_real_effect():
+    game, p1, p2 = _setup()
+    cd = SCP_CARDS["Hedron Audit"]
+    obj = game.create_object(
+        name=cd.name, owner_id=p1.id, zone=ZoneType.HAND,
+        characteristics=cd.characteristics, card_def=cd,
+    )
+    breach0 = scp.site(game.state, p2.id)["breach"]
+    brief0 = scp.site(game.state, p1.id)["briefing"]
+    ok, _m, events = scp.open_dossier(game, p1.id, obj.id, fast_track=True)
+    assert ok
+    assert scp.site(game.state, p2.id)["breach"] == breach0 + 1, "opp breach not raised"
+    assert scp.site(game.state, p1.id)["briefing"] == brief0 + 1, "briefing not gained"
+    # No longer the scry placeholder.
+    assert not any(e.payload.get("reason") == "scry_3_put_eldrazi_top" for e in events)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

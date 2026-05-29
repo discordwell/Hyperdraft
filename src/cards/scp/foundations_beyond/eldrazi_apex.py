@@ -972,21 +972,37 @@ _APOLLYON_VECTOR_SACRIFICE.scp_on_play = _vector_sacrifice_play
 # Rules text: Look at top 3 of your library. Put 1 Eldrazi anomaly on top,
 # rest shuffled.
 def _hedron_audit_play(obj, state):
-    """Scry 3; put 1 Eldrazi anomaly on top, shuffle rest."""
-    # TODO: engine library scry + conditional top-sort not yet implemented
-    # as a procedure callback primitive — emitting SCP_INCIDENT_RESOLVED with
-    # reason="scry_3_put_eldrazi_top" as placeholder; engine resolves on key.
-    return [scp.Event(
+    """Brief 1; each opponent's breach +1. Replaces a scry-3 placeholder — SCP
+    has no library-scry primitive the AI can value, so this is a real, on-theme
+    fuel + reach effect for the breach-race plan."""
+    s_me = scp.site(state, obj.controller)
+    s_me["briefing"] = s_me.get("briefing", 0) + 1
+    events = [scp.Event(
         type=scp.EventType.SCP_INCIDENT_RESOLVED,
         payload={
             "player": obj.controller,
-            "reason": "scry_3_put_eldrazi_top",
-            "scry_depth": 3,
-            "filter_subtype": "Eldrazi",
+            "reason": "hedron_audit_brief",
+            "briefing": s_me["briefing"],
         },
         source=obj.id,
         controller=obj.controller,
     )]
+    opp = scp._first_opposing_player(state, obj.controller)
+    if opp:
+        s_opp = scp.site(state, opp)
+        s_opp["breach"] = s_opp.get("breach", 0) + 1
+        events.append(scp.Event(
+            type=scp.EventType.SCP_INCIDENT_RESOLVED,
+            payload={
+                "player": obj.controller,
+                "reason": "hedron_audit_opp_breach",
+                "target_player": opp,
+                "breach": s_opp["breach"],
+            },
+            source=obj.id,
+            controller=obj.controller,
+        ))
+    return events
 
 
 _HEDRON_AUDIT = _ea_card(
@@ -996,7 +1012,7 @@ _HEDRON_AUDIT = _ea_card(
     clearance=0,
     subtypes={"Audit"},
     text=(
-        "Look at top 3 of your library. Put 1 Eldrazi anomaly on top, rest shuffled. "
+        "Brief 1. Each opponent's breach +1. "
         "The hedrons are filing themselves. "
         "We are reviewing the hedrons' filing."
     ),
