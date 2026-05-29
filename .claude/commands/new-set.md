@@ -83,7 +83,7 @@ Read these once at start so subagents can be briefed accurately:
 
 - `CLAUDE.md` — top-level project conventions, set list, helper inventory.
 - `.claude/skills/implement-mtg-cards.md` — the canonical card-implementation pattern (interceptors, helpers, test recipe). Cite this in every stage-4 subagent prompt.
-- `.claude/skills/spice-pass.md` — overlaps with stage 8's revision agent; if it covers the engine you're working in, reuse its prompt.
+- `.claude/skills/spice-pass.md` — overlaps with stage 8's revision agent; if it covers the engine you're working in, reuse its prompt. **Note its FORBIDDEN section**: never auto-generate `_<set>_s<N>_*` / median-lift / thin-bust stubs, never wire effects that don't match printed text, never emit info-pulse events (SCRY/SURVEIL/MILL/LIFE_CHANGE) as depth filler. Depth/quality metrics are diagnostics, not targets.
 - `src/cards/minecraft/` — exemplar of the per-engine "split into archetype files" layout you should mirror (`alpha.py` / `phyrexia.py` / `horror.py` + aggregating `__init__.py`).
 - `scripts/play/custom_set_tournament.py` — the MTG-engine tournament runner whose JSON output `scripts/new_set/balance_loop.py` consumes. Other engines have their own runners under `scripts/play/` and `scripts/stress/` — check there first.
 
@@ -270,7 +270,15 @@ Run the generated drift test. **Halt the pipeline if any drift failure is found*
 
 #### 7.5b — Interceptor / effect-firing verification
 
-Invoke the existing `/test-interceptors` skill with `--game <engine> --set <CODE> --fail-on-empty --out tests/test_<set>_interceptors.py`. The skill reads card defs, generates one unit test per card that fires the trigger and asserts the expected `EventType` is emitted, then runs them.
+Invoke the existing `/test-interceptors` skill with `--game <engine> --set <CODE> --fail-on-empty --out tests/test_<set>_interceptors.py`. The skill reads card defs, generates one unit test per card that fires the card's **own canonical trigger** and asserts a **text-matching** `EventType` is emitted, then runs them under strict mode (`HYPERDRAFT_STRICT=1 HYPERDRAFT_STRICT_STACK=1`). Follow that command's methodology exactly — a "deal damage" card must emit DAMAGE, NOT a generic SCRY/SURVEIL/MILL/LIFE_CHANGE info-pulse; "some event fired" is not a pass.
+
+> ⛔ **No slice-N median-lift stubs.** It is FORBIDDEN to make this stage (or
+> the Stage 8 depth/quality numbers) pass by auto-generating `_<set>_s<N>_*` /
+> "median-lift" / "thin-bust" helpers that wire cards to emit generic info-pulse
+> events unrelated to their printed text — and equally forbidden to edit a
+> card's text to match a convenient stub. That is the exact pattern that shipped
+> ~16 broken sets. Every wired effect must implement the card's actual text. A
+> keyword/stat-only card stays vanilla. See `.claude/skills/spice-pass.md`.
 
 **Decision gate**:
 
@@ -406,9 +414,24 @@ options:
 - If user picks "API": run `art_harness --mode api` (requires `OPENAI_API_KEY` in env). Honor the user's saved-memory note about hard billing limits — if a 401/429 is hit, halt and report.
 - If user picks "Skip" (or doesn't answer within their attention window): done. Placeholder PNGs stay; user can re-run art via `python -m scripts.new_set.art_harness ...` whenever they want.
 
-#### 9c. CI pre-flight
+#### 9c. CI pre-flight + text-vs-events gate (a set is NOT done until this passes)
 
-Before signaling commit-readiness, run `scripts/ci_quick.sh <engine>` from repo root (e.g. `scripts/ci_quick.sh depths`). This catches the recurring CI-redness pattern: untracked source files imported by tracked code, stale TS types, and missing `requirements-server.txt` deps — none of which the per-stage tests notice.
+**Definition of done — both must hold before you signal commit-readiness:**
+
+1. **Strict text-vs-events verification passes.** Every wired card must pass
+   the Stage-7.5b `/test-interceptors` run in strict mode
+   (`HYPERDRAFT_STRICT=1 HYPERDRAFT_STRICT_STACK=1`) with **text-matching**
+   events — a "deal damage" card emitting only `SCRY` is a FAIL, not a pass.
+   If you relaxed 7.5b's gate to ship, you are not done. Re-run it here as the
+   final gate; do not declare the set done on a green smoke test alone.
+2. **Depth/quality was not gamed.** If you ran a depth report
+   (`custom_set_depth_report.py`) during balancing, its numbers must come from
+   real, text-matching effects — NOT from info-pulse filler. The scorer now
+   text-gates the Asymmetry axis, so a stub can't move the median; but also
+   confirm by eye that no `_<set>_s<N>_*` / median-lift / thin-bust helpers
+   exist in the set module (`grep -rn '_s[0-9]\+_\|median.lift\|thin.bust' src/cards/<engine>/<set_module>/` should return nothing).
+
+Then run `scripts/ci_quick.sh <engine>` from repo root (e.g. `scripts/ci_quick.sh depths`). This catches the recurring CI-redness pattern: untracked source files imported by tracked code, stale TS types, and missing `requirements-server.txt` deps — none of which the per-stage tests notice.
 
 - If it passes, include `ci_quick: <engine> passed` in the final report and proceed to 9d.
 - If the untracked-imports check fails, `git add` the flagged files and re-run.
