@@ -218,8 +218,6 @@ SKIPPED_CARDS = {
     'Earwig Squad': 'prowl-gated ETB (search+exile only when prowl cost paid; alt-cost dependent)',
     'Elvish Branchbender': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Figure of Destiny': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Firdoch Core': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Fulminator Mage': 'activated sacrifice ability (structural; no triggered/static interceptor)',
     'Gathering Stone': 'choose-a-type cost-reducer / mana on ETB (structural; no content event)',
     'Glen Elendra Archmage': 'activated sacrifice ability (structural; no triggered/static interceptor)',
     'Heap Doll': 'activated sacrifice ability (structural; no triggered/static interceptor)',
@@ -229,7 +227,6 @@ SKIPPED_CARDS = {
     'Mirror Entity': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Mirrormind Crown': 'equipment: grants statics/abilities to the held creature (needs an attached host)',
     'Mistbind Clique': 'champion mechanic (exile-on-ETB + return-on-leave; structural)',
-    'Moonglove Extract': 'activated sacrifice ability (structural; no triggered/static interceptor)',
     'Mornsong Aria': 'static lock / name-or-color-choice replacement effect (structural)',
     'Nettle Sentinel': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Nettlevine Blight': 'PHASE B: aura grants the enchanted permanent an end-step "sacrifice then re-attach to a permanent you control" triggered ability — needs a granted self-moving aura trigger',
@@ -245,12 +242,9 @@ SKIPPED_CARDS = {
     'Scarblade Scout': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Sensation Gorger': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Shimmerwilds Growth': 'PHASE B: aura grants the enchanted LAND a "{T}: Add any color" mana ability — mana abilities are text-parsed by the priority engine, not registerable via the granted-ability API',
-    'Soulbright Seeker': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Sower of Temptation': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Spellstutter Sprite': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Springleaf Drum': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Stillmoon Cavalier': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Sting-Slinger': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Stoic Grove-Guide': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Sygg, River Guide': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Tattermunge Maniac': 'structural / activated / replacement effect not expressible via a canonical trigger',
@@ -2760,6 +2754,76 @@ def test_card_evolving_wilds():
         f"should search library for a basic land, got {[e.type.name for e in resolve_evts]}")
 
 
+# --- activated abilities on creatures / artifacts --------------------------
+
+def _setup_activated(game, player, card_name, *, summon_sick=False, mana=None):
+    """Place the card, clear summoning sickness, optionally add mana; return obj."""
+    _own_main(game, player)
+    obj = create_creature_on_battlefield(game, player, card_name)
+    obj.state.summoning_sickness = summon_sick
+    if mana:
+        _give_mana(game, player, **mana)
+    return obj
+
+
+def test_card_soulbright_seeker():
+    """Soulbright Seeker: Trample. {R}: Soulbright Seeker gets +1/+0 until end of turn."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Soulbright Seeker", mana={'r': 1})
+    _, resolve = _activate(game, p1, obj)
+    assert any(e.type == EventType.PT_MODIFICATION and e.payload.get('power_mod') == 1
+               for e in resolve), f"should pump +1/+0, got {[e.type.name for e in resolve]}"
+
+
+def test_card_sting_slinger():
+    """Sting-Slinger: {T}, Sacrifice Sting-Slinger: It deals 1 damage to any target."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Sting-Slinger")
+    cost, resolve = _activate(game, p1, obj, targets=[_target_player(p2.id)])
+    assert EventType.SACRIFICE in [e.type for e in cost], "should sacrifice itself"
+    dmg = [e for e in resolve if e.type == EventType.DAMAGE]
+    assert dmg and dmg[0].payload.get('amount') == 1, f"should deal 1 damage, got {[e.type.name for e in resolve]}"
+
+
+def test_card_moonglove_extract():
+    """Moonglove Extract: Sacrifice Moonglove Extract: It deals 2 damage to any target."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Moonglove Extract")
+    cost, resolve = _activate(game, p1, obj, targets=[_target_player(p2.id)])
+    assert EventType.SACRIFICE in [e.type for e in cost], "should sacrifice itself"
+    dmg = [e for e in resolve if e.type == EventType.DAMAGE]
+    assert dmg and dmg[0].payload.get('amount') == 2, f"should deal 2 damage, got {[e.type.name for e in resolve]}"
+
+
+def test_card_fulminator_mage():
+    """Fulminator Mage: Sacrifice Fulminator Mage: Destroy target nonbasic land."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Fulminator Mage")
+    land = _spawn_land(game, p2, "Mountain")
+    cost, resolve = _activate(game, p1, obj, targets=[_target_obj(land)])
+    assert EventType.SACRIFICE in [e.type for e in cost], "should sacrifice itself"
+    assert any(e.type == EventType.DESTROY for e in resolve), (
+        f"should destroy the target land, got {[e.type.name for e in resolve]}")
+
+
+# --- engine-native mana abilities (creatures/artifacts) --------------------
+
+def test_card_springleaf_drum():
+    """Springleaf Drum: {T}, Tap an untapped creature you control: Add one mana of any color."""
+    game, p1, p2 = _new_game()
+    _own_main(game, p1)
+    # Springleaf Drum needs another untapped creature to tap as part of its cost.
+    _spawn(game, p1, name='Tap Fodder')
+    _assert_land_produces(game, p1, "Springleaf Drum", ["C"])
+
+
+def test_card_firdoch_core():
+    """Firdoch Core: Changeling. {T}: Add one mana of any color. ..."""
+    game, p1, p2 = _new_game()
+    _own_main(game, p1)
+    _assert_land_produces(game, p1, "Firdoch Core", ["C"])
+
+
 # ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
@@ -2774,7 +2838,9 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_forest, test_card_island, test_card_mountain, test_card_plains, test_card_swamp,
     test_card_blood_crypt, test_card_hallowed_fountain, test_card_overgrown_tomb,
     test_card_steam_vents, test_card_temple_garden, test_card_eclipsed_realms,
-    test_card_evolving_wilds]
+    test_card_evolving_wilds,
+    test_card_soulbright_seeker, test_card_sting_slinger, test_card_moonglove_extract,
+    test_card_fulminator_mage, test_card_springleaf_drum, test_card_firdoch_core]
 
 
 def _run():

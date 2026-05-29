@@ -5622,6 +5622,12 @@ SOUL_IMMOLATION = make_sorcery(
 
 
 # Soulbright Seeker - {3}{R} Creature — Elemental Shaman 4/3
+def _soulbright_seeker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    make_pump_self_ability(obj, "{R}", power_mod=1, toughness_mod=0,
+                           description="Soulbright Seeker gets +1/+0 until end of turn")
+    return []
+
+
 SOULBRIGHT_SEEKER = make_creature(
     name="Soulbright Seeker",
     power=4,
@@ -5630,7 +5636,7 @@ SOULBRIGHT_SEEKER = make_creature(
     colors={Color.RED},
     subtypes={"Elemental", "Shaman"},
     text="Trample. {R}: Soulbright Seeker gets +1/+0 until end of turn.",
-    setup_interceptors=None
+    setup_interceptors=_soulbright_seeker_setup
 )
 
 
@@ -5674,6 +5680,12 @@ SQUAWKROASTER = make_creature(
 
 
 # Sting-Slinger - {R} Creature — Goblin 1/1
+def _sting_slinger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    make_damage_ability(obj, "{T}, Sacrifice Sting-Slinger", damage=1,
+                        description="It deals 1 damage to any target")
+    return []
+
+
 STING_SLINGER = make_creature(
     name="Sting-Slinger",
     power=1,
@@ -5682,7 +5694,7 @@ STING_SLINGER = make_creature(
     colors={Color.RED},
     subtypes={"Goblin"},
     text="{T}, Sacrifice Sting-Slinger: It deals 1 damage to any target.",
-    setup_interceptors=None
+    setup_interceptors=_sting_slinger_setup
 )
 
 
@@ -6915,10 +6927,17 @@ WILT_LEAF_LIEGE = make_creature(
 # =============================================================================
 
 # Moonglove Extract - {3} Artifact
+def _moonglove_extract_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    make_damage_ability(obj, "Sacrifice Moonglove Extract", damage=2,
+                        description="It deals 2 damage to any target")
+    return []
+
+
 MOONGLOVE_EXTRACT = make_artifact(
     name="Moonglove Extract",
     mana_cost="{3}",
-    text="Sacrifice Moonglove Extract: It deals 2 damage to any target."
+    text="Sacrifice Moonglove Extract: It deals 2 damage to any target.",
+    setup_interceptors=_moonglove_extract_setup
 )
 
 # Runed Stalactite - {1} Artifact — Equipment
@@ -7391,6 +7410,12 @@ INCENDIARY_COMMAND = make_sorcery(
 )
 
 # More Multicolor Cards
+def _fulminator_mage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    make_sac_destroy_ability(obj, "Sacrifice Fulminator Mage", target_kind="land",
+                             description="Destroy target nonbasic land")
+    return []
+
+
 FULMINATOR_MAGE = make_creature(
     name="Fulminator Mage",
     power=2,
@@ -7398,7 +7423,8 @@ FULMINATOR_MAGE = make_creature(
     mana_cost="{1}{B/R}{B/R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Elemental", "Shaman"},
-    text="Sacrifice Fulminator Mage: Destroy target nonbasic land."
+    text="Sacrifice Fulminator Mage: Destroy target nonbasic land.",
+    setup_interceptors=_fulminator_mage_setup
 )
 
 FIGURE_OF_DESTINY = make_creature(
