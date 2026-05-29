@@ -4953,7 +4953,10 @@ BARBED_BLOODLETTER = make_artifact(
     name="Barbed Bloodletter",
     mana_cost="{1}{B}",
     subtypes={"Equipment"},
-    text="Flash. When Barbed Bloodletter enters, attach it to target creature you control. That creature gains wither until end of turn. Equipped creature gets +1/+2. Equip {2}"
+    text="Flash. When Barbed Bloodletter enters, attach it to target creature you control. That creature gains wither until end of turn. Equipped creature gets +1/+2. Equip {2}",
+    # Static +1/+2 + Equip {2}. (ETB auto-attach-to-target + temporary wither
+    # grant are a targeted-ETB rider handled in Phase B.)
+    setup_interceptors=make_equipment_setup(power_mod=1, toughness_mod=2, equip_cost="{2}")
 )
 
 
@@ -6269,7 +6272,10 @@ BARK_OF_DORAN = make_artifact(
     name="Bark of Doran",
     mana_cost="{1}{W}",
     subtypes={"Equipment"},
-    text="Equipped creature gets +0/+1. As long as equipped creature's toughness is greater than its power, it assigns combat damage equal to its toughness rather than its power. Equip {1}"
+    text="Equipped creature gets +0/+1. As long as equipped creature's toughness is greater than its power, it assigns combat damage equal to its toughness rather than its power. Equip {1}",
+    # Static +0/+1 + Equip {1}. (The "assign damage = toughness" Doran clause is
+    # a combat-damage replacement effect handled in Phase B.)
+    setup_interceptors=make_equipment_setup(power_mod=0, toughness_mod=1, equip_cost="{1}")
 )
 
 # =============================================================================
@@ -6883,15 +6889,55 @@ RUNED_STALACTITE = make_artifact(
     name="Runed Stalactite",
     mana_cost="{1}",
     subtypes={"Equipment"},
-    text="Equipped creature gets +1/+1 and is every creature type. Equip {2}"
+    text="Equipped creature gets +1/+1 and is every creature type. Equip {2}",
+    # Static +1/+1 + Equip {2}. "Is every creature type" == Changeling
+    # (CR 702.73); granted as the changeling keyword on the equipped creature.
+    setup_interceptors=make_equipment_setup(
+        power_mod=1, toughness_mod=1, keywords=["changeling"], equip_cost="{2}")
 )
 
 # Thornbite Staff - {2} Kindred Artifact — Shaman Equipment
+def _thornbite_damage_effect(o: GameObject, state: GameState, targets) -> list[Event]:
+    if not targets:
+        return []
+    t = targets[0]
+    target_id = getattr(t, 'object_id', None) or getattr(t, 'player_id', None) or t
+    return [Event(type=EventType.DAMAGE,
+                  payload={'target': target_id, 'amount': 1, 'source': o.id},
+                  source=o.id, controller=o.controller)]
+
+
+def _thornbite_death_filter(event: Event, state: GameState, target_id: str) -> bool:
+    if event.type != EventType.OBJECT_DESTROYED:
+        return False
+    dead = state.objects.get(event.payload.get('object_id'))
+    return bool(dead) and CardType.CREATURE in dead.characteristics.types
+
+
+def _thornbite_untap_effect(target_obj: GameObject, event: Event, state: GameState) -> list[Event]:
+    return [Event(type=EventType.UNTAP, payload={'object_id': target_obj.id},
+                  source=target_obj.id, controller=target_obj.controller)]
+
+
 THORNBITE_STAFF = make_artifact(
     name="Thornbite Staff",
     mana_cost="{2}",
     subtypes={"Shaman", "Equipment"},
-    text="Equipped creature has \"{2}, {T}: This creature deals 1 damage to any target\" and \"Whenever a creature dies, untap this creature.\" Whenever a Shaman creature enters under your control, you may attach Thornbite Staff to it. Equip {4}"
+    text="Equipped creature has \"{2}, {T}: This creature deals 1 damage to any target\" and \"Whenever a creature dies, untap this creature.\" Whenever a Shaman creature enters under your control, you may attach Thornbite Staff to it. Equip {4}",
+    # Grants the held creature a {2},{T}: 1-damage ping ability + an untap-on-
+    # any-creature-death trigger. (Optional Shaman-ETB free-attach: Phase B.)
+    setup_interceptors=make_equipment_setup(
+        equip_cost="{4}",
+        granted_activated_abilities={
+            "cost": "{2}, {T}", "effect_fn": _thornbite_damage_effect,
+            "description": "This creature deals 1 damage to any target",
+            "targets_required": 1, "target_kind": "any",
+        },
+        granted_triggered_abilities={
+            "event_filter": _thornbite_death_filter,
+            "effect_fn": _thornbite_untap_effect,
+            "description": "Whenever a creature dies, untap this creature",
+        })
 )
 
 # Obsidian Battle-Axe - {3} Kindred Artifact — Warrior Equipment
@@ -6899,7 +6945,10 @@ OBSIDIAN_BATTLE_AXE = make_artifact(
     name="Obsidian Battle-Axe",
     mana_cost="{3}",
     subtypes={"Warrior", "Equipment"},
-    text="Equipped creature gets +2/+1 and has haste. Whenever a Warrior creature enters under your control, you may attach Obsidian Battle-Axe to it. Equip {3}"
+    text="Equipped creature gets +2/+1 and has haste. Whenever a Warrior creature enters under your control, you may attach Obsidian Battle-Axe to it. Equip {3}",
+    # Static +2/+1 + haste + Equip {3}. (Optional Warrior-ETB free-attach: Phase B.)
+    setup_interceptors=make_equipment_setup(
+        power_mod=2, toughness_mod=1, keywords=["haste"], equip_cost="{3}")
 )
 
 # Cloak and Dagger - {2} Kindred Artifact — Rogue Equipment
@@ -6907,23 +6956,93 @@ CLOAK_AND_DAGGER = make_artifact(
     name="Cloak and Dagger",
     mana_cost="{2}",
     subtypes={"Rogue", "Equipment"},
-    text="Equipped creature gets +2/+0 and has shroud. Whenever a Rogue creature enters under your control, you may attach Cloak and Dagger to it. Equip {3}"
+    text="Equipped creature gets +2/+0 and has shroud. Whenever a Rogue creature enters under your control, you may attach Cloak and Dagger to it. Equip {3}",
+    # Static +2/+0 + shroud + Equip {3}. (The optional "attach on Rogue ETB"
+    # free-attach trigger is a may-trigger rider handled in Phase B.)
+    setup_interceptors=make_equipment_setup(
+        power_mod=2, toughness_mod=0, keywords=["shroud"], equip_cost="{3}")
 )
 
 # Diviner's Wand - {3} Kindred Artifact — Wizard Equipment
+def _diviners_wand_draw_effect(o: GameObject, state: GameState, targets) -> list[Event]:
+    return [Event(type=EventType.DRAW, payload={'player': o.controller, 'count': 1},
+                  source=o.id, controller=o.controller)]
+
+
+def _diviners_wand_ondraw_filter(event: Event, state: GameState, target_id: str) -> bool:
+    if event.type != EventType.DRAW:
+        return False
+    tgt = state.objects.get(target_id)
+    return bool(tgt) and event.payload.get('player') == tgt.controller
+
+
+def _diviners_wand_ondraw_effect(target_obj: GameObject, event: Event, state: GameState) -> list[Event]:
+    return [
+        Event(type=EventType.PT_MODIFICATION,
+              payload={'object_id': target_obj.id, 'power_mod': 1, 'toughness_mod': 1,
+                       'duration': 'end_of_turn'},
+              source=target_obj.id, controller=target_obj.controller),
+        Event(type=EventType.GRANT_KEYWORD,
+              payload={'object_id': target_obj.id, 'keyword': 'flying', 'duration': 'end_of_turn'},
+              source=target_obj.id, controller=target_obj.controller),
+    ]
+
+
 DIVINERS_WAND = make_artifact(
     name="Diviner's Wand",
     mana_cost="{3}",
     subtypes={"Wizard", "Equipment"},
-    text="Equipped creature has \"Whenever you draw a card, this creature gets +1/+1 and gains flying until end of turn\" and \"{4}: Draw a card.\" Whenever a Wizard creature enters under your control, you may attach Diviner's Wand to it. Equip {3}"
+    text="Equipped creature has \"Whenever you draw a card, this creature gets +1/+1 and gains flying until end of turn\" and \"{4}: Draw a card.\" Whenever a Wizard creature enters under your control, you may attach Diviner's Wand to it. Equip {3}",
+    # Grants the held creature a {4}: Draw activated ability + a draw-triggered
+    # pump. (Optional Wizard-ETB free-attach trigger: Phase B.)
+    setup_interceptors=make_equipment_setup(
+        equip_cost="{3}",
+        granted_activated_abilities={
+            "cost": "{4}", "effect_fn": _diviners_wand_draw_effect,
+            "description": "Draw a card",
+        },
+        granted_triggered_abilities={
+            "event_filter": _diviners_wand_ondraw_filter,
+            "effect_fn": _diviners_wand_ondraw_effect,
+            "description": "Whenever you draw a card, +1/+1 and gains flying EOT",
+        })
 )
 
 # Veteran's Armaments - {2} Kindred Artifact — Soldier Equipment
+def _veterans_arm_attack_filter(event: Event, state: GameState, target_id: str) -> bool:
+    return event.type == EventType.ATTACK_DECLARED and event.payload.get('attacker_id') == target_id
+
+
+def _veterans_arm_attack_effect(target_obj: GameObject, event: Event, state: GameState) -> list[Event]:
+    # "+1/+1 until end of turn for each OTHER attacking creature."
+    others = 0
+    for o in state.objects.values():
+        if (o.id != target_obj.id and o.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in o.characteristics.types and
+                getattr(o.state, 'attacking', False)):
+            others += 1
+    if others <= 0:
+        return []
+    return [Event(type=EventType.PT_MODIFICATION,
+                  payload={'object_id': target_obj.id, 'power_mod': others,
+                           'toughness_mod': others, 'duration': 'end_of_turn'},
+                  source=target_obj.id, controller=target_obj.controller)]
+
+
 VETERANS_ARMAMENTS = make_artifact(
     name="Veteran's Armaments",
     mana_cost="{2}",
     subtypes={"Soldier", "Equipment"},
-    text="Equipped creature has \"Whenever this creature attacks, it gets +1/+1 until end of turn for each other attacking creature.\" Whenever a Soldier creature enters under your control, you may attach Veteran's Armaments to it. Equip {2}"
+    text="Equipped creature has \"Whenever this creature attacks, it gets +1/+1 until end of turn for each other attacking creature.\" Whenever a Soldier creature enters under your control, you may attach Veteran's Armaments to it. Equip {2}",
+    # Grants the held creature an attack-trigger that pumps it per other attacker.
+    # (Optional Soldier-ETB free-attach trigger: Phase B.)
+    setup_interceptors=make_equipment_setup(
+        equip_cost="{2}",
+        granted_triggered_abilities={
+            "event_filter": _veterans_arm_attack_filter,
+            "effect_fn": _veterans_arm_attack_effect,
+            "description": "Whenever this creature attacks, +1/+1 per other attacker",
+        })
 )
 
 
