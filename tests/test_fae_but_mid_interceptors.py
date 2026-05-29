@@ -173,6 +173,8 @@ SKIPPED_CARDS = {
     "Glen Elendra Guardian": "ETB only adds a counter; the counter-spell is an activated ability w/ stack target",
     "Raiding Schemes": "static 'each noncreature spell has conspire' grant — firing needs conspire cost paid (creatures tapped)",
     "Retched Wretch": "reanimation: only effect is a ZONE_CHANGE back to the battlefield (plumbing-only; no content event)",
+    "Diviner's Wand": "equipment that grants draw/pump abilities to the EQUIPPED creature; the content events fire from the held creature, not the equipment (needs an attached host)",
+    "Thornbite Staff": "equipment that grants an activated damage ability + untap trigger to the EQUIPPED creature (needs an attached host)",
 }
 
 def test_card_changeling_wayfinder():
@@ -1523,10 +1525,73 @@ def test_card_wolf_skull_shaman():
     _assert_emits(game, ['CREATE_TOKEN'], "Wolf-Skull Shaman")
 
 
+
+
+# --- Section 2 (manual) tests: color-gated cast / amount-gated / another-dies ---
+
+def _cast_spell(game, p1, colors, types=None):
+    types = types or {CardType.SORCERY}
+    ch = Characteristics(types=set(types), mana_cost="{4}", colors=set(colors))
+    spell = game.create_object(name="Stub Spell", owner_id=p1.id, zone=ZoneType.STACK, characteristics=ch, card_def=None)
+    game.emit(Event(type=EventType.SPELL_CAST, payload={"spell_id": spell.id, "caster": p1.id, "controller": p1.id, "mana_value": 5, "colors": set(colors), "types": {t for t in spell.characteristics.types}}, source=spell.id, controller=p1.id))
+
+
+def test_card_balefire_liege():
+    """Balefire Liege: cast a red spell -> deal 3 damage; cast a white spell -> gain 3 life."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Balefire Liege")
+    _cast_spell(game, p1, {Color.RED})
+    _assert_emits(game, ["DAMAGE"], "Balefire Liege")
+
+
+def test_card_cinder_pyromancer():
+    """Cinder Pyromancer: whenever you cast a red spell, you may untap it."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Cinder Pyromancer")
+    _cast_spell(game, p1, {Color.RED})
+    _assert_emits(game, ["UNTAP", "UNTAP_TARGET", "UNTAP_ALL"], "Cinder Pyromancer")
+
+
+def test_card_deathbringer_liege():
+    """Deathbringer Liege: cast a white spell -> tap target creature."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Deathbringer Liege")
+    _cast_spell(game, p1, {Color.WHITE})
+    _assert_emits(game, ["TAP", "TAP_TARGET", "FREEZE", "OBJECT_DESTROYED", "DESTROY"], "Deathbringer Liege")
+
+
+def test_card_deus_of_calamity():
+    """Deus of Calamity: deals 6+ combat damage to an opponent -> destroy target land."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Deus of Calamity")
+    game.emit(Event(type=EventType.DAMAGE, payload={"source": obj.id, "target": p2.id, "amount": 6, "is_combat": True, "target_type": "player"}, source=obj.id))
+    _assert_emits(game, ["OBJECT_DESTROYED", "DESTROY"], "Deus of Calamity")
+
+
+def test_card_high_perfect_morcant():
+    """High Perfect Morcant: whenever an Elf you control dies, you gain 2 life."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "High Perfect Morcant")
+    other = _spawn(game, p1, subtypes=["Elf"], name="Dying Elf")
+    other.zone = ZoneType.GRAVEYARD
+    game.emit(Event(type=EventType.ZONE_CHANGE, payload={"object_id": other.id, "from_zone": "battlefield", "to_zone": f"graveyard_{p1.id}", "from_zone_type": ZoneType.BATTLEFIELD, "to_zone_type": ZoneType.GRAVEYARD}, source=other.id))
+    _assert_emits(game, ["LIFE_CHANGE", "LIFE_GAIN", "LIFE_LOSS"], "High Perfect Morcant")
+
+
+def test_card_tam_mindful_first_year():
+    """Tam, Mindful First-Year: whenever a creature you control dies, put a +1/+1 counter on Tam."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Tam, Mindful First-Year")
+    other = _spawn(game, p1, subtypes=[], name="Dying Other")
+    other.zone = ZoneType.GRAVEYARD
+    game.emit(Event(type=EventType.ZONE_CHANGE, payload={"object_id": other.id, "from_zone": "battlefield", "to_zone": f"graveyard_{p1.id}", "from_zone_type": ZoneType.BATTLEFIELD, "to_zone_type": ZoneType.GRAVEYARD}, source=other.id))
+    _assert_emits(game, ["COUNTER_ADDED", "COUNTER_REMOVED"], "Tam, Mindful First-Year")
+
+
 # ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
-_ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_card_adept_watershaper, test_card_brigid_clachan_s_heart, test_card_burdened_stoneback, test_card_champion_of_the_clachan, test_card_clachan_festival, test_card_curious_colossus, test_card_eirdu_carrier_of_dawn, test_card_encumbered_reejerey, test_card_flock_impostor, test_card_gallant_fowlknight, test_card_reluctant_dounguard, test_card_kinsbaile_aspirant, test_card_kinscaer_sentry, test_card_kithkeeper, test_card_liminal_hold, test_card_meanders_guide, test_card_moonlit_lamenter, test_card_shore_lurker, test_card_slumbering_walker, test_card_sun_dappled_celebrant, test_card_thoughtweft_imbuer, test_card_tributary_vaulter, test_card_wanderbrine_preacher, test_card_wanderbrine_trapper, test_card_formidable_speaker, test_card_luminollusk, test_card_lys_alana_informant, test_card_moon_vigil_adherents, test_card_mutable_explorer, test_card_pummeler_for_hire, test_card_selfless_safewright, test_card_bristlebane_battler, test_card_bristlebane_outrider, test_card_champions_of_the_perfect, test_card_chomping_changeling, test_card_crossroads_watcher, test_card_dundoolin_weaver, test_card_prismabasher, test_card_mistmeadow_council, test_card_sapling_nursery, test_card_trystan_callous_cultivator, test_card_virulent_emissary, test_card_wildvine_pummeler, test_card_aquitect_s_defenses, test_card_blossombind, test_card_champions_of_the_shoal, test_card_flitterwing_nuisance, test_card_gravelgill_scoundrel, test_card_illusion_spinners, test_card_disruptor_of_currents, test_card_glamer_gifter, test_card_pestered_wellguard, test_card_rimekin_recluse, test_card_kulrath_mystic, test_card_loch_mare, test_card_omni_changeling, test_card_shinestriker, test_card_silvergill_mentor, test_card_silvergill_peddler, test_card_stratosoarer, test_card_tanufel_rimespeaker, test_card_wanderwine_distracter, test_card_bile_vial_boggart, test_card_bitterbloom_bearer, test_card_blighted_blackthorn, test_card_boggart_mischief, test_card_boggart_prankster, test_card_creakwood_safewright, test_card_dawnhand_eulogist, test_card_dream_seizer, test_card_gnarlbark_elm, test_card_graveshifter, test_card_deceit, test_card_gloom_ripper, test_card_grub_storied_matriarch, test_card_ashling_rekindled, test_card_boldwyr_aggressor, test_card_boneclub_berserker, test_card_brambleback_brute, test_card_elder_auntie, test_card_enraged_flamecaster, test_card_explosive_prodigy, test_card_flamekin_gildweaver, test_card_abigale_eloquent_first_year, test_card_boggart_cursecrafter, test_card_chaos_spewer, test_card_deepchannel_duelist, test_card_deepway_navigator, test_card_eclipsed_boggart, test_card_eclipsed_elf, test_card_eclipsed_flamekin, test_card_eclipsed_kithkin, test_card_eclipsed_merrow, test_card_feisty_spikeling, test_card_flaring_cinder, test_card_glister_bairn, test_card_foraging_wickermaw, test_card_stalactite_dagger, test_card_imperious_perfect, test_card_timber_protector, test_card_oona_queen_of_the_fae, test_card_wydwen_the_biting_gale, test_card_wort_boggart_auntie, test_card_gaddock_teeg, test_card_godhead_of_awe, test_card_oblivion_ring, test_card_preeminent_captain, test_card_merrow_commerce, test_card_surgespanner, test_card_silvergill_adept, test_card_mulldrifter, test_card_caterwauling_boggart, test_card_knucklebone_witch, test_card_wort_the_raidmother, test_card_jagged_scar_archers, test_card_wistful_selkie, test_card_gwyllion_hedge_mage, test_card_selkie_hedge_mage, test_card_ashling_the_extinguisher, test_card_reaper_king, test_card_wicker_warcrawler, test_card_aurora_of_five, test_card_faewild_convocation, test_card_augury_adept, test_card_bitterblossom, test_card_chronicle_of_victory, test_card_cloudgoat_ranger, test_card_cold_eyed_selkie, test_card_creakwood_liege, test_card_dawn_blessed_pennant, test_card_elvish_harbinger, test_card_emptiness, test_card_gutsplitter_gang, test_card_heirloom_auntie, test_card_hexing_squelcher, test_card_hovel_hurler, test_card_kinsbaile_borderguard, test_card_kirol_attentive_first_year, test_card_kitchen_finks, test_card_kulrath_zealot, test_card_lavaleaper, test_card_lluwen_imperfect_naturalist, test_card_masked_admirers, test_card_merrow_skyswimmer, test_card_mischievous_sneakling, test_card_moonglove_extractor, test_card_moonshadow, test_card_mudbutton_cursetosser, test_card_murderous_redcap, test_card_nath_of_the_gilt_leaf, test_card_nightmare_sower, test_card_noggle_robber, test_card_oonas_blackguard, test_card_prismatic_undercurrents, test_card_pucas_eye, test_card_ranger_of_eos, test_card_sanar_innovative_first_year, test_card_shadow_urchin, test_card_shimmercreep, test_card_shriekmaw, test_card_sizzling_changeling, test_card_smoldering_spinebacks, test_card_sourbread_auntie, test_card_spinerock_tyrant, test_card_squawkroaster, test_card_taster_of_wares, test_card_thundercloud_shaman, test_card_treefolk_harbinger, test_card_twinflame_travelers, test_card_vibrance, test_card_wary_farmer, test_card_wistfulness, test_card_wolf_skull_shaman]
+_ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_card_adept_watershaper, test_card_brigid_clachan_s_heart, test_card_burdened_stoneback, test_card_champion_of_the_clachan, test_card_clachan_festival, test_card_curious_colossus, test_card_eirdu_carrier_of_dawn, test_card_encumbered_reejerey, test_card_flock_impostor, test_card_gallant_fowlknight, test_card_reluctant_dounguard, test_card_kinsbaile_aspirant, test_card_kinscaer_sentry, test_card_kithkeeper, test_card_liminal_hold, test_card_meanders_guide, test_card_moonlit_lamenter, test_card_shore_lurker, test_card_slumbering_walker, test_card_sun_dappled_celebrant, test_card_thoughtweft_imbuer, test_card_tributary_vaulter, test_card_wanderbrine_preacher, test_card_wanderbrine_trapper, test_card_formidable_speaker, test_card_luminollusk, test_card_lys_alana_informant, test_card_moon_vigil_adherents, test_card_mutable_explorer, test_card_pummeler_for_hire, test_card_selfless_safewright, test_card_bristlebane_battler, test_card_bristlebane_outrider, test_card_champions_of_the_perfect, test_card_chomping_changeling, test_card_crossroads_watcher, test_card_dundoolin_weaver, test_card_prismabasher, test_card_mistmeadow_council, test_card_sapling_nursery, test_card_trystan_callous_cultivator, test_card_virulent_emissary, test_card_wildvine_pummeler, test_card_aquitect_s_defenses, test_card_blossombind, test_card_champions_of_the_shoal, test_card_flitterwing_nuisance, test_card_gravelgill_scoundrel, test_card_illusion_spinners, test_card_disruptor_of_currents, test_card_glamer_gifter, test_card_pestered_wellguard, test_card_rimekin_recluse, test_card_kulrath_mystic, test_card_loch_mare, test_card_omni_changeling, test_card_shinestriker, test_card_silvergill_mentor, test_card_silvergill_peddler, test_card_stratosoarer, test_card_tanufel_rimespeaker, test_card_wanderwine_distracter, test_card_bile_vial_boggart, test_card_bitterbloom_bearer, test_card_blighted_blackthorn, test_card_boggart_mischief, test_card_boggart_prankster, test_card_creakwood_safewright, test_card_dawnhand_eulogist, test_card_dream_seizer, test_card_gnarlbark_elm, test_card_graveshifter, test_card_deceit, test_card_gloom_ripper, test_card_grub_storied_matriarch, test_card_ashling_rekindled, test_card_boldwyr_aggressor, test_card_boneclub_berserker, test_card_brambleback_brute, test_card_elder_auntie, test_card_enraged_flamecaster, test_card_explosive_prodigy, test_card_flamekin_gildweaver, test_card_abigale_eloquent_first_year, test_card_boggart_cursecrafter, test_card_chaos_spewer, test_card_deepchannel_duelist, test_card_deepway_navigator, test_card_eclipsed_boggart, test_card_eclipsed_elf, test_card_eclipsed_flamekin, test_card_eclipsed_kithkin, test_card_eclipsed_merrow, test_card_feisty_spikeling, test_card_flaring_cinder, test_card_glister_bairn, test_card_foraging_wickermaw, test_card_stalactite_dagger, test_card_imperious_perfect, test_card_timber_protector, test_card_oona_queen_of_the_fae, test_card_wydwen_the_biting_gale, test_card_wort_boggart_auntie, test_card_gaddock_teeg, test_card_godhead_of_awe, test_card_oblivion_ring, test_card_preeminent_captain, test_card_merrow_commerce, test_card_surgespanner, test_card_silvergill_adept, test_card_mulldrifter, test_card_caterwauling_boggart, test_card_knucklebone_witch, test_card_wort_the_raidmother, test_card_jagged_scar_archers, test_card_wistful_selkie, test_card_gwyllion_hedge_mage, test_card_selkie_hedge_mage, test_card_ashling_the_extinguisher, test_card_reaper_king, test_card_wicker_warcrawler, test_card_aurora_of_five, test_card_faewild_convocation, test_card_augury_adept, test_card_bitterblossom, test_card_chronicle_of_victory, test_card_cloudgoat_ranger, test_card_cold_eyed_selkie, test_card_creakwood_liege, test_card_dawn_blessed_pennant, test_card_elvish_harbinger, test_card_emptiness, test_card_gutsplitter_gang, test_card_heirloom_auntie, test_card_hexing_squelcher, test_card_hovel_hurler, test_card_kinsbaile_borderguard, test_card_kirol_attentive_first_year, test_card_kitchen_finks, test_card_kulrath_zealot, test_card_lavaleaper, test_card_lluwen_imperfect_naturalist, test_card_masked_admirers, test_card_merrow_skyswimmer, test_card_mischievous_sneakling, test_card_moonglove_extractor, test_card_moonshadow, test_card_mudbutton_cursetosser, test_card_murderous_redcap, test_card_nath_of_the_gilt_leaf, test_card_nightmare_sower, test_card_noggle_robber, test_card_oonas_blackguard, test_card_prismatic_undercurrents, test_card_pucas_eye, test_card_ranger_of_eos, test_card_sanar_innovative_first_year, test_card_shadow_urchin, test_card_shimmercreep, test_card_shriekmaw, test_card_sizzling_changeling, test_card_smoldering_spinebacks, test_card_sourbread_auntie, test_card_spinerock_tyrant, test_card_squawkroaster, test_card_taster_of_wares, test_card_thundercloud_shaman, test_card_treefolk_harbinger, test_card_twinflame_travelers, test_card_vibrance, test_card_wary_farmer, test_card_wistfulness, test_card_wolf_skull_shaman, test_card_balefire_liege, test_card_cinder_pyromancer, test_card_deathbringer_liege, test_card_deus_of_calamity, test_card_high_perfect_morcant, test_card_tam_mindful_first_year]
 
 
 def _run():

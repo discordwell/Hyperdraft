@@ -9891,3 +9891,99 @@ def _register_section2_setups():
     FAE_BUT_MID_CARDS['Wolf-Skull Shaman'].setup_interceptors = wolf_skull_shaman_setup
 
 _register_section2_setups()
+
+
+# =============================================================================
+# SECTION 2 (manual): color-gated cast / amount-gated / another-dies triggers
+# =============================================================================
+
+def balefire_liege_setup(obj, state):
+    """Balefire Liege: ... Whenever you cast a red spell, Balefire Liege deals 3 damage to target player or planeswalker. Whenever you cast a white spell, you gain 3 life."""
+    def _effect(event, state):
+        colors = event.payload.get('colors') or set()
+        events = []
+        if Color.RED in colors:
+            _opp = next(opponents_of(obj, state), None)
+            events.append(Event(type=EventType.DAMAGE, payload={'target': _opp, 'amount': 3, 'target_type': 'player'}, source=obj.id))
+        if Color.WHITE in colors:
+            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 3}, source=obj.id))
+        return events
+    return [make_spell_cast_trigger(obj, _effect, controller_only=True)]
+
+
+def cinder_pyromancer_setup(obj, state):
+    """Cinder Pyromancer: {T}: ... Whenever you cast a red spell, you may untap Cinder Pyromancer."""
+    def _effect(event, state):
+        colors = event.payload.get('colors') or set()
+        if Color.RED in colors:
+            return [Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'optional': True}, source=obj.id)]
+        return []
+    return [make_spell_cast_trigger(obj, _effect, controller_only=True)]
+
+
+def deathbringer_liege_setup(obj, state):
+    """Deathbringer Liege: ... Whenever you cast a white spell, you may tap target creature. Whenever you cast a black spell, you may destroy target creature if it's tapped."""
+    def _effect(event, state):
+        colors = event.payload.get('colors') or set()
+        events = []
+        if Color.WHITE in colors:
+            _t = find_opponent_creature(obj, state)
+            events.append(_tap_opponent_creature_event(obj, _t))
+        if Color.BLACK in colors:
+            _t = find_opponent_creature(obj, state, tapped=True) or find_opponent_creature(obj, state)
+            _p = {'target_filter': 'tapped_creature', 'optional': True}
+            if _t:
+                _p['object_id'] = _t
+            events.append(Event(type=EventType.OBJECT_DESTROYED, payload=_p, source=obj.id))
+        return events
+    return [make_spell_cast_trigger(obj, _effect, controller_only=True)]
+
+
+def _deus_of_calamity_dmg_filter(event, state, source):
+    return (event.type == EventType.DAMAGE and event.payload.get('source') == source.id
+            and event.payload.get('is_combat', False)
+            and event.payload.get('target') in state.players
+            and (event.payload.get('amount') or 0) >= 6)
+
+
+def deus_of_calamity_setup(obj, state):
+    """Deus of Calamity: Trample. Whenever Deus of Calamity deals 6 or more damage to an opponent, destroy target land that player controls."""
+    def _effect(event, state):
+        damaged = event.payload.get('target')
+        # find a land that player controls
+        target = None
+        for o in state.objects.values():
+            if o.zone == ZoneType.BATTLEFIELD and o.controller == damaged and CardType.LAND in o.characteristics.types:
+                target = o.id
+                break
+        _p = {'target_filter': 'land_that_player_controls'}
+        if target:
+            _p['object_id'] = target
+        return [Event(type=EventType.OBJECT_DESTROYED, payload=_p, source=obj.id)]
+    return [make_damage_trigger(obj, _effect, combat_only=True, filter_fn=_deus_of_calamity_dmg_filter)]
+
+
+def high_perfect_morcant_setup(obj, state):
+    """High Perfect Morcant: Vigilance. Other Elves you control get +1/+1. Whenever an Elf you control dies, you gain 2 life."""
+    def _effect(event, state):
+        return [Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 2}, source=obj.id)]
+    lord = make_static_pt_boost(obj, 1, 1, other_creatures_with_subtype(obj, 'Elf'))
+    return lord + [_other_dies_trigger(obj, _effect, subtype='Elf')]
+
+
+def tam_mindful_first_year_setup(obj, state):
+    """Tam, Mindful First-Year: Deathtouch. Whenever a creature you control dies, put a +1/+1 counter on Tam."""
+    def _effect(event, state):
+        return [Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': '+1/+1', 'amount': 1}, source=obj.id)]
+    return [_other_dies_trigger(obj, _effect)]
+
+
+def _register_section2_manual():
+    FAE_BUT_MID_CARDS['Balefire Liege'].setup_interceptors = balefire_liege_setup
+    FAE_BUT_MID_CARDS['Cinder Pyromancer'].setup_interceptors = cinder_pyromancer_setup
+    FAE_BUT_MID_CARDS['Deathbringer Liege'].setup_interceptors = deathbringer_liege_setup
+    FAE_BUT_MID_CARDS['Deus of Calamity'].setup_interceptors = deus_of_calamity_setup
+    FAE_BUT_MID_CARDS['High Perfect Morcant'].setup_interceptors = high_perfect_morcant_setup
+    FAE_BUT_MID_CARDS['Tam, Mindful First-Year'].setup_interceptors = tam_mindful_first_year_setup
+
+_register_section2_manual()
