@@ -105,8 +105,8 @@ def build_fbn_phyrexian_strain() -> list[CardDefinition]:
         "Dr. Linna Halle, Phyresis Containment",         # Mnestic, self CV-immune
         "Dr. Volker Tiede, Praetor Specialist",          # clearance on compleat
         # Common support
-        "Researcher Drei, Compleation Cartographer",     # scry 2 on assign
-        'Class-A Operative "Nailbiter"',                 # Mnestic, contain 1
+        "Researcher Drei, Compleation Cartographer",     # maps strain → opp compleation counter
+        "Operative O5-7, Strain Harvester",              # Mnestic, theft payoff (signature bomb)
         # ── Procedures (5) ───────────────────────────────────────────────────
         # Two rare closers
         "Praetor Pact Audit",               # instantly compleat highest-skill opp personnel

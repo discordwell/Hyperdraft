@@ -307,6 +307,15 @@ def aggregate(outcomes: list[SCPGameOutcome], *, decks: list[str] | None = None)
     }
 
 
+def _json_default(o):
+    """Coerce non-JSON values for ``--out`` (e.g. a set nested in a site dict in
+    some late-game states — a pre-existing serialization gap, not specific to any
+    deck). Sets become sorted lists; anything else falls back to its string."""
+    if isinstance(o, (set, frozenset)):
+        return sorted(o, key=str)
+    return str(o)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--games", type=int, default=12, help="Games per unordered pair")
@@ -357,7 +366,7 @@ def main() -> None:
     if args.out:
         out_path = Path(args.out)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        out_path.write_text(json.dumps(report, indent=2, default=_json_default), encoding="utf-8")
 
     print(json.dumps({
         "total_games": report["total_games"],

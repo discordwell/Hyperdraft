@@ -244,5 +244,93 @@ def test_ai_picks_higher_value_modal_mode():
     assert scp.site(game.state, p1.id)["briefing"] == 0
 
 
+# --------------------------------------------------------------------------- #
+# PILOT: real Phyrexian Strain cards exercise the primitives end-to-end
+# --------------------------------------------------------------------------- #
+
+from src.cards.scp import SCP_CARDS
+
+
+def _play(game, player, card_name):
+    cd = SCP_CARDS[card_name]
+    obj = game.create_object(
+        name=cd.name, owner_id=player.id, zone=ZoneType.HAND,
+        characteristics=cd.characteristics, card_def=cd,
+    )
+    scp.open_dossier(game, player.id, obj.id)
+    return game.state.objects.get(obj.id)
+
+
+def _active_anomaly(game, player, card_name):
+    cd = SCP_CARDS[card_name]
+    obj = game.create_object(
+        name=cd.name, owner_id=player.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=cd.characteristics, card_def=cd,
+    )
+    obj.controller = player.id
+    obj.state.scp_status = "active"
+    scp.ensure_scp_state(game.state, player.id)
+    if obj.id not in game.state.scp_anomalies.setdefault(player.id, []):
+        game.state.scp_anomalies[player.id].append(obj.id)
+    return obj
+
+
+def test_pilot_o5_3_dead_ability_now_registers_and_fires():
+    """Acceptance test: O5-3's previously-dead activated ability registers on
+    battlefield entry, is surfaced as a legal action, and removes a compleation
+    counter when fired."""
+    game, p1, p2 = _setup()
+    o5_3 = _play(game, p1, "Operative O5-3, Strain Containment Lead")
+    assert getattr(o5_3.state, "activated_abilities", []), "O5-3 ability not registered (dead-code regression)"
+
+    victim = _play(game, p1, 'Class-A Operative "Nailbiter"')
+    victim.state.scp_compleation = 2
+
+    acts = _activate_actions(game, p1.id)
+    assert any(a["payload"]["source_id"] == o5_3.id for a in acts), "O5-3 ability not offered as a legal action"
+
+    ok, msg, _events = scp.activate_ability(game, p1.id, o5_3.id, 0)
+    assert ok, msg
+    assert victim.state.scp_compleation == 1, "O5-3 did not remove a compleation counter"
+
+
+def test_pilot_drei_places_real_compleation_counter():
+    """Drei's scry placeholder is replaced by a real effect: on research-assign
+    with a CV anomaly online, place a compleation counter on the opponent's
+    strongest non-Mnestic Personnel."""
+    game, p1, p2 = _setup()
+    _active_anomaly(game, p1, "SCP-FBN-1151: Compleation Vector Spawn")
+    drei = _play(game, p1, "Researcher Drei, Compleation Cartographer")
+    opp = _play(game, p2, "Junior Researcher")  # non-Mnestic
+    assert int(getattr(opp.state, "scp_compleation", 0) or 0) == 0
+
+    events = drei.card_def.scp_on_assign(drei, game.state, "research")
+    assert int(getattr(opp.state, "scp_compleation", 0) or 0) == 1, "Drei did not place a compleation counter"
+    # No longer a scry placeholder.
+    assert not any(e.payload.get("reason") == "drei_assign_scry" for e in events)
+
+
+def test_pilot_o5_7_signature_bomb_harvests_archives():
+    """O5-7 converts compleation setup into archives (the win axis)."""
+    game, p1, p2 = _setup()
+    o5_7 = _play(game, p1, "Operative O5-7, Strain Harvester")
+    opp = _play(game, p2, "Junior Researcher")
+    opp.state.scp_compleation = 2  # near-compleated
+
+    before = scp.site(game.state, p1.id)["archives"]
+    ok, msg, _events = scp.activate_ability(game, p1.id, o5_7.id, 0)
+    assert ok, msg
+    assert scp.site(game.state, p1.id)["archives"] == before + 1, "O5-7 did not harvest an archive"
+
+
+def test_pilot_phyrexian_strain_deck_is_30_and_includes_bomb():
+    from src.cards.scp import SCP_STARTER_DECKS
+    deck = SCP_STARTER_DECKS["FBN_phyrexian_strain"]()
+    assert len(deck) == 30
+    names = {c.name for c in deck}
+    assert "Operative O5-7, Strain Harvester" in names
+    assert "Operative O5-3, Strain Containment Lead" in names
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

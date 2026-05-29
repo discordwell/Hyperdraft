@@ -761,36 +761,64 @@ _C016.scp_compleation_immune = True
 # C017. Operative O5-3, Strain Containment Lead
 # Rules text: Mnestic. skills: contain 1, research 2. Once per turn, remove 1
 # compleation counter from any of your Personnel.
-def _o5_3_remove_counter(obj, state, target_id=None):
-    """Once per turn, remove 1 compleation counter from a friendly personnel."""
-    s = scp.site(state, obj.controller)
-    # Track once-per-turn
-    if s.get("o5_3_used_this_turn", False):
-        return []
-    s["o5_3_used_this_turn"] = True
-    # Find a friendly personnel with the highest compleation counters
-    my_personnel = s.get("personnel", [])
-    best_pid = None
+def _o5_3_effect(obj, state):
+    """Remove 1 compleation counter from the friendly Personnel that has the most.
+
+    Reads the real counter location — ``person.state.scp_compleation`` (the same
+    field apply_compleation_vector writes and the >=3 control-flip reads) — not
+    the nonexistent site keys the original dead hook used.
+    """
+    best = None
     best_count = 0
-    for pid in my_personnel:
-        cnt = s.get(f"compleation_{pid}", 0)
+    for pid in list(state.scp_personnel.get(obj.controller, [])):
+        person = state.objects.get(pid)
+        if person is None:
+            continue
+        cnt = int(getattr(person.state, "scp_compleation", 0) or 0)
         if cnt > best_count:
-            best_count = cnt
-            best_pid = pid
-    if best_pid is None or best_count == 0:
+            best_count, best = cnt, person
+    if best is None or best_count == 0:
         return []
-    s[f"compleation_{best_pid}"] = best_count - 1
+    best.state.scp_compleation = best_count - 1
     return [scp.Event(
         type=scp.EventType.SCP_INCIDENT_RESOLVED,
         payload={
             "player": obj.controller,
             "reason": "o5_3_remove_compleation",
-            "target_personnel": best_pid,
+            "target_personnel": best.id,
             "compleation_counters": best_count - 1,
         },
         source=obj.id,
         controller=obj.controller,
     )]
+
+
+def _o5_3_value(obj, state, _mode):
+    """Worth firing only when a friendly Personnel is accumulating compleation
+    (3 = stolen); scales with how close to theft."""
+    worst = 0
+    for pid in list(state.scp_personnel.get(obj.controller, [])):
+        person = state.objects.get(pid)
+        if person is not None:
+            worst = max(worst, int(getattr(person.state, "scp_compleation", 0) or 0))
+    return 0.0 if worst <= 0 else 1.0 + worst
+
+
+def _o5_3_setup(obj, state):
+    """Register O5-3's once-per-turn de-compleation as a real SCP activated
+    ability (the original ``scp_on_activate`` hook was never dispatched and read
+    nonexistent site keys — it was dead code)."""
+    from src.engine.scp_abilities import make_scp_activated_ability
+    from src.engine.scp_costs import SCPCost, SCPValueHint
+    make_scp_activated_ability(
+        obj,
+        cost=SCPCost(),
+        once_per_turn=True,
+        description="Remove 1 compleation counter from one of your Personnel",
+        effect_fn=_o5_3_effect,
+        value_hint=SCPValueHint(custom_value_fn=_o5_3_value),
+    )
+    return []
 
 
 _C017 = _mnestic_personnel(
@@ -810,21 +838,52 @@ _C017 = _mnestic_personnel(
         rarity="rare",
     )
 )
-_C017.scp_on_activate = _o5_3_remove_counter
+_C017.setup_interceptors = _o5_3_setup
 
 
 # C018. Researcher Drei, Compleation Cartographer
 # Rules text: skills: research 1. On assign, scry top 2 of your library.
 def _drei_assign(obj, state, task: str) -> list:
-    """On assign, scry top 2 of the controller's library."""
-    # TODO: engine library-scry primitive not yet a first-class procedure event;
-    # emitting SCP_INCIDENT_RESOLVED with reason="scry_2" as placeholder.
+    """When assigned to research with a Compleation Vector anomaly online, map
+    the strain's spread: place 1 compleation counter on the strongest opposing
+    non-Mnestic Personnel (advancing the archetype's theft clock). Replaces a
+    library-scry placeholder that only emitted a generic info-pulse."""
+    if task != "research":
+        return []
+    has_cv = any(
+        aid in state.objects
+        and state.objects[aid].card_def is not None
+        and state.objects[aid].state.scp_status == "active"
+        and int(getattr(state.objects[aid].card_def, "scp_compleation_vector", 0) or 0) >= 1
+        for aid in state.scp_anomalies.get(obj.controller, [])
+    )
+    if not has_cv:
+        return []
+    target, best_skill = None, -1
+    for opp_id in [pid for pid in state.players if pid != obj.controller]:
+        for pid in list(state.scp_personnel.get(opp_id, [])):
+            person = state.objects.get(pid)
+            if person is None or person.state.scp_status != "active":
+                continue
+            cd = person.card_def
+            if cd and getattr(cd, "scp_mnestic", False):
+                continue
+            if getattr(person.state, "scp_mnestic_gained", False):
+                continue
+            skills = getattr(cd, "scp_skills", {}) if cd else {}
+            total = sum(int(v or 0) for v in (skills or {}).values())
+            if total > best_skill:
+                best_skill, target = total, person
+    if target is None:
+        return []
+    target.state.scp_compleation = int(getattr(target.state, "scp_compleation", 0) or 0) + 1
     return [scp.Event(
         type=scp.EventType.SCP_INCIDENT_RESOLVED,
         payload={
             "player": obj.controller,
-            "reason": "drei_assign_scry",
-            "scry_depth": 2,
+            "reason": "drei_map_compleation",
+            "target_personnel": target.id,
+            "compleation_counters": target.state.scp_compleation,
         },
         source=obj.id,
         controller=obj.controller,
@@ -839,7 +898,9 @@ _C018 = _ps_card(
     skills={"research": 1},
     subtypes={"Researcher"},
     text=(
-        "skills: research 1. On assign, scry top 2 of your library. "
+        "skills: research 1. When assigned to research, if you control a "
+        "Compleation Vector anomaly, place a compleation counter on the "
+        "strongest opposing non-Mnestic Personnel. "
         "He makes maps of things that should not be mapped. "
         "The maps are accurate."
     ),
@@ -1345,6 +1406,79 @@ _C030.scp_on_turn_end = _mandate_pcv_check
 
 
 # ---------------------------------------------------------------------------
+# C031. Operative O5-7, Strain Harvester (verb-redesign signature bomb)
+# New verb: a theft PAYOFF — converts the archetype's compleation setup into
+# archives (the win resource) via a real activated ability. Multi-verb (reads
+# board state, gates, converts to the win axis); not reducible to "+1 task".
+# Mnestic (can't itself be stolen). Counterplay: Mnestic opponents are immune
+# to compleation, and O5-3 / Phyresis Quarantine remove counters before harvest.
+# ---------------------------------------------------------------------------
+def _o5_7_effect(obj, state):
+    """Gain 1 archive per opposing Personnel with 2+ compleation counters (max 3)."""
+    count = 0
+    for opp_id in [pid for pid in state.players if pid != obj.controller]:
+        for pid in list(state.scp_personnel.get(opp_id, [])):
+            person = state.objects.get(pid)
+            if person is not None and int(getattr(person.state, "scp_compleation", 0) or 0) >= 2:
+                count += 1
+    count = min(count, 3)
+    if count <= 0:
+        return []
+    s = scp.site(state, obj.controller)
+    s["archives"] = int(s.get("archives", 0) or 0) + count
+    return [scp.Event(
+        type=scp.EventType.SCP_ARCHIVE_GAINED,
+        payload={"player": obj.controller, "amount": count, "reason": "strain_harvest"},
+        source=obj.id,
+        controller=obj.controller,
+    )]
+
+
+def _o5_7_value(obj, state, _mode):
+    count = 0
+    for opp_id in [pid for pid in state.players if pid != obj.controller]:
+        for pid in list(state.scp_personnel.get(opp_id, [])):
+            person = state.objects.get(pid)
+            if person is not None and int(getattr(person.state, "scp_compleation", 0) or 0) >= 2:
+                count += 1
+    return min(count, 3) * 2.0  # archives are the primary win axis
+
+
+def _o5_7_setup(obj, state):
+    from src.engine.scp_abilities import make_scp_activated_ability
+    from src.engine.scp_costs import SCPCost, SCPValueHint
+    make_scp_activated_ability(
+        obj,
+        cost=SCPCost(exhaust_self=True),
+        description="Gain 1 archive per opposing Personnel with 2+ compleation counters (max 3)",
+        effect_fn=_o5_7_effect,
+        value_hint=SCPValueHint(custom_value_fn=_o5_7_value),
+    )
+    return []
+
+
+_C031 = _mnestic_personnel(
+    _ps_card(
+        "Operative O5-7, Strain Harvester",
+        CardType.SCP_PERSONNEL,
+        red_tape=3,
+        clearance=1,
+        skills={"contain": 1, "research": 2},
+        subtypes={"Operative", "O5-Council", "Mnestic"},
+        text=(
+            "Mnestic. skills: contain 1, research 2. "
+            "Exhaust: gain 1 archive for each opposing Personnel with 2 or more "
+            "compleation counters (maximum 3). "
+            "She files the harvest reports herself. "
+            "She files them under names that do not exist yet."
+        ),
+        rarity="rare",
+    )
+)
+_C031.setup_interceptors = _o5_7_setup
+
+
+# ---------------------------------------------------------------------------
 # Aggregate export
 # ---------------------------------------------------------------------------
 
@@ -1392,6 +1526,7 @@ PHYREXIAN_STRAIN_CARDS: list[CardDefinition] = [
     _C028,   # 29 Vivisection Suite Vega-9
     # Mandate
     _C030,   # 30 Mandate FBN-PCV: Compleation Containment Protocol
+    _C031,   # 31 Operative O5-7, Strain Harvester (verb-redesign signature bomb)
 ]
 
 _CARDS = PHYREXIAN_STRAIN_CARDS
