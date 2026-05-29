@@ -2379,10 +2379,144 @@ def test_card_wretched_banquet():
     assert any(t in got for t in ['OBJECT_DESTROYED']), f"Wretched Banquet: expected one of ['OBJECT_DESTROYED'] from resolve, got {sorted(got)}"
 
 
+# ===========================================================================
+# PHASE A no-effect cards: implemented with existing helpers + verified here.
+# Activated abilities are fired through priority_system._handle_activate_ability
+# (the same path test_activated_abilities.py uses); equipment/auras are attached
+# via an ATTACH event and read back through get_power / has_ability; static
+# lords reuse the get_power-delta pattern above.
+# ===========================================================================
+import asyncio as _asyncio
+from src.engine.priority import ActionType as _ActionType, PlayerAction as _PlayerAction
+from src.engine.turn import Phase as _Phase
+from src.engine.mana import ManaType as _ManaType
+
+
+def _own_main(game, player):
+    """Give ``player`` priority on their own precombat main phase."""
+    game.turn_manager.turn_state.active_player_id = player.id
+    game.turn_manager.turn_state.phase = _Phase.PRECOMBAT_MAIN
+
+
+def _give_mana(game, player, *, generic=0, w=0, u=0, b=0, r=0, g=0):
+    ms = game.mana_system
+    for _ in range(generic):
+        ms.produce_mana(player.id, _ManaType.COLORLESS, 1)
+    for _ in range(w):
+        ms.produce_mana(player.id, _ManaType.WHITE, 1)
+    for _ in range(u):
+        ms.produce_mana(player.id, _ManaType.BLUE, 1)
+    for _ in range(b):
+        ms.produce_mana(player.id, _ManaType.BLACK, 1)
+    for _ in range(r):
+        ms.produce_mana(player.id, _ManaType.RED, 1)
+    for _ in range(g):
+        ms.produce_mana(player.id, _ManaType.GREEN, 1)
+
+
+def _activate(game, player, source, ability_id="activated:0", targets=None):
+    """Activate an ability and return (cost_events, resolve_events).
+
+    cost_events are what _handle_activate_ability emits (TAP/SACRIFICE/ACTIVATE);
+    resolve_events are produced by resolving the stack item the ability pushed.
+    """
+    async def _run():
+        action = _PlayerAction(
+            type=_ActionType.ACTIVATE_ABILITY,
+            player_id=player.id, source_id=source.id,
+            ability_id=ability_id,
+        )
+        if targets is not None:
+            action.targets = targets
+        cost_events = await game.priority_system._handle_activate_ability(action)
+        resolve_events = []
+        if game.stack.items:
+            item = game.stack.items[-1]
+            if item.resolve_fn:
+                resolve_events = item.resolve_fn(item.chosen_targets, game.state)
+        return cost_events, resolve_events
+    return _asyncio.get_event_loop().run_until_complete(_run())
+
+
+def _target_obj(obj):
+    """Wrap an object id as a target the activated-ability effect_fn can read."""
+    class _T:
+        object_id = obj.id
+    return _T()
+
+
+def _target_player(pid):
+    class _T:
+        object_id = None
+        player_id = pid
+    return _T()
+
+
+def _attach(game, equip, host):
+    game.emit(Event(
+        type=EventType.ATTACH,
+        payload={"object_id": equip.id, "target_id": host.id},
+        source=equip.id, controller=equip.controller,
+    ))
+
+
+def _resolve_types(events):
+    return {e.type.name for e in events}
+
+
+# --- static lords (color / subtype) ---------------------------------------
+
+def test_card_boartusk_liege():
+    """Boartusk Liege: Trample. Other red creatures you control get +1/+1. Other green creatures you control get +1/+1."""
+    game, p1, p2 = _new_game()
+    create_creature_on_battlefield(game, p1, "Boartusk Liege")
+    red = _spawn(game, p1, colors=[Color.RED], power=2, toughness=2, name='Red Ally')
+    rg = _spawn(game, p1, colors=[Color.RED, Color.GREEN], power=2, toughness=2, name='RG Ally')
+    assert get_power(red, game.state) == 3, f"red ally should be +1/+1, got {get_power(red, game.state)}"
+    assert get_power(rg, game.state) == 4, f"red-green ally should be +2/+2, got {get_power(rg, game.state)}"
+
+
+def test_card_scion_of_oona():
+    """Scion of Oona: Flash. Flying. Other Faerie creatures you control get +1/+1. Other Faeries you control have shroud."""
+    game, p1, p2 = _new_game()
+    create_creature_on_battlefield(game, p1, "Scion of Oona")
+    fae = _spawn(game, p1, subtypes=['Faerie'], power=2, toughness=2, name='Faerie Ally')
+    assert get_power(fae, game.state) == 3, f"faerie should be +1/+1, got {get_power(fae, game.state)}"
+    assert has_ability(fae, "shroud", game.state), "faerie should gain shroud"
+
+
+def test_card_sunrise_sovereign():
+    """Sunrise Sovereign: Other Giant creatures you control get +2/+2 and have trample."""
+    game, p1, p2 = _new_game()
+    create_creature_on_battlefield(game, p1, "Sunrise Sovereign")
+    giant = _spawn(game, p1, subtypes=['Giant'], power=3, toughness=3, name='Giant Ally')
+    assert get_power(giant, game.state) == 5, f"giant should be +2/+2, got {get_power(giant, game.state)}"
+    assert has_ability(giant, "trample", game.state), "giant should gain trample"
+
+
+def test_card_wilt_leaf_liege():
+    """Wilt-Leaf Liege: Other green creatures you control get +1/+1. Other white creatures you control get +1/+1."""
+    game, p1, p2 = _new_game()
+    create_creature_on_battlefield(game, p1, "Wilt-Leaf Liege")
+    gw = _spawn(game, p1, colors=[Color.GREEN, Color.WHITE], power=2, toughness=2, name='GW Ally')
+    assert get_power(gw, game.state) == 4, f"green-white ally should be +2/+2, got {get_power(gw, game.state)}"
+
+
+def test_card_thistledown_liege():
+    """Thistledown Liege: Flash. Other white creatures you control get +1/+1. Other blue creatures you control get +1/+1."""
+    game, p1, p2 = _new_game()
+    create_creature_on_battlefield(game, p1, "Thistledown Liege")
+    white = _spawn(game, p1, colors=[Color.WHITE], power=2, toughness=2, name='White Ally')
+    assert get_power(white, game.state) == 3, f"white ally should be +1/+1, got {get_power(white, game.state)}"
+
+
 # ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
-_ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_card_adept_watershaper, test_card_brigid_clachan_s_heart, test_card_burdened_stoneback, test_card_champion_of_the_clachan, test_card_clachan_festival, test_card_curious_colossus, test_card_eirdu_carrier_of_dawn, test_card_encumbered_reejerey, test_card_flock_impostor, test_card_gallant_fowlknight, test_card_reluctant_dounguard, test_card_kinsbaile_aspirant, test_card_kinscaer_sentry, test_card_kithkeeper, test_card_liminal_hold, test_card_meanders_guide, test_card_moonlit_lamenter, test_card_shore_lurker, test_card_slumbering_walker, test_card_sun_dappled_celebrant, test_card_thoughtweft_imbuer, test_card_tributary_vaulter, test_card_wanderbrine_preacher, test_card_wanderbrine_trapper, test_card_formidable_speaker, test_card_luminollusk, test_card_lys_alana_informant, test_card_moon_vigil_adherents, test_card_mutable_explorer, test_card_pummeler_for_hire, test_card_selfless_safewright, test_card_bristlebane_battler, test_card_bristlebane_outrider, test_card_champions_of_the_perfect, test_card_chomping_changeling, test_card_crossroads_watcher, test_card_dundoolin_weaver, test_card_prismabasher, test_card_mistmeadow_council, test_card_sapling_nursery, test_card_trystan_callous_cultivator, test_card_virulent_emissary, test_card_wildvine_pummeler, test_card_aquitect_s_defenses, test_card_blossombind, test_card_champions_of_the_shoal, test_card_flitterwing_nuisance, test_card_gravelgill_scoundrel, test_card_illusion_spinners, test_card_disruptor_of_currents, test_card_glamer_gifter, test_card_pestered_wellguard, test_card_rimekin_recluse, test_card_kulrath_mystic, test_card_loch_mare, test_card_omni_changeling, test_card_shinestriker, test_card_silvergill_mentor, test_card_silvergill_peddler, test_card_stratosoarer, test_card_tanufel_rimespeaker, test_card_wanderwine_distracter, test_card_bile_vial_boggart, test_card_bitterbloom_bearer, test_card_blighted_blackthorn, test_card_boggart_mischief, test_card_boggart_prankster, test_card_creakwood_safewright, test_card_dawnhand_eulogist, test_card_dream_seizer, test_card_gnarlbark_elm, test_card_graveshifter, test_card_deceit, test_card_gloom_ripper, test_card_grub_storied_matriarch, test_card_ashling_rekindled, test_card_boldwyr_aggressor, test_card_boneclub_berserker, test_card_brambleback_brute, test_card_elder_auntie, test_card_enraged_flamecaster, test_card_explosive_prodigy, test_card_flamekin_gildweaver, test_card_abigale_eloquent_first_year, test_card_boggart_cursecrafter, test_card_chaos_spewer, test_card_deepchannel_duelist, test_card_deepway_navigator, test_card_eclipsed_boggart, test_card_eclipsed_elf, test_card_eclipsed_flamekin, test_card_eclipsed_kithkin, test_card_eclipsed_merrow, test_card_feisty_spikeling, test_card_flaring_cinder, test_card_glister_bairn, test_card_foraging_wickermaw, test_card_stalactite_dagger, test_card_imperious_perfect, test_card_timber_protector, test_card_oona_queen_of_the_fae, test_card_wydwen_the_biting_gale, test_card_wort_boggart_auntie, test_card_gaddock_teeg, test_card_godhead_of_awe, test_card_oblivion_ring, test_card_preeminent_captain, test_card_merrow_commerce, test_card_surgespanner, test_card_silvergill_adept, test_card_mulldrifter, test_card_caterwauling_boggart, test_card_knucklebone_witch, test_card_wort_the_raidmother, test_card_jagged_scar_archers, test_card_wistful_selkie, test_card_gwyllion_hedge_mage, test_card_selkie_hedge_mage, test_card_ashling_the_extinguisher, test_card_reaper_king, test_card_wicker_warcrawler, test_card_aurora_of_five, test_card_faewild_convocation, test_card_augury_adept, test_card_bitterblossom, test_card_chronicle_of_victory, test_card_cloudgoat_ranger, test_card_cold_eyed_selkie, test_card_creakwood_liege, test_card_dawn_blessed_pennant, test_card_elvish_harbinger, test_card_emptiness, test_card_gutsplitter_gang, test_card_heirloom_auntie, test_card_hexing_squelcher, test_card_hovel_hurler, test_card_kinsbaile_borderguard, test_card_kirol_attentive_first_year, test_card_kitchen_finks, test_card_kulrath_zealot, test_card_lavaleaper, test_card_lluwen_imperfect_naturalist, test_card_masked_admirers, test_card_merrow_skyswimmer, test_card_mischievous_sneakling, test_card_moonglove_extractor, test_card_moonshadow, test_card_mudbutton_cursetosser, test_card_murderous_redcap, test_card_nath_of_the_gilt_leaf, test_card_nightmare_sower, test_card_noggle_robber, test_card_oonas_blackguard, test_card_prismatic_undercurrents, test_card_pucas_eye, test_card_ranger_of_eos, test_card_sanar_innovative_first_year, test_card_shadow_urchin, test_card_shimmercreep, test_card_shriekmaw, test_card_sizzling_changeling, test_card_smoldering_spinebacks, test_card_sourbread_auntie, test_card_spinerock_tyrant, test_card_squawkroaster, test_card_taster_of_wares, test_card_thundercloud_shaman, test_card_treefolk_harbinger, test_card_twinflame_travelers, test_card_vibrance, test_card_wary_farmer, test_card_wistfulness, test_card_wolf_skull_shaman, test_card_balefire_liege, test_card_cinder_pyromancer, test_card_deathbringer_liege, test_card_deus_of_calamity, test_card_high_perfect_morcant, test_card_tam_mindful_first_year, test_card_incandescent_soulstoke, test_card_mindwrack_liege, test_card_murkfiend_liege, test_card_ashenmoor_liege, test_card_morcants_loyalist, test_card_voracious_tome_skimmer, test_card_sygg_river_cutthroat, test_card_reveillark, test_card_ghastlord_of_fugue, test_card_assert_perfection, test_card_aunties_favor, test_card_blight_rot, test_card_bloodline_bidding, test_card_blossoming_defense, test_card_bogslithers_embrace, test_card_boulder_dash, test_card_catharsis, test_card_cinder_strike, test_card_crib_swap, test_card_darkness_descends, test_card_death_denied, test_card_dose_of_dawnglow, test_card_feed_the_flames, test_card_fiery_justice, test_card_firespout, test_card_fodder_launch, test_card_harmonized_crescendo, test_card_hunting_triad, test_card_impolite_entrance, test_card_lasting_tarfire, test_card_lofty_dreams, test_card_makeshift_mannequin, test_card_manamorphose, test_card_midnight_tilling, test_card_mirrorform, test_card_morningtides_light, test_card_peppersmoke, test_card_perfect_intimidation, test_card_personify, test_card_ponder, test_card_protective_response, test_card_pyrrhic_strike, test_card_reckless_ransacking, test_card_requiting_hex, test_card_riverguards_reflexes, test_card_sear, test_card_soul_immolation, test_card_spectral_procession, test_card_spry_and_mighty, test_card_sunderflock, test_card_swat_away, test_card_tarfire, test_card_tend_the_sprigs, test_card_thirst_for_identity, test_card_thoughtweft_charge, test_card_thoughtweft_gambit, test_card_tweeze, test_card_unbury, test_card_unexpected_assistance, test_card_unforgiving_aim, test_card_unmake, test_card_wanderwine_farewell, test_card_winnowing, test_card_wretched_banquet]
+_ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_card_adept_watershaper, test_card_brigid_clachan_s_heart, test_card_burdened_stoneback, test_card_champion_of_the_clachan, test_card_clachan_festival, test_card_curious_colossus, test_card_eirdu_carrier_of_dawn, test_card_encumbered_reejerey, test_card_flock_impostor, test_card_gallant_fowlknight, test_card_reluctant_dounguard, test_card_kinsbaile_aspirant, test_card_kinscaer_sentry, test_card_kithkeeper, test_card_liminal_hold, test_card_meanders_guide, test_card_moonlit_lamenter, test_card_shore_lurker, test_card_slumbering_walker, test_card_sun_dappled_celebrant, test_card_thoughtweft_imbuer, test_card_tributary_vaulter, test_card_wanderbrine_preacher, test_card_wanderbrine_trapper, test_card_formidable_speaker, test_card_luminollusk, test_card_lys_alana_informant, test_card_moon_vigil_adherents, test_card_mutable_explorer, test_card_pummeler_for_hire, test_card_selfless_safewright, test_card_bristlebane_battler, test_card_bristlebane_outrider, test_card_champions_of_the_perfect, test_card_chomping_changeling, test_card_crossroads_watcher, test_card_dundoolin_weaver, test_card_prismabasher, test_card_mistmeadow_council, test_card_sapling_nursery, test_card_trystan_callous_cultivator, test_card_virulent_emissary, test_card_wildvine_pummeler, test_card_aquitect_s_defenses, test_card_blossombind, test_card_champions_of_the_shoal, test_card_flitterwing_nuisance, test_card_gravelgill_scoundrel, test_card_illusion_spinners, test_card_disruptor_of_currents, test_card_glamer_gifter, test_card_pestered_wellguard, test_card_rimekin_recluse, test_card_kulrath_mystic, test_card_loch_mare, test_card_omni_changeling, test_card_shinestriker, test_card_silvergill_mentor, test_card_silvergill_peddler, test_card_stratosoarer, test_card_tanufel_rimespeaker, test_card_wanderwine_distracter, test_card_bile_vial_boggart, test_card_bitterbloom_bearer, test_card_blighted_blackthorn, test_card_boggart_mischief, test_card_boggart_prankster, test_card_creakwood_safewright, test_card_dawnhand_eulogist, test_card_dream_seizer, test_card_gnarlbark_elm, test_card_graveshifter, test_card_deceit, test_card_gloom_ripper, test_card_grub_storied_matriarch, test_card_ashling_rekindled, test_card_boldwyr_aggressor, test_card_boneclub_berserker, test_card_brambleback_brute, test_card_elder_auntie, test_card_enraged_flamecaster, test_card_explosive_prodigy, test_card_flamekin_gildweaver, test_card_abigale_eloquent_first_year, test_card_boggart_cursecrafter, test_card_chaos_spewer, test_card_deepchannel_duelist, test_card_deepway_navigator, test_card_eclipsed_boggart, test_card_eclipsed_elf, test_card_eclipsed_flamekin, test_card_eclipsed_kithkin, test_card_eclipsed_merrow, test_card_feisty_spikeling, test_card_flaring_cinder, test_card_glister_bairn, test_card_foraging_wickermaw, test_card_stalactite_dagger, test_card_imperious_perfect, test_card_timber_protector, test_card_oona_queen_of_the_fae, test_card_wydwen_the_biting_gale, test_card_wort_boggart_auntie, test_card_gaddock_teeg, test_card_godhead_of_awe, test_card_oblivion_ring, test_card_preeminent_captain, test_card_merrow_commerce, test_card_surgespanner, test_card_silvergill_adept, test_card_mulldrifter, test_card_caterwauling_boggart, test_card_knucklebone_witch, test_card_wort_the_raidmother, test_card_jagged_scar_archers, test_card_wistful_selkie, test_card_gwyllion_hedge_mage, test_card_selkie_hedge_mage, test_card_ashling_the_extinguisher, test_card_reaper_king, test_card_wicker_warcrawler, test_card_aurora_of_five, test_card_faewild_convocation, test_card_augury_adept, test_card_bitterblossom, test_card_chronicle_of_victory, test_card_cloudgoat_ranger, test_card_cold_eyed_selkie, test_card_creakwood_liege, test_card_dawn_blessed_pennant, test_card_elvish_harbinger, test_card_emptiness, test_card_gutsplitter_gang, test_card_heirloom_auntie, test_card_hexing_squelcher, test_card_hovel_hurler, test_card_kinsbaile_borderguard, test_card_kirol_attentive_first_year, test_card_kitchen_finks, test_card_kulrath_zealot, test_card_lavaleaper, test_card_lluwen_imperfect_naturalist, test_card_masked_admirers, test_card_merrow_skyswimmer, test_card_mischievous_sneakling, test_card_moonglove_extractor, test_card_moonshadow, test_card_mudbutton_cursetosser, test_card_murderous_redcap, test_card_nath_of_the_gilt_leaf, test_card_nightmare_sower, test_card_noggle_robber, test_card_oonas_blackguard, test_card_prismatic_undercurrents, test_card_pucas_eye, test_card_ranger_of_eos, test_card_sanar_innovative_first_year, test_card_shadow_urchin, test_card_shimmercreep, test_card_shriekmaw, test_card_sizzling_changeling, test_card_smoldering_spinebacks, test_card_sourbread_auntie, test_card_spinerock_tyrant, test_card_squawkroaster, test_card_taster_of_wares, test_card_thundercloud_shaman, test_card_treefolk_harbinger, test_card_twinflame_travelers, test_card_vibrance, test_card_wary_farmer, test_card_wistfulness, test_card_wolf_skull_shaman, test_card_balefire_liege, test_card_cinder_pyromancer, test_card_deathbringer_liege, test_card_deus_of_calamity, test_card_high_perfect_morcant, test_card_tam_mindful_first_year, test_card_incandescent_soulstoke, test_card_mindwrack_liege, test_card_murkfiend_liege, test_card_ashenmoor_liege, test_card_morcants_loyalist, test_card_voracious_tome_skimmer, test_card_sygg_river_cutthroat, test_card_reveillark, test_card_ghastlord_of_fugue, test_card_assert_perfection, test_card_aunties_favor, test_card_blight_rot, test_card_bloodline_bidding, test_card_blossoming_defense, test_card_bogslithers_embrace, test_card_boulder_dash, test_card_catharsis, test_card_cinder_strike, test_card_crib_swap, test_card_darkness_descends, test_card_death_denied, test_card_dose_of_dawnglow, test_card_feed_the_flames, test_card_fiery_justice, test_card_firespout, test_card_fodder_launch, test_card_harmonized_crescendo, test_card_hunting_triad, test_card_impolite_entrance, test_card_lasting_tarfire, test_card_lofty_dreams, test_card_makeshift_mannequin, test_card_manamorphose, test_card_midnight_tilling, test_card_mirrorform, test_card_morningtides_light, test_card_peppersmoke, test_card_perfect_intimidation, test_card_personify, test_card_ponder, test_card_protective_response, test_card_pyrrhic_strike, test_card_reckless_ransacking, test_card_requiting_hex, test_card_riverguards_reflexes, test_card_sear, test_card_soul_immolation, test_card_spectral_procession, test_card_spry_and_mighty, test_card_sunderflock, test_card_swat_away, test_card_tarfire, test_card_tend_the_sprigs, test_card_thirst_for_identity, test_card_thoughtweft_charge, test_card_thoughtweft_gambit, test_card_tweeze, test_card_unbury, test_card_unexpected_assistance, test_card_unforgiving_aim, test_card_unmake, test_card_wanderwine_farewell, test_card_winnowing, test_card_wretched_banquet,
+    # --- Phase A no-effect cards (implemented + verified) ---
+    test_card_boartusk_liege, test_card_scion_of_oona, test_card_sunrise_sovereign,
+    test_card_wilt_leaf_liege, test_card_thistledown_liege]
 
 
 def _run():

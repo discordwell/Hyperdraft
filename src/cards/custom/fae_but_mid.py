@@ -326,7 +326,36 @@ from src.cards.interceptor_helpers import (
     make_conspire_grant,
     # Aura tagging sweep (W22+):
     make_aura_setup,
+    # Equipment statics (Phase 3) — used by the Phase A no-effect pass.
+    make_equipment_setup,
+    # Activated abilities (Phase 4) — used by the Phase A no-effect pass.
+    make_activated_ability,
+    make_damage_ability, make_draw_ability, make_destroy_ability,
+    make_token_creation_ability, make_pump_self_ability,
+    make_life_gain_ability, make_loot_ability, make_sac_destroy_ability,
+    make_counter_ability,
 )
+
+
+# =============================================================================
+# Phase A no-effect helpers: color-based lord filter + small effect factories.
+# =============================================================================
+
+def other_creatures_of_color(source: GameObject, color: "Color"):
+    """Filter: other creatures you control that are (at least partly) ``color``.
+
+    Mirrors ``other_creatures_with_subtype`` but keys off ``characteristics.colors``
+    so the two-color lieges (e.g. "Other red creatures you control get +1/+1. Other
+    green creatures you control get +1/+1.") can register one boost per color — a
+    red-green creature then correctly receives +2/+2 while a mono-red gets +1/+1.
+    """
+    def filter_fn(target: GameObject, state: GameState) -> bool:
+        return (target.id != source.id and
+                target.controller == source.controller and
+                CardType.CREATURE in target.characteristics.types and
+                color in target.characteristics.colors and
+                target.zone == ZoneType.BATTLEFIELD)
+    return filter_fn
 
 
 def make_blight_death(source_obj: GameObject, counter_amount: int = 1) -> Interceptor:
@@ -6752,6 +6781,12 @@ BALEFIRE_LIEGE = make_creature(
 )
 
 # Boartusk Liege - {1}{R/G}{R/G}{R/G} Creature
+def _boartusk_liege_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Two independent +1/+1 boosts: a red-green creature gets +2/+2, mono gets +1/+1.
+    return (make_static_pt_boost(obj, 1, 1, other_creatures_of_color(obj, Color.RED)) +
+            make_static_pt_boost(obj, 1, 1, other_creatures_of_color(obj, Color.GREEN)))
+
+
 BOARTUSK_LIEGE = make_creature(
     name="Boartusk Liege",
     power=3,
@@ -6759,10 +6794,16 @@ BOARTUSK_LIEGE = make_creature(
     mana_cost="{1}{R/G}{R/G}{R/G}",
     colors={Color.RED, Color.GREEN},
     subtypes={"Goblin", "Knight"},
-    text="Trample. Other red creatures you control get +1/+1. Other green creatures you control get +1/+1."
+    text="Trample. Other red creatures you control get +1/+1. Other green creatures you control get +1/+1.",
+    setup_interceptors=_boartusk_liege_setup
 )
 
 # Thistledown Liege - {1}{W/U}{W/U}{W/U} Creature
+def _thistledown_liege_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return (make_static_pt_boost(obj, 1, 1, other_creatures_of_color(obj, Color.WHITE)) +
+            make_static_pt_boost(obj, 1, 1, other_creatures_of_color(obj, Color.BLUE)))
+
+
 THISTLEDOWN_LIEGE = make_creature(
     name="Thistledown Liege",
     power=1,
@@ -6770,7 +6811,8 @@ THISTLEDOWN_LIEGE = make_creature(
     mana_cost="{1}{W/U}{W/U}{W/U}",
     colors={Color.WHITE, Color.BLUE},
     subtypes={"Kithkin", "Knight"},
-    text="Flash. Other white creatures you control get +1/+1. Other blue creatures you control get +1/+1."
+    text="Flash. Other white creatures you control get +1/+1. Other blue creatures you control get +1/+1.",
+    setup_interceptors=_thistledown_liege_setup
 )
 
 # Murkfiend Liege - {2}{G/U}{G/U}{G/U} Creature
@@ -6807,6 +6849,13 @@ ASHENMOOR_LIEGE = make_creature(
 )
 
 # Wilt-Leaf Liege - {1}{G/W}{G/W}{G/W} Creature
+def _wilt_leaf_liege_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # The discard-to-battlefield clause is a replacement effect (Phase B); the
+    # +1/+1 lord halves are the implementable part.
+    return (make_static_pt_boost(obj, 1, 1, other_creatures_of_color(obj, Color.GREEN)) +
+            make_static_pt_boost(obj, 1, 1, other_creatures_of_color(obj, Color.WHITE)))
+
+
 WILT_LEAF_LIEGE = make_creature(
     name="Wilt-Leaf Liege",
     power=4,
@@ -6814,7 +6863,8 @@ WILT_LEAF_LIEGE = make_creature(
     mana_cost="{1}{G/W}{G/W}{G/W}",
     colors={Color.GREEN, Color.WHITE},
     subtypes={"Elf", "Knight"},
-    text="Other green creatures you control get +1/+1. Other white creatures you control get +1/+1. If a spell or ability an opponent controls causes you to discard Wilt-Leaf Liege, put it onto the battlefield instead of putting it into your graveyard."
+    text="Other green creatures you control get +1/+1. Other white creatures you control get +1/+1. If a spell or ability an opponent controls causes you to discard Wilt-Leaf Liege, put it onto the battlefield instead of putting it into your graveyard.",
+    setup_interceptors=_wilt_leaf_liege_setup
 )
 
 # =============================================================================
@@ -6974,6 +7024,11 @@ SPELLSTUTTER_SPRITE = make_creature(
     text="Flash. Flying. When Spellstutter Sprite enters, counter target spell with mana value X or less, where X is the number of Faeries you control."
 )
 
+def _scion_of_oona_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return (make_static_pt_boost(obj, 1, 1, other_creatures_with_subtype(obj, "Faerie")) +
+            [make_keyword_grant(obj, ["shroud"], other_creatures_with_subtype(obj, "Faerie"))])
+
+
 SCION_OF_OONA = make_creature(
     name="Scion of Oona",
     power=1,
@@ -6981,7 +7036,8 @@ SCION_OF_OONA = make_creature(
     mana_cost="{2}{U}",
     colors={Color.BLUE},
     subtypes={"Faerie", "Soldier"},
-    text="Flash. Flying. Other Faerie creatures you control get +1/+1. Other Faeries you control have shroud."
+    text="Flash. Flying. Other Faerie creatures you control get +1/+1. Other Faeries you control have shroud.",
+    setup_interceptors=_scion_of_oona_setup
 )
 
 # More Black Creatures
@@ -7030,6 +7086,11 @@ MORNSONG_ARIA = make_enchantment(
 )
 
 # More Red Creatures
+def _sunrise_sovereign_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    return (make_static_pt_boost(obj, 2, 2, other_creatures_with_subtype(obj, "Giant")) +
+            [make_keyword_grant(obj, ["trample"], other_creatures_with_subtype(obj, "Giant"))])
+
+
 SUNRISE_SOVEREIGN = make_creature(
     name="Sunrise Sovereign",
     power=5,
@@ -7037,7 +7098,8 @@ SUNRISE_SOVEREIGN = make_creature(
     mana_cost="{5}{R}",
     colors={Color.RED},
     subtypes={"Giant", "Warrior"},
-    text="Other Giant creatures you control get +2/+2 and have trample."
+    text="Other Giant creatures you control get +2/+2 and have trample.",
+    setup_interceptors=_sunrise_sovereign_setup
 )
 
 BRION_STOUTARM = make_creature(
