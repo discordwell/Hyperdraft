@@ -4574,13 +4574,34 @@ DUNDOOLIN_WEAVER = make_creature(
 
 
 # Gilt-Leaf's Embrace - {2}{G} Enchantment — Aura
+def _gilt_leafs_embrace_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Permanent +2/+0 via the standard aura attach path, plus a one-shot ETB
+    # that grants trample + indestructible to the enchanted creature until EOT.
+    base = make_aura_setup(power_mod=2, toughness_mod=0)(obj, state)
+
+    def etb_grant(event: Event, state: GameState) -> list[Event]:
+        target_id = getattr(obj.state, 'attached_to', None) or getattr(obj.state, '_aura_target_id', None)
+        if not target_id:
+            return []
+        return [
+            Event(type=EventType.GRANT_KEYWORD,
+                  payload={'object_id': target_id, 'keyword': 'trample', 'duration': 'end_of_turn'},
+                  source=obj.id, controller=obj.controller),
+            Event(type=EventType.GRANT_KEYWORD,
+                  payload={'object_id': target_id, 'keyword': 'indestructible', 'duration': 'end_of_turn'},
+                  source=obj.id, controller=obj.controller),
+        ]
+
+    return base + [make_etb_trigger(obj, etb_grant)]
+
+
 GILT_LEAFS_EMBRACE = make_enchantment(
     name="Gilt-Leaf's Embrace",
     mana_cost="{2}{G}",
     colors={Color.GREEN},
     subtypes={"Aura"},
     text="Flash. Enchant creature you control. When this Aura enters, enchanted creature gains trample and indestructible until end of turn. Enchanted creature gets +2/+0.",
-    setup_interceptors=None
+    setup_interceptors=_gilt_leafs_embrace_setup
 )
 
 

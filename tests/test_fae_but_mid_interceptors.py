@@ -225,7 +225,6 @@ SKIPPED_CARDS = {
     'Forest': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
     'Fulminator Mage': 'activated sacrifice ability (structural; no triggered/static interceptor)',
     'Gathering Stone': 'choose-a-type cost-reducer / mana on ETB (structural; no content event)',
-    "Gilt-Leaf's Embrace": 'aura: continuous/granted effect on the enchanted permanent (needs an attached host)',
     'Glen Elendra Archmage': 'activated sacrifice ability (structural; no triggered/static interceptor)',
     'Hallowed Fountain': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
     'Heap Doll': 'activated sacrifice ability (structural; no triggered/static interceptor)',
@@ -240,12 +239,12 @@ SKIPPED_CARDS = {
     'Mornsong Aria': 'static lock / name-or-color-choice replacement effect (structural)',
     'Mountain': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
     'Nettle Sentinel': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Nettlevine Blight': 'aura: continuous/granted effect on the enchanted permanent (needs an attached host)',
+    'Nettlevine Blight': 'PHASE B: aura grants the enchanted permanent an end-step "sacrifice then re-attach to a permanent you control" triggered ability — needs a granted self-moving aura trigger',
     'Overbeing of Myth': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Overgrown Tomb': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
     "Painter's Servant": 'static lock / name-or-color-choice replacement effect (structural)',
     'Pili-Pala': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Pitiless Fists': 'aura: continuous/granted effect on the enchanted permanent (needs an attached host)',
+    'Pitiless Fists': 'PHASE B: aura has no static; its only effect is a targeted ETB fight (enchanted creature fights a chosen opponent creature) — needs cast-time target choice',
     'Plains': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
     'Reaping Willow': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Rhys the Redeemed': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
@@ -254,7 +253,7 @@ SKIPPED_CARDS = {
     'Scarblade Elite': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Scarblade Scout': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Sensation Gorger': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Shimmerwilds Growth': 'aura: continuous/granted effect on the enchanted permanent (needs an attached host)',
+    'Shimmerwilds Growth': 'PHASE B: aura grants the enchanted LAND a "{T}: Add any color" mana ability — mana abilities are text-parsed by the priority engine, not registerable via the granted-ability API',
     'Soulbright Seeker': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Sower of Temptation': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Spellstutter Sprite': 'structural / activated / replacement effect not expressible via a canonical trigger',
@@ -2619,6 +2618,39 @@ def test_card_thornbite_staff():
     assert untaps, "a creature dying should untap the equipped creature"
 
 
+# --- auras (set _aura_target_id, move to battlefield, read the grant) ------
+
+def _enchant_host(game, player, aura_name, host):
+    """Spawn the named Aura with its target pre-set (mirrors the cast/resolve
+    fast-path) and move it to the battlefield so setup_interceptors fire."""
+    card_def = FAE_BUT_MID_CARDS[aura_name]
+    aura = game.create_object(
+        name=aura_name, owner_id=player.id, zone=ZoneType.HAND,
+        characteristics=card_def.characteristics, card_def=None,
+    )
+    aura.card_def = card_def
+    aura.state._aura_target_id = host.id
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={"object_id": aura.id, "from_zone": f"hand_{player.id}",
+                 "to_zone": "battlefield", "to_zone_type": ZoneType.BATTLEFIELD},
+    ))
+    return aura
+
+
+def test_card_gilt_leafs_embrace():
+    """Gilt-Leaf's Embrace: ...enchanted creature gains trample and indestructible until end of turn. Enchanted creature gets +2/+0."""
+    game, p1, p2 = _new_game()
+    host = _spawn(game, p1, power=2, toughness=2, name='Enchanted')
+    log0 = len(game.state.event_log)
+    _enchant_host(game, p1, "Gilt-Leaf's Embrace", host)
+    new = {e.type.name for e in game.state.event_log[log0:]} - _PLUMBING
+    assert 'GRANT_KEYWORD' in new, f"ETB should grant keywords, got {sorted(new)}"
+    assert get_power(host, game.state) == 4, f"+2/+0 expected power 4, got {get_power(host, game.state)}"
+    assert has_ability(host, "trample", game.state), "enchanted creature should gain trample"
+    assert has_ability(host, "indestructible", game.state), "enchanted creature should gain indestructible"
+
+
 # ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
@@ -2628,7 +2660,8 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_wilt_leaf_liege, test_card_thistledown_liege,
     test_card_barbed_bloodletter, test_card_bark_of_doran, test_card_cloak_and_dagger,
     test_card_obsidian_battle_axe, test_card_runed_stalactite, test_card_veterans_armaments,
-    test_card_diviners_wand, test_card_thornbite_staff]
+    test_card_diviners_wand, test_card_thornbite_staff,
+    test_card_gilt_leafs_embrace]
 
 
 def _run():
