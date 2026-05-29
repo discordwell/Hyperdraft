@@ -103,7 +103,9 @@ def _resolve_ygo_query(obj: GameObject, state: GameState,
     # whose effect resolves with a direct mutation rather than an interceptor.
     for key in direct_keys:
         value += int(getattr(obj.state, key, 0) or 0)
-    return value
+    # YGO floors effective ATK/DEF at 0 — a drained-below-zero monster deals 0
+    # and must not heal the defender on a direct attack.
+    return max(0, value)
 
 
 # =============================================================================
@@ -677,6 +679,10 @@ def add_from_gy_to_hand(state: GameState, player_id: str,
                     break
             while card_id in z.objects:
                 z.objects.remove(card_id)
+    if not moved:
+        # card_id wasn't present in any zone — don't fabricate a phantom hand
+        # card (and report nothing happened, consistent with the empty return).
+        return []
     hand = state.zones.get(f"hand_{player_id}")
     if hand is None:
         return []
@@ -684,8 +690,6 @@ def add_from_gy_to_hand(state: GameState, player_id: str,
     obj.zone = ZoneType.HAND
     obj.state.face_down = False
     obj.state.ygo_position = None
-    if not moved:
-        return []
     return [Event(
         type=EventType.YGO_DRAW,
         payload={'player': player_id, 'card_id': card_id,
