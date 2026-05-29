@@ -9987,3 +9987,39 @@ def _register_section2_manual():
     FAE_BUT_MID_CARDS['Tam, Mindful First-Year'].setup_interceptors = tam_mindful_first_year_setup
 
 _register_section2_manual()
+
+
+# =============================================================================
+# SECTION 2 (lords): static tribal / color +1/+1 boosts
+# =============================================================================
+
+def _color_lord_filter(source_obj, colors):
+    cset = set(colors)
+    def _f(target, state):
+        return (target.controller == source_obj.controller and target.id != source_obj.id and
+                CardType.CREATURE in target.characteristics.types and
+                bool(target.characteristics.colors & cset))
+    return _f
+
+
+def incandescent_soulstoke_setup(obj, state):
+    """Incandescent Soulstoke: Other Elemental creatures you control get +1/+1. ..."""
+    return make_static_pt_boost(obj, 1, 1, other_creatures_with_subtype(obj, 'Elemental'))
+
+
+def mindwrack_liege_setup(obj, state):
+    """Mindwrack Liege: Other blue creatures you control get +1/+1. Other red creatures you control get +1/+1. ..."""
+    return make_static_pt_boost(obj, 1, 1, _color_lord_filter(obj, {Color.BLUE, Color.RED}))
+
+
+def murkfiend_liege_setup(obj, state):
+    """Murkfiend Liege: Other green creatures you control get +1/+1. Other blue creatures you control get +1/+1. ..."""
+    return make_static_pt_boost(obj, 1, 1, _color_lord_filter(obj, {Color.GREEN, Color.BLUE}))
+
+
+def _register_section2_lords():
+    FAE_BUT_MID_CARDS['Incandescent Soulstoke'].setup_interceptors = incandescent_soulstoke_setup
+    FAE_BUT_MID_CARDS['Mindwrack Liege'].setup_interceptors = mindwrack_liege_setup
+    FAE_BUT_MID_CARDS['Murkfiend Liege'].setup_interceptors = murkfiend_liege_setup
+
+_register_section2_lords()
