@@ -1111,10 +1111,422 @@ def test_card_faewild_convocation():
     _assert_emits(game, ['PT_MODIFICATION', 'PT_MODIFIER', 'PT_CHANGE', 'PUMP', 'TEMPORARY_BOOST', 'SEARCH_LIBRARY', 'LIBRARY_SEARCH', 'LIBSEARCH_BEGIN'], "Faewild Convocation")
 
 
+
+
+# --- Section 2 (vanilla-implementable) generated tests ---
+
+def test_card_augury_adept():
+    """Augury Adept: Whenever Augury Adept deals combat damage to a player, reveal the top card of your library and put that card into your hand. You gain life equal to its mana value."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Augury Adept")
+    game.emit(Event(type=EventType.DAMAGE, payload={'source': obj.id, 'target': p2.id,
+        'amount': max(1, obj.characteristics.power or 1), 'is_combat': True,
+        'target_type': 'player'}, source=obj.id))
+    _assert_emits(game, ['LIFE_CHANGE'], "Augury Adept")
+
+
+def test_card_bitterblossom():
+    """Bitterblossom: Tribal Enchantment — Faerie. At the beginning of your upkeep, you lose 1 life and create a 1/1 black Faerie Rogue creature token with flying."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Bitterblossom")
+    game.state.active_player = p1.id
+    game.emit(Event(type=EventType.PHASE_START, payload={'phase': "upkeep"}, source=None))
+    _assert_emits(game, ['CREATE_TOKEN', 'LIFE_CHANGE'], "Bitterblossom")
+
+
+def test_card_chronicle_of_victory():
+    """Chronicle of Victory: As Chronicle of Victory enters, choose a creature type. Creatures you control of the chosen type get +2/+2 and have first strike and trample. Whenever you cast a spell of the chosen type, draw a card."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Chronicle of Victory")
+    ch = Characteristics(types={CardType.SORCERY}, mana_cost='{4}', colors={Color.RED})
+    spell = game.create_object(name='Stub Spell', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=ch, card_def=None)
+    game.emit(Event(type=EventType.SPELL_CAST, payload={'spell_id': spell.id,
+        'caster': p1.id, 'controller': p1.id, 'mana_value': 5,
+        'colors': {Color.RED}, 'types': {t for t in spell.characteristics.types}},
+        source=spell.id, controller=p1.id))
+    _assert_emits(game, ['DRAW'], "Chronicle of Victory")
+
+
+def test_card_cloudgoat_ranger():
+    """Cloudgoat Ranger: When Cloudgoat Ranger enters, create three 1/1 white Kithkin Soldier creature tokens. Tap three untapped Kithkin you control: Cloudgoat Ranger gets +2/+0 and gains flying until end of turn."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Cloudgoat Ranger")
+    _assert_emits(game, ['CREATE_TOKEN'], "Cloudgoat Ranger")
+
+
+def test_card_cold_eyed_selkie():
+    """Cold-Eyed Selkie: Islandwalk. Whenever Cold-Eyed Selkie deals combat damage to a player, you may draw that many cards."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Cold-Eyed Selkie")
+    game.emit(Event(type=EventType.DAMAGE, payload={'source': obj.id, 'target': p2.id,
+        'amount': max(1, obj.characteristics.power or 1), 'is_combat': True,
+        'target_type': 'player'}, source=obj.id))
+    _assert_emits(game, ['DRAW'], "Cold-Eyed Selkie")
+
+
+def test_card_creakwood_liege():
+    """Creakwood Liege: Other black creatures you control get +1/+1. Other green creatures you control get +1/+1. At the beginning of your upkeep, you may create a 1/1 black and green Worm creature token."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Creakwood Liege")
+    game.state.active_player = p1.id
+    game.emit(Event(type=EventType.PHASE_START, payload={'phase': "upkeep"}, source=None))
+    _assert_emits(game, ['CREATE_TOKEN'], "Creakwood Liege")
+
+
+def test_card_dawn_blessed_pennant():
+    """Dawn-Blessed Pennant: As this artifact enters, choose Elemental, Elf, Faerie, Giant, Goblin, Kithkin, Merfolk, or Treefolk. Whenever a permanent you control of the chosen type enters, you gain 1 life."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Dawn-Blessed Pennant")
+    _spawn(game, p1, subtypes=[], name='Other Enterer')
+    _assert_emits(game, ['LIFE_CHANGE'], "Dawn-Blessed Pennant")
+
+
+def test_card_elvish_harbinger():
+    """Elvish Harbinger: When Elvish Harbinger enters, you may search your library for an Elf card, reveal it, then shuffle and put that card on top. {T}: Add one mana of any color."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Elvish Harbinger")
+    _assert_emits(game, ['SEARCH_LIBRARY'], "Elvish Harbinger")
+
+
+def test_card_emptiness():
+    """Emptiness: If {B}{B} was spent to cast this spell, when Emptiness enters, destroy target creature. Evoke {B}{B}"""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Emptiness")
+    _assert_emits(game, ['OBJECT_DESTROYED'], "Emptiness")
+
+
+def test_card_gutsplitter_gang():
+    """Gutsplitter Gang: Menace. When Gutsplitter Gang enters, target opponent discards a card."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Gutsplitter Gang")
+    _assert_emits(game, ['DISCARD'], "Gutsplitter Gang")
+
+
+def test_card_heirloom_auntie():
+    """Heirloom Auntie: When Heirloom Auntie enters, you may return target Goblin card from your graveyard to your hand."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Heirloom Auntie")
+    _assert_emits(game, ['RETURN_FROM_GRAVEYARD'], "Heirloom Auntie")
+
+
+def test_card_hexing_squelcher():
+    """Hexing Squelcher: When Hexing Squelcher enters, it deals 1 damage to each creature you don't control."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Hexing Squelcher")
+    _assert_emits(game, ['DAMAGE'], "Hexing Squelcher")
+
+
+def test_card_hovel_hurler():
+    """Hovel Hurler: When Hovel Hurler enters, it deals 1 damage to each opponent and each planeswalker they control."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Hovel Hurler")
+    _assert_emits(game, ['DAMAGE'], "Hovel Hurler")
+
+
+def test_card_kinsbaile_borderguard():
+    """Kinsbaile Borderguard: Kinsbaile Borderguard enters with a +1/+1 counter on it for each other Kithkin you control. When Kinsbaile Borderguard dies, create a 1/1 white Kithkin Soldier creature token for each counter on it."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Kinsbaile Borderguard")
+    obj.zone = ZoneType.GRAVEYARD
+    game.emit(Event(type=EventType.OBJECT_DESTROYED, payload={'object_id': obj.id,
+        'from_zone_type': ZoneType.BATTLEFIELD, 'to_zone_type': ZoneType.GRAVEYARD}, source=obj.id))
+    _assert_emits(game, ['CREATE_TOKEN'], "Kinsbaile Borderguard")
+
+
+def test_card_kirol_attentive_first_year():
+    """Kirol, Attentive First-Year: Whenever you cast an instant or sorcery spell, Kirol deals 1 damage to any target."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Kirol, Attentive First-Year")
+    ch = Characteristics(types={CardType.SORCERY}, mana_cost='{4}', colors={Color.RED})
+    spell = game.create_object(name='Stub Spell', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=ch, card_def=None)
+    game.emit(Event(type=EventType.SPELL_CAST, payload={'spell_id': spell.id,
+        'caster': p1.id, 'controller': p1.id, 'mana_value': 5,
+        'colors': {Color.RED}, 'types': {t for t in spell.characteristics.types}},
+        source=spell.id, controller=p1.id))
+    _assert_emits(game, ['DAMAGE'], "Kirol, Attentive First-Year")
+
+
+def test_card_kitchen_finks():
+    """Kitchen Finks: When Kitchen Finks enters, you gain 2 life. Persist (When this creature dies, if it had no -1/-1 counters on it, return it to the battlefield under its owner's control with a -1/-1 counter on it.)"""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Kitchen Finks")
+    _assert_emits(game, ['LIFE_CHANGE'], "Kitchen Finks")
+
+
+def test_card_kulrath_zealot():
+    """Kulrath Zealot: Haste. When Kulrath Zealot enters, it deals 2 damage to any target."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Kulrath Zealot")
+    _assert_emits(game, ['DAMAGE'], "Kulrath Zealot")
+
+
+def test_card_lavaleaper():
+    """Lavaleaper: Haste. When Lavaleaper enters, it deals 1 damage to each opponent."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Lavaleaper")
+    _assert_emits(game, ['DAMAGE'], "Lavaleaper")
+
+
+def test_card_lluwen_imperfect_naturalist():
+    """Lluwen, Imperfect Naturalist: Whenever another creature enters the battlefield under your control, scry 1. {T}: Add {G} or {U}."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Lluwen, Imperfect Naturalist")
+    _spawn(game, p1, subtypes=[], name='Other Enterer')
+    _assert_emits(game, ['SCRY'], "Lluwen, Imperfect Naturalist")
+
+
+def test_card_masked_admirers():
+    """Masked Admirers: When Masked Admirers enters, draw a card. Whenever you cast a creature spell, you may pay {G}{G}. If you do, return Masked Admirers from your graveyard to your hand."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Masked Admirers")
+    _assert_emits(game, ['DRAW'], "Masked Admirers")
+
+
+def test_card_merrow_skyswimmer():
+    """Merrow Skyswimmer: Flying. When Merrow Skyswimmer enters, draw a card for each other Merfolk you control."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Merrow Skyswimmer")
+    _assert_emits(game, ['DRAW'], "Merrow Skyswimmer")
+
+
+def test_card_mischievous_sneakling():
+    """Mischievous Sneakling: Flying. Whenever Mischievous Sneakling deals combat damage to a player, you may draw a card. If you do, discard a card."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Mischievous Sneakling")
+    game.emit(Event(type=EventType.DAMAGE, payload={'source': obj.id, 'target': p2.id,
+        'amount': max(1, obj.characteristics.power or 1), 'is_combat': True,
+        'target_type': 'player'}, source=obj.id))
+    _assert_emits(game, ['DISCARD', 'DRAW'], "Mischievous Sneakling")
+
+
+def test_card_moonglove_extractor():
+    """Moonglove Extractor: Deathtouch. When Moonglove Extractor dies, target creature gets -1/-1 until end of turn."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Moonglove Extractor")
+    obj.zone = ZoneType.GRAVEYARD
+    game.emit(Event(type=EventType.OBJECT_DESTROYED, payload={'object_id': obj.id,
+        'from_zone_type': ZoneType.BATTLEFIELD, 'to_zone_type': ZoneType.GRAVEYARD}, source=obj.id))
+    _assert_emits(game, ['PT_MODIFICATION'], "Moonglove Extractor")
+
+
+def test_card_moonshadow():
+    """Moonshadow: Flash. Flying. When Moonshadow enters, target creature gets -2/-2 until end of turn."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Moonshadow")
+    _assert_emits(game, ['PT_MODIFICATION'], "Moonshadow")
+
+
+def test_card_mudbutton_cursetosser():
+    """Mudbutton Cursetosser: When Mudbutton Cursetosser enters, put a -1/-1 counter on target creature."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Mudbutton Cursetosser")
+    _assert_emits(game, ['COUNTER_ADDED'], "Mudbutton Cursetosser")
+
+
+def test_card_murderous_redcap():
+    """Murderous Redcap: When Murderous Redcap enters, it deals damage equal to its power to any target. Persist."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Murderous Redcap")
+    _assert_emits(game, ['DAMAGE'], "Murderous Redcap")
+
+
+def test_card_nath_of_the_gilt_leaf():
+    """Nath of the Gilt-Leaf: At the beginning of your upkeep, you may have target opponent discard a card at random. Whenever an opponent discards a card, you may create a 1/1 green Elf Warrior creature token."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Nath of the Gilt-Leaf")
+    game.state.active_player = p1.id
+    game.emit(Event(type=EventType.PHASE_START, payload={'phase': "upkeep"}, source=None))
+    _assert_emits(game, ['CREATE_TOKEN', 'DISCARD'], "Nath of the Gilt-Leaf")
+
+
+def test_card_nightmare_sower():
+    """Nightmare Sower: Flying. When Nightmare Sower enters, each opponent sacrifices a creature. You gain life equal to the total power of creatures sacrificed this way."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Nightmare Sower")
+    _assert_emits(game, ['LIFE_CHANGE'], "Nightmare Sower")
+
+
+def test_card_noggle_robber():
+    """Noggle Robber: Haste. When Noggle Robber enters, each player discards a card, then draws a card."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Noggle Robber")
+    _assert_emits(game, ['DISCARD'], "Noggle Robber")
+
+
+def test_card_oonas_blackguard():
+    """Oona's Blackguard: Flying. Each other Rogue creature you control enters with an additional +1/+1 counter on it. Whenever a creature you control with a +1/+1 counter on it deals combat damage to a player, that player discards a card."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Oona's Blackguard")
+    game.emit(Event(type=EventType.DAMAGE, payload={'source': obj.id, 'target': p2.id,
+        'amount': max(1, obj.characteristics.power or 1), 'is_combat': True,
+        'target_type': 'player'}, source=obj.id))
+    _assert_emits(game, ['DISCARD'], "Oona's Blackguard")
+
+
+def test_card_prismatic_undercurrents():
+    """Prismatic Undercurrents: Vivid — When this enchantment enters, search your library for up to X basic land cards, where X is the number of colors among permanents you control, reveal them, put them into your hand, then shuffle. You may play an additional land on each of your turns."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Prismatic Undercurrents")
+    _assert_emits(game, ['SEARCH_LIBRARY'], "Prismatic Undercurrents")
+
+
+def test_card_pucas_eye():
+    """Puca's Eye: When this artifact enters, draw a card, then choose a color. This artifact becomes the chosen color. {3}, {T}: Draw a card. Activate only if there are five colors among permanents you control."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Puca's Eye")
+    _assert_emits(game, ['DRAW'], "Puca's Eye")
+
+
+def test_card_ranger_of_eos():
+    """Ranger of Eos: When Ranger of Eos enters, you may search your library for up to two creature cards with mana value 1 or less, reveal them, put them into your hand, then shuffle."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Ranger of Eos")
+    _assert_emits(game, ['SEARCH_LIBRARY'], "Ranger of Eos")
+
+
+def test_card_sanar_innovative_first_year():
+    """Sanar, Innovative First-Year: Whenever a creature enters the battlefield under your control, you gain 1 life. {T}: Add {G} or {W}."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Sanar, Innovative First-Year")
+    _assert_emits(game, ['LIFE_CHANGE'], "Sanar, Innovative First-Year")
+
+
+def test_card_shadow_urchin():
+    """Shadow Urchin: When Shadow Urchin dies, it deals 1 damage to any target."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Shadow Urchin")
+    obj.zone = ZoneType.GRAVEYARD
+    game.emit(Event(type=EventType.OBJECT_DESTROYED, payload={'object_id': obj.id,
+        'from_zone_type': ZoneType.BATTLEFIELD, 'to_zone_type': ZoneType.GRAVEYARD}, source=obj.id))
+    _assert_emits(game, ['DAMAGE'], "Shadow Urchin")
+
+
+def test_card_shimmercreep():
+    """Shimmercreep: Flying. Whenever Shimmercreep deals combat damage to a player, that player discards a card."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Shimmercreep")
+    game.emit(Event(type=EventType.DAMAGE, payload={'source': obj.id, 'target': p2.id,
+        'amount': max(1, obj.characteristics.power or 1), 'is_combat': True,
+        'target_type': 'player'}, source=obj.id))
+    _assert_emits(game, ['DISCARD'], "Shimmercreep")
+
+
+def test_card_shriekmaw():
+    """Shriekmaw: Fear. When Shriekmaw enters, destroy target nonartifact, nonblack creature. Evoke {1}{B}"""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Shriekmaw")
+    _assert_emits(game, ['OBJECT_DESTROYED'], "Shriekmaw")
+
+
+def test_card_sizzling_changeling():
+    """Sizzling Changeling: Changeling. Haste. When Sizzling Changeling enters, it deals 1 damage to each opponent."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Sizzling Changeling")
+    _assert_emits(game, ['DAMAGE'], "Sizzling Changeling")
+
+
+def test_card_smoldering_spinebacks():
+    """Smoldering Spinebacks: Whenever you cast a spell with mana value 4 or greater, Smoldering Spinebacks deals 1 damage to each opponent."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Smoldering Spinebacks")
+    ch = Characteristics(types={CardType.SORCERY}, mana_cost='{4}', colors={Color.RED})
+    spell = game.create_object(name='Stub Spell', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=ch, card_def=None)
+    game.emit(Event(type=EventType.SPELL_CAST, payload={'spell_id': spell.id,
+        'caster': p1.id, 'controller': p1.id, 'mana_value': 5,
+        'colors': {Color.RED}, 'types': {t for t in spell.characteristics.types}},
+        source=spell.id, controller=p1.id))
+    _assert_emits(game, ['DAMAGE'], "Smoldering Spinebacks")
+
+
+def test_card_sourbread_auntie():
+    """Sourbread Auntie: When Sourbread Auntie enters, target Goblin you control gets +2/+0 and gains menace until end of turn."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Sourbread Auntie")
+    _assert_emits(game, ['PT_MODIFICATION'], "Sourbread Auntie")
+
+
+def test_card_spinerock_tyrant():
+    """Spinerock Tyrant: Trample. When Spinerock Tyrant enters, it deals 3 damage to any target."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Spinerock Tyrant")
+    _assert_emits(game, ['DAMAGE'], "Spinerock Tyrant")
+
+
+def test_card_squawkroaster():
+    """Squawkroaster: Flying. When Squawkroaster dies, it deals 1 damage to any target."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Squawkroaster")
+    obj.zone = ZoneType.GRAVEYARD
+    game.emit(Event(type=EventType.OBJECT_DESTROYED, payload={'object_id': obj.id,
+        'from_zone_type': ZoneType.BATTLEFIELD, 'to_zone_type': ZoneType.GRAVEYARD}, source=obj.id))
+    _assert_emits(game, ['DAMAGE'], "Squawkroaster")
+
+
+def test_card_taster_of_wares():
+    """Taster of Wares: Flying. When Taster of Wares enters, you may sacrifice an artifact. If you do, draw two cards."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Taster of Wares")
+    _assert_emits(game, ['DRAW'], "Taster of Wares")
+
+
+def test_card_thundercloud_shaman():
+    """Thundercloud Shaman: When Thundercloud Shaman enters, it deals damage equal to the number of Giants you control to each non-Giant creature."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Thundercloud Shaman")
+    _assert_emits(game, ['DAMAGE'], "Thundercloud Shaman")
+
+
+def test_card_treefolk_harbinger():
+    """Treefolk Harbinger: When Treefolk Harbinger enters, you may search your library for a Treefolk or Forest card, reveal it, then shuffle and put that card on top of your library."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Treefolk Harbinger")
+    _assert_emits(game, ['SEARCH_LIBRARY'], "Treefolk Harbinger")
+
+
+def test_card_twinflame_travelers():
+    """Twinflame Travelers: Flying, haste. When Twinflame Travelers enters, create a token that's a copy of it. Sacrifice that token at the beginning of the next end step."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Twinflame Travelers")
+    _assert_emits(game, ['CREATE_TOKEN'], "Twinflame Travelers")
+
+
+def test_card_vibrance():
+    """Vibrance: Trample. If {G}{G} was spent to cast this spell, when Vibrance enters, search your library for a basic land card, put it onto the battlefield, then shuffle. Evoke {G}{G}"""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Vibrance")
+    _assert_emits(game, ['SEARCH_LIBRARY'], "Vibrance")
+
+
+def test_card_wary_farmer():
+    """Wary Farmer: When Wary Farmer enters, create a Food token."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Wary Farmer")
+    _assert_emits(game, ['CREATE_TOKEN'], "Wary Farmer")
+
+
+def test_card_wistfulness():
+    """Wistfulness: If {U}{U} was spent to cast this spell, when Wistfulness enters, draw two cards. Evoke {U}{U}"""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Wistfulness")
+    _assert_emits(game, ['DRAW'], "Wistfulness")
+
+
+def test_card_wolf_skull_shaman():
+    """Wolf-Skull Shaman: Kinship — At the beginning of your upkeep, you may look at the top card of your library. If it shares a creature type with Wolf-Skull Shaman, you may reveal it. If you do, create a 2/2 green Wolf creature token."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Wolf-Skull Shaman")
+    game.state.active_player = p1.id
+    game.emit(Event(type=EventType.PHASE_START, payload={'phase': "upkeep"}, source=None))
+    _assert_emits(game, ['CREATE_TOKEN'], "Wolf-Skull Shaman")
+
+
 # ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
-_ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_card_adept_watershaper, test_card_brigid_clachan_s_heart, test_card_burdened_stoneback, test_card_champion_of_the_clachan, test_card_clachan_festival, test_card_curious_colossus, test_card_eirdu_carrier_of_dawn, test_card_encumbered_reejerey, test_card_flock_impostor, test_card_gallant_fowlknight, test_card_reluctant_dounguard, test_card_kinsbaile_aspirant, test_card_kinscaer_sentry, test_card_kithkeeper, test_card_liminal_hold, test_card_meanders_guide, test_card_moonlit_lamenter, test_card_shore_lurker, test_card_slumbering_walker, test_card_sun_dappled_celebrant, test_card_thoughtweft_imbuer, test_card_tributary_vaulter, test_card_wanderbrine_preacher, test_card_wanderbrine_trapper, test_card_formidable_speaker, test_card_luminollusk, test_card_lys_alana_informant, test_card_moon_vigil_adherents, test_card_mutable_explorer, test_card_pummeler_for_hire, test_card_selfless_safewright, test_card_bristlebane_battler, test_card_bristlebane_outrider, test_card_champions_of_the_perfect, test_card_chomping_changeling, test_card_crossroads_watcher, test_card_dundoolin_weaver, test_card_prismabasher, test_card_mistmeadow_council, test_card_sapling_nursery, test_card_trystan_callous_cultivator, test_card_virulent_emissary, test_card_wildvine_pummeler, test_card_aquitect_s_defenses, test_card_blossombind, test_card_champions_of_the_shoal, test_card_flitterwing_nuisance, test_card_gravelgill_scoundrel, test_card_illusion_spinners, test_card_disruptor_of_currents, test_card_glamer_gifter, test_card_pestered_wellguard, test_card_rimekin_recluse, test_card_kulrath_mystic, test_card_loch_mare, test_card_omni_changeling, test_card_shinestriker, test_card_silvergill_mentor, test_card_silvergill_peddler, test_card_stratosoarer, test_card_tanufel_rimespeaker, test_card_wanderwine_distracter, test_card_bile_vial_boggart, test_card_bitterbloom_bearer, test_card_blighted_blackthorn, test_card_boggart_mischief, test_card_boggart_prankster, test_card_creakwood_safewright, test_card_dawnhand_eulogist, test_card_dream_seizer, test_card_gnarlbark_elm, test_card_graveshifter, test_card_deceit, test_card_gloom_ripper, test_card_grub_storied_matriarch, test_card_ashling_rekindled, test_card_boldwyr_aggressor, test_card_boneclub_berserker, test_card_brambleback_brute, test_card_elder_auntie, test_card_enraged_flamecaster, test_card_explosive_prodigy, test_card_flamekin_gildweaver, test_card_abigale_eloquent_first_year, test_card_boggart_cursecrafter, test_card_chaos_spewer, test_card_deepchannel_duelist, test_card_deepway_navigator, test_card_eclipsed_boggart, test_card_eclipsed_elf, test_card_eclipsed_flamekin, test_card_eclipsed_kithkin, test_card_eclipsed_merrow, test_card_feisty_spikeling, test_card_flaring_cinder, test_card_glister_bairn, test_card_foraging_wickermaw, test_card_stalactite_dagger, test_card_imperious_perfect, test_card_timber_protector, test_card_oona_queen_of_the_fae, test_card_wydwen_the_biting_gale, test_card_wort_boggart_auntie, test_card_gaddock_teeg, test_card_godhead_of_awe, test_card_oblivion_ring, test_card_preeminent_captain, test_card_merrow_commerce, test_card_surgespanner, test_card_silvergill_adept, test_card_mulldrifter, test_card_caterwauling_boggart, test_card_knucklebone_witch, test_card_wort_the_raidmother, test_card_jagged_scar_archers, test_card_wistful_selkie, test_card_gwyllion_hedge_mage, test_card_selkie_hedge_mage, test_card_ashling_the_extinguisher, test_card_reaper_king, test_card_wicker_warcrawler, test_card_aurora_of_five, test_card_faewild_convocation]
+_ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_card_adept_watershaper, test_card_brigid_clachan_s_heart, test_card_burdened_stoneback, test_card_champion_of_the_clachan, test_card_clachan_festival, test_card_curious_colossus, test_card_eirdu_carrier_of_dawn, test_card_encumbered_reejerey, test_card_flock_impostor, test_card_gallant_fowlknight, test_card_reluctant_dounguard, test_card_kinsbaile_aspirant, test_card_kinscaer_sentry, test_card_kithkeeper, test_card_liminal_hold, test_card_meanders_guide, test_card_moonlit_lamenter, test_card_shore_lurker, test_card_slumbering_walker, test_card_sun_dappled_celebrant, test_card_thoughtweft_imbuer, test_card_tributary_vaulter, test_card_wanderbrine_preacher, test_card_wanderbrine_trapper, test_card_formidable_speaker, test_card_luminollusk, test_card_lys_alana_informant, test_card_moon_vigil_adherents, test_card_mutable_explorer, test_card_pummeler_for_hire, test_card_selfless_safewright, test_card_bristlebane_battler, test_card_bristlebane_outrider, test_card_champions_of_the_perfect, test_card_chomping_changeling, test_card_crossroads_watcher, test_card_dundoolin_weaver, test_card_prismabasher, test_card_mistmeadow_council, test_card_sapling_nursery, test_card_trystan_callous_cultivator, test_card_virulent_emissary, test_card_wildvine_pummeler, test_card_aquitect_s_defenses, test_card_blossombind, test_card_champions_of_the_shoal, test_card_flitterwing_nuisance, test_card_gravelgill_scoundrel, test_card_illusion_spinners, test_card_disruptor_of_currents, test_card_glamer_gifter, test_card_pestered_wellguard, test_card_rimekin_recluse, test_card_kulrath_mystic, test_card_loch_mare, test_card_omni_changeling, test_card_shinestriker, test_card_silvergill_mentor, test_card_silvergill_peddler, test_card_stratosoarer, test_card_tanufel_rimespeaker, test_card_wanderwine_distracter, test_card_bile_vial_boggart, test_card_bitterbloom_bearer, test_card_blighted_blackthorn, test_card_boggart_mischief, test_card_boggart_prankster, test_card_creakwood_safewright, test_card_dawnhand_eulogist, test_card_dream_seizer, test_card_gnarlbark_elm, test_card_graveshifter, test_card_deceit, test_card_gloom_ripper, test_card_grub_storied_matriarch, test_card_ashling_rekindled, test_card_boldwyr_aggressor, test_card_boneclub_berserker, test_card_brambleback_brute, test_card_elder_auntie, test_card_enraged_flamecaster, test_card_explosive_prodigy, test_card_flamekin_gildweaver, test_card_abigale_eloquent_first_year, test_card_boggart_cursecrafter, test_card_chaos_spewer, test_card_deepchannel_duelist, test_card_deepway_navigator, test_card_eclipsed_boggart, test_card_eclipsed_elf, test_card_eclipsed_flamekin, test_card_eclipsed_kithkin, test_card_eclipsed_merrow, test_card_feisty_spikeling, test_card_flaring_cinder, test_card_glister_bairn, test_card_foraging_wickermaw, test_card_stalactite_dagger, test_card_imperious_perfect, test_card_timber_protector, test_card_oona_queen_of_the_fae, test_card_wydwen_the_biting_gale, test_card_wort_boggart_auntie, test_card_gaddock_teeg, test_card_godhead_of_awe, test_card_oblivion_ring, test_card_preeminent_captain, test_card_merrow_commerce, test_card_surgespanner, test_card_silvergill_adept, test_card_mulldrifter, test_card_caterwauling_boggart, test_card_knucklebone_witch, test_card_wort_the_raidmother, test_card_jagged_scar_archers, test_card_wistful_selkie, test_card_gwyllion_hedge_mage, test_card_selkie_hedge_mage, test_card_ashling_the_extinguisher, test_card_reaper_king, test_card_wicker_warcrawler, test_card_aurora_of_five, test_card_faewild_convocation, test_card_augury_adept, test_card_bitterblossom, test_card_chronicle_of_victory, test_card_cloudgoat_ranger, test_card_cold_eyed_selkie, test_card_creakwood_liege, test_card_dawn_blessed_pennant, test_card_elvish_harbinger, test_card_emptiness, test_card_gutsplitter_gang, test_card_heirloom_auntie, test_card_hexing_squelcher, test_card_hovel_hurler, test_card_kinsbaile_borderguard, test_card_kirol_attentive_first_year, test_card_kitchen_finks, test_card_kulrath_zealot, test_card_lavaleaper, test_card_lluwen_imperfect_naturalist, test_card_masked_admirers, test_card_merrow_skyswimmer, test_card_mischievous_sneakling, test_card_moonglove_extractor, test_card_moonshadow, test_card_mudbutton_cursetosser, test_card_murderous_redcap, test_card_nath_of_the_gilt_leaf, test_card_nightmare_sower, test_card_noggle_robber, test_card_oonas_blackguard, test_card_prismatic_undercurrents, test_card_pucas_eye, test_card_ranger_of_eos, test_card_sanar_innovative_first_year, test_card_shadow_urchin, test_card_shimmercreep, test_card_shriekmaw, test_card_sizzling_changeling, test_card_smoldering_spinebacks, test_card_sourbread_auntie, test_card_spinerock_tyrant, test_card_squawkroaster, test_card_taster_of_wares, test_card_thundercloud_shaman, test_card_treefolk_harbinger, test_card_twinflame_travelers, test_card_vibrance, test_card_wary_farmer, test_card_wistfulness, test_card_wolf_skull_shaman]
 
 
 def _run():
