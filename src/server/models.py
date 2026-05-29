@@ -341,6 +341,9 @@ class CardData(BaseModel):
     # Generated player-facing rules lines (auras / bonuses / keyword reminders /
     # alt-win) derived from the structured fields. See cards.scp.rules_text.
     scp_rules: list[str] = Field(default_factory=list)
+    # Activated / modal abilities (index, description, cost, is_modal, affordable,
+    # spent, modes[]) for the board's Activate affordance. See cards.scp.activated.
+    scp_abilities: list[dict] = Field(default_factory=list)
     scp_status: Optional[str] = None
     scp_paperwork: int = 0
     scp_exhausted: bool = False

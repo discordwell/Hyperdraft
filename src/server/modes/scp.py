@@ -61,6 +61,37 @@ class SCPModeAdapter(ModeAdapter):
         if session._action_processed_event:
             session._action_processed_event.set()
             session._action_processed_event = None
+
+        # If the engine is waiting on a PendingChoice (e.g. a human modal
+        # "choose one" raised by activate_ability), block on the /choice
+        # submission instead of a normal action, then return a no-op so the SCP
+        # turn loop continues. Mirrors the MTG _get_human_action pause; the
+        # choice infra (handle_choice, get_client_state serialization) is
+        # mode-agnostic. The 300s timeout + min_choices fallback prevents a
+        # permanent wedge.
+        _get_pending = getattr(session.game, "get_pending_choice_for_player", None)
+        pending = _get_pending(player_id) if callable(_get_pending) else None
+        if pending is not None:
+            loop = asyncio.get_event_loop()
+            session._pending_choice_future = loop.create_future()
+            session._pending_choice_player_id = player_id
+            session._pending_choice_id = pending.id
+            if session.on_state_change:
+                for pid in session.player_ids:
+                    state = session.get_client_state(pid)
+                    await session.on_state_change(pid, state.model_dump())
+            try:
+                await asyncio.wait_for(session._pending_choice_future, timeout=300.0)
+            except asyncio.TimeoutError:
+                fallback: list[Any] = []
+                for opt in pending.options[: max(1, pending.min_choices)]:
+                    if isinstance(opt, dict):
+                        fallback.append(opt.get("index", opt.get("id", opt)))
+                    else:
+                        fallback.append(opt)
+                session.game.submit_choice(pending.id, player_id, fallback)
+            return {"action_type": "SCP_NOOP"}
+
         loop = asyncio.get_event_loop()
         session._pending_action_future = loop.create_future()
         session._pending_player_id = player_id
@@ -134,6 +165,14 @@ class SCPModeAdapter(ModeAdapter):
             action_dict = {
                 "action_type": "SCP_RESOLVE_INCIDENT",
                 "index": request.index or 0,
+            }
+        elif request.action_type == "SCP_ACTIVATE_ABILITY":
+            # Humans send no mode: a non-modal ability resolves synchronously; a
+            # modal ability raises a PendingChoice (resolved via /choice).
+            action_dict = {
+                "action_type": "SCP_ACTIVATE_ABILITY",
+                "source_id": request.source_id,
+                "ability_index": request.ability_index or 0,
             }
         elif request.action_type == "SCP_END_TURN":
             action_dict = {"action_type": "SCP_END_TURN"}

@@ -31,6 +31,7 @@ export function useSCPGame() {
       actionKind?: string;
       index?: number;
       amount?: number;
+      abilityIndex?: number;
       fastTrack?: boolean;
       sealed?: boolean;
     } = {},
@@ -51,6 +52,7 @@ export function useSCPGame() {
         action_kind: opts.actionKind,
         index: opts.index,
         amount: opts.amount,
+        ability_index: opts.abilityIndex,
         fast_track: Boolean(opts.fastTrack),
         sealed: Boolean(opts.sealed),
       });
@@ -162,6 +164,9 @@ export function useSCPGame() {
     memoryHole: (sourceId: string) => sendSCPAction('SCP_MEMORY_HOLE', { sourceId }),
     applyProtocol: (anomalyId: string, protocol: string) => sendSCPAction('SCP_APPLY_PROTOCOL', { anomalyId, protocol }),
     resolveIncident: (index: number) => sendSCPAction('SCP_RESOLVE_INCIDENT', { index }),
+    activateAbility: (sourceId: string, abilityIndex: number) => (
+      sendSCPAction('SCP_ACTIVATE_ABILITY', { sourceId, abilityIndex })
+    ),
     endTurn: () => sendSCPAction('SCP_END_TURN'),
     setError,
     error: store.ui.error,

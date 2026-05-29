@@ -154,9 +154,12 @@ def test_modal_modes_enumerated_and_dispatch_by_mode():
     assert scp.site(game.state, p1.id)["breach"] == 2
     assert scp.site(game.state, p1.id)["briefing"] == 0
 
-    # A modal ability with no mode supplied is rejected (not silently defaulted).
+    # With no mode supplied, a modal ability now raises a PendingChoice (the
+    # human "choose one" path), rather than rejecting or silently defaulting.
     ok2, _m2, _e2 = scp.activate_ability(game, p1.id, obj.id, 0, mode=None)
-    assert not ok2
+    assert ok2
+    assert game.state.pending_choice is not None
+    assert game.state.pending_choice.choice_type == "modal"
 
 
 def test_once_per_turn_gating():
@@ -330,6 +333,82 @@ def test_pilot_phyrexian_strain_deck_is_30_and_includes_bomb():
     names = {c.name for c in deck}
     assert "Operative O5-7, Strain Harvester" in names
     assert "Operative O5-3, Strain Containment Lead" in names
+
+
+# --------------------------------------------------------------------------- #
+# Modal HUMAN path: activate (no mode) -> PendingChoice -> submit -> resolve
+# --------------------------------------------------------------------------- #
+
+
+def test_modal_no_mode_creates_pending_choice():
+    game, p1, p2 = _setup()
+    obj = _modal_obj(game, p1)
+    scp.site(game.state, p1.id)["breach"] = 3
+    ok, msg, _events = scp.activate_ability(game, p1.id, obj.id, 0, mode=None)
+    assert ok, msg
+    pc = game.state.pending_choice
+    assert pc is not None and pc.choice_type == "modal"
+    assert pc.player == p1.id
+    assert len(pc.options) == 2
+    # Nothing resolved yet — cost unpaid, no mode effect applied.
+    assert scp.site(game.state, p1.id)["breach"] == 3
+
+
+def test_modal_pending_choice_resolves_chosen_mode():
+    game, p1, p2 = _setup()
+    obj = _modal_obj(game, p1)
+    scp.site(game.state, p1.id)["breach"] = 3
+    scp.activate_ability(game, p1.id, obj.id, 0, mode=None)
+    pc = game.state.pending_choice
+    ok, msg, _ev = game.submit_choice(pc.id, p1.id, [1])  # mode 1 = breach -1
+    assert ok, msg
+    assert game.state.pending_choice is None
+    assert scp.site(game.state, p1.id)["breach"] == 2
+
+
+def test_modal_submit_accepts_option_dict_form():
+    game, p1, p2 = _setup()
+    obj = _modal_obj(game, p1)
+    scp.site(game.state, p1.id)["briefing"] = 0
+    scp.activate_ability(game, p1.id, obj.id, 0, mode=None)
+    pc = game.state.pending_choice
+    ok, _m, _e = game.submit_choice(pc.id, p1.id, [{"index": 0}])  # mode 0 = +1 briefing
+    assert ok
+    assert scp.site(game.state, p1.id)["briefing"] == 1
+
+
+def test_serialize_scp_abilities_shape():
+    from src.engine.scp_abilities import serialize_scp_abilities
+    game, p1, p2 = _setup()
+    obj = _modal_obj(game, p1)
+    abilities = serialize_scp_abilities(obj, game.state)
+    assert len(abilities) == 1
+    a = abilities[0]
+    assert a["index"] == 0 and a["is_modal"] is True and a["affordable"] is True
+    assert [m["label"] for m in a["modes"]] == ["Gain 1 briefing", "Reduce breach by 1"]
+
+
+def test_execute_action_dispatches_noop_and_ability():
+    # The turn-loop dispatcher accepts SCP_NOOP (continue) and SCP_ACTIVATE_ABILITY.
+    game, p1, p2 = _setup()
+    game.state._game = game  # ensure back-ref for the turn manager path
+    tm = game.turn_manager
+
+    async def _drive():
+        obj = _battlefield_personnel(game, p1)
+        make_scp_activated_ability(
+            obj, cost=SCPCost(), description="Free tick", once_per_turn=True,
+            effect_fn=lambda o, s: [], value_hint=SCPValueHint(briefing=1),
+        )
+        ok_noop, _m, _e = await tm.execute_action(p1.id, {"action_type": "SCP_NOOP"})
+        ok_act, _m2, _e2 = await tm.execute_action(
+            p1.id, {"action_type": "SCP_ACTIVATE_ABILITY", "source_id": obj.id, "ability_index": 0}
+        )
+        return ok_noop, ok_act
+
+    import asyncio as _aio
+    ok_noop, ok_act = _aio.run(_drive())
+    assert ok_noop and ok_act
 
 
 if __name__ == "__main__":

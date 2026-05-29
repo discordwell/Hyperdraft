@@ -90,7 +90,8 @@ _SCP_ACTION_TYPES = frozenset({
     "SCP_OPEN_DOSSIER", "SCP_REVEAL_DOSSIER", "SCP_RESEARCH",
     "SCP_CONTAIN", "SCP_SUPPRESS", "SCP_SPEND_ETHICS",
     "SCP_SHIFT_MOOD", "SCP_CROSS_CONTAIN", "SCP_MEMORY_HOLE",
-    "SCP_APPLY_PROTOCOL", "SCP_RESOLVE_INCIDENT", "SCP_END_TURN",
+    "SCP_APPLY_PROTOCOL", "SCP_RESOLVE_INCIDENT", "SCP_ACTIVATE_ABILITY",
+    "SCP_END_TURN",
 })
 
 _CATS_ACTION_TYPES = frozenset({
@@ -2336,6 +2337,7 @@ class GameSession:
         """Serialize a permanent for the client."""
         from src.engine.queries import get_power, get_toughness, is_creature
         from src.cards.scp.rules_text import scp_rules_lines
+        from src.engine.scp_abilities import serialize_scp_abilities
 
         sealed_scp = (
             self.game.state.game_mode == "scp"
@@ -2419,6 +2421,7 @@ class GameSession:
             scp_skills={} if sealed_scp else (dict(getattr(obj.card_def, "scp_skills", {}) or {}) if obj.card_def else {}),
             scp_bonus={} if sealed_scp else (dict(getattr(obj.card_def, "scp_bonus", {}) or {}) if obj.card_def else {}),
             scp_rules=[] if (sealed_scp or not obj.card_def) else scp_rules_lines(obj.card_def),
+            scp_abilities=[] if (sealed_scp or not obj.card_def) else serialize_scp_abilities(obj, self.game.state),
             scp_status=obj.state.scp_status,
             scp_paperwork=obj.state.scp_paperwork,
             scp_exhausted=obj.state.scp_exhausted,

@@ -1494,12 +1494,13 @@ def activate_ability(
 ) -> tuple[bool, str, list[Event]]:
     """Activate an SCP-native activated / modal ability registered on an object.
 
-    Synchronous: the cost is validated + paid here and the effect resolves
-    immediately, so both the human action loop and the AI's direct-call path
-    use the same code. Modal abilities require a valid ``mode`` index (the
-    legal-action surface enumerates one action per mode, so the caller — human
-    or AI — has already chosen). We deliberately do NOT wrap ``effect_fn`` in a
-    blanket ``except`` so card-side bugs surface under ``HYPERDRAFT_STRICT=1``.
+    Synchronous when a ``mode`` is given (the AI pre-picks via the legal-action
+    enumeration): cost validated + paid here and the effect resolves immediately.
+    For a modal ability with ``mode=None`` (a human "choose one"), this pauses
+    the turn loop by creating a modal ``PendingChoice``; ``_scp_modal_resolve``
+    re-enters with the chosen mode when the human submits /choice. We deliberately
+    do NOT wrap ``effect_fn`` in a blanket ``except`` so card-side bugs surface
+    under ``HYPERDRAFT_STRICT=1``.
     """
     from src.engine.scp_abilities import is_scp_ability
     from src.engine.scp_costs import can_pay_scp_cost, pay_scp_cost
@@ -1524,16 +1525,36 @@ def activate_ability(
     if ability.precondition_fn and not ability.precondition_fn(obj, state):
         return False, "Ability precondition not met", []
 
-    if ability.is_modal:
-        if mode is None or not (0 <= int(mode) < len(ability.modes)):
-            return False, "Modal ability requires a valid mode", []
-        effect_fn = ability.modes[int(mode)].effect_fn
-    else:
-        effect_fn = ability.effect_fn
-
     ok, why = can_pay_scp_cost(obj, state, ability.cost)
     if not ok:
         return False, why, []
+
+    if ability.is_modal:
+        if mode is None:
+            # No mode supplied → a human is activating a "choose one". Pause the
+            # turn loop with a modal PendingChoice; _scp_modal_resolve re-enters
+            # activate_ability with the chosen mode. (The AI always passes a mode
+            # via the legal-action enumeration, so it never reaches this path.)
+            game.create_choice(
+                choice_type="modal",
+                player_id=player_id,
+                prompt=f"{obj.name}: choose one",
+                options=[{"index": i, "text": m.label} for i, m in enumerate(ability.modes)],
+                source_id=obj.id,
+                min_choices=1,
+                max_choices=1,
+                callback_data={
+                    "handler": _scp_modal_resolve,
+                    "object_id": obj.id,
+                    "ability_index": ability_index,
+                },
+            )
+            return True, "Choose a mode", []
+        if not (0 <= int(mode) < len(ability.modes)):
+            return False, "Invalid mode", []
+        effect_fn = ability.modes[int(mode)].effect_fn
+    else:
+        effect_fn = ability.effect_fn
 
     events = pay_scp_cost(game, obj, ability.cost)
     events.extend(game.emit(Event(
@@ -1564,6 +1585,27 @@ def activate_ability(
     events.extend(check_scp_victory(game, source=obj.id))
     events.extend(check_scp_loss(game))
     return True, f"Activated: {ability.description}", events
+
+
+def _scp_modal_resolve(choice, selected, state) -> list[Event]:
+    """PendingChoice handler for a human "choose one" SCP ability.
+
+    Re-enters ``activate_ability`` with the selected mode index; that call pays
+    the cost, resolves the mode, and emits its events through the pipeline, so
+    this returns ``[]`` (nothing for ``submit_choice`` to re-emit)."""
+    game = getattr(state, "_game", None)
+    if game is None or not selected:
+        return []
+    sel = selected[0]
+    mode_index = sel.get("index") if isinstance(sel, dict) else int(sel)
+    cb = choice.callback_data or {}
+    object_id = cb.get("object_id")
+    ability_index = int(cb.get("ability_index", 0) or 0)
+    obj = state.objects.get(object_id)
+    if obj is None:
+        return []
+    activate_ability(game, obj.controller, object_id, ability_index, mode=int(mode_index))
+    return []
 
 
 def check_scp_loss(game) -> list[Event]:

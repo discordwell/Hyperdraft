@@ -77,6 +77,7 @@ export type ActionType =
   | 'SCP_MEMORY_HOLE'
   | 'SCP_APPLY_PROTOCOL'
   | 'SCP_RESOLVE_INCIDENT'
+  | 'SCP_ACTIVATE_ABILITY'
   | 'SCP_END_TURN'
   | 'CATS_PLAY_CARD'
   | 'CATS_CHOOSE_PILE'
@@ -199,6 +200,15 @@ export interface CardData {
   scp_skills?: Record<string, number>;
   scp_bonus?: Record<string, number>;
   scp_rules?: string[];
+  scp_abilities?: Array<{
+    index: number;
+    description: string;
+    cost: string;
+    is_modal: boolean;
+    affordable: boolean;
+    spent: boolean;
+    modes?: Array<{ index: number; label: string }>;
+  }>;
   scp_status?: string | null;
   scp_paperwork?: number;
   scp_exhausted?: boolean;

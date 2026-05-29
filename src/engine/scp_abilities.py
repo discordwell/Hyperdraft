@@ -125,9 +125,42 @@ def make_scp_activated_ability(
     return ability
 
 
+def serialize_scp_abilities(obj, state) -> list[dict]:
+    """Client-facing view of an object's SCP activated/modal abilities, for the
+    board's Activate affordance. ``affordable``/``spent`` are from the
+    controller's viewpoint."""
+    from src.engine.scp_costs import can_pay_scp_cost, describe_scp_cost
+
+    out: list[dict] = []
+    for idx, ability in enumerate(getattr(obj.state, "activated_abilities", None) or []):
+        if not is_scp_ability(ability):
+            continue
+        try:
+            affordable, _ = can_pay_scp_cost(obj, state, ability.cost)
+        except NotImplementedError:
+            affordable = False
+        spent = (
+            (ability.once_per_game and ability.used_this_game)
+            or (ability.once_per_turn and ability.activations_this_turn > 0)
+        )
+        entry: dict = {
+            "index": idx,
+            "description": ability.description,
+            "cost": describe_scp_cost(ability.cost),
+            "is_modal": ability.is_modal,
+            "affordable": bool(affordable),
+            "spent": bool(spent),
+        }
+        if ability.is_modal:
+            entry["modes"] = [{"index": i, "label": m.label} for i, m in enumerate(ability.modes)]
+        out.append(entry)
+    return out
+
+
 __all__ = [
     "SCPMode",
     "SCPActivatedAbility",
     "is_scp_ability",
     "make_scp_activated_ability",
+    "serialize_scp_abilities",
 ]

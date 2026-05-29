@@ -148,6 +148,10 @@ class SCPTurnManager(TurnManager):
         if not game:
             return False, "Game not attached", []
         action_type = action.get("action_type")
+        if action_type == "SCP_NOOP":
+            # No-op sentinel returned by the human loop after a PendingChoice was
+            # resolved out-of-band (via /choice). Keeps the turn going.
+            return True, "", []
         if action_type == "SCP_OPEN_DOSSIER":
             return scp.open_dossier(
                 game,

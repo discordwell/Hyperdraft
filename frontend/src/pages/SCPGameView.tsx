@@ -104,6 +104,36 @@ function ActionButton({
   );
 }
 
+// Activate affordance for a controlled permanent's SCP activated/modal
+// abilities. Modal abilities raise a PendingChoice on the backend, which the
+// shared ChoiceModal (driven by usePendingChoice) renders.
+export function AbilityButtons({
+  card,
+  onActivate,
+  disabled,
+}: {
+  card: CardData;
+  onActivate: (sourceId: string, abilityIndex: number) => void;
+  disabled: boolean;
+}) {
+  const usable = (card.scp_abilities || []).filter((a) => a.affordable && !a.spent);
+  if (usable.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1">
+      {usable.map((ability) => (
+        <ActionButton
+          key={ability.index}
+          onClick={() => onActivate(card.id, ability.index)}
+          disabled={disabled}
+          tone="warn"
+        >
+          {ability.is_modal ? `Activate: choose one (${ability.cost})` : `Activate (${ability.cost})`}
+        </ActionButton>
+      ))}
+    </div>
+  );
+}
+
 function IncidentRow({
   incident,
   index,
@@ -260,6 +290,7 @@ export function SCPGameView() {
     memoryHole,
     applyProtocol,
     resolveIncident,
+    activateAbility,
     endTurn,
     setError,
     error,
@@ -546,6 +577,7 @@ export function SCPGameView() {
                   <span className={`text-xs ${card.scp_exhausted ? 'text-red-300' : 'text-emerald-300'}`}>
                     {card.scp_exhausted ? 'Exhausted' : selectedStaffIds.includes(card.id) ? 'Assigned' : 'Ready'}
                   </span>
+                  <AbilityButtons card={card} onActivate={activateAbility} disabled={!canAct} />
                 </SCPCardPanel>
               ))}
             </SCPSection>
