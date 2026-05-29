@@ -5636,8 +5636,16 @@ def glister_bairn_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
                 state.active_player == obj.controller)
 
     def combat_handler(event: Event, state: GameState) -> InterceptorResult:
-        # Count colors and boost another creature - simplified
-        return InterceptorResult(action=InterceptorAction.REACT, new_events=[])
+        # "another target creature you control gets +X/+X until end of turn,
+        #  where X is the number of colors among permanents you control."
+        x = max(1, _colors_among_permanents(obj, state))
+        target = find_friendly_creature(obj, state, exclude_self=True)
+        payload = {'power_mod': x, 'toughness_mod': x, 'duration': 'end_of_turn',
+                   'target_filter': 'other_creature_you_control'}
+        if target:
+            payload['object_id'] = target
+        return InterceptorResult(action=InterceptorAction.REACT,
+            new_events=[Event(type=EventType.PT_MODIFICATION, payload=payload, source=obj.id)])
 
     return [
         Interceptor(
@@ -6021,9 +6029,10 @@ FIRDOCH_CORE = make_artifact(
 
 # Foraging Wickermaw - {2} Artifact Creature — Scarecrow
 def foraging_wickermaw_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "When this creature enters, surveil 1."
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        # Surveil 1
-        return []
+        return [Event(type=EventType.SURVEIL,
+                      payload={'player': obj.controller, 'amount': 1}, source=obj.id)]
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -7349,7 +7358,18 @@ DIVINITY_OF_PRIDE = make_creature(
 
 def oblivion_ring_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.TARGET_REQUIRED, payload={'source': obj.id, 'effect': 'exile_nonland_permanent'}, source=obj.id)]
+        # "exile target nonland permanent" (until O-Ring leaves).
+        target = None
+        for o in state.objects.values():
+            if (o.zone == ZoneType.BATTLEFIELD and o.id != obj.id and
+                    CardType.LAND not in o.characteristics.types and
+                    o.characteristics.types):
+                target = o.id
+                break
+        payload = {'target_filter': 'nonland_permanent', 'until_leaves': obj.id}
+        if target:
+            payload['object_id'] = target
+        return [Event(type=EventType.EXILE, payload=payload, source=obj.id)]
     def leaves_filter(event: Event, state: GameState, source: GameObject) -> bool:
         return event.type == EventType.ZONE_CHANGE and event.payload.get('object_id') == source.id and event.payload.get('from_zone_type') == ZoneType.BATTLEFIELD
     def leaves_effect(event: Event, state: GameState) -> list[Event]:
@@ -7358,8 +7378,26 @@ def oblivion_ring_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return [make_etb_trigger(obj, etb_effect), make_death_trigger(obj, leaves_effect, leaves_filter)]
 
 def preeminent_captain_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "you may put a Soldier creature card from your hand onto the battlefield
+    #  tapped and attacking."
     def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.TARGET_REQUIRED, payload={'source': obj.id, 'effect': 'put_soldier_attacking', 'optional': True}, source=obj.id)]
+        # Find a Soldier card in hand to put into play.
+        hand = state.zones.get(f"hand_{obj.controller}")
+        soldier = None
+        if hand:
+            for cid in hand.objects:
+                card = state.objects.get(cid)
+                if (card and CardType.CREATURE in card.characteristics.types and
+                        'Soldier' in card.characteristics.subtypes):
+                    soldier = card
+                    break
+        payload = {'controller': obj.controller, 'from_hand': True,
+                   'tapped': True, 'attacking': True, 'optional': True,
+                   'card_filter': 'soldier_in_hand'}
+        if soldier:
+            payload['object_id'] = soldier.id
+            payload['name'] = soldier.name
+        return [Event(type=EventType.OBJECT_CREATED, payload=payload, source=obj.id)]
     return [make_attack_trigger(obj, effect)]
 
 def merrow_commerce_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -7440,10 +7478,22 @@ def gwyllion_hedge_mage_setup(obj: GameObject, state: GameState) -> list[Interce
         return sum(1 for l in st.objects.values() if l.controller == obj.controller and CardType.LAND in l.characteristics.types and lt in l.characteristics.subtypes and l.zone == ZoneType.BATTLEFIELD)
     def effect(event: Event, state: GameState) -> list[Event]:
         events = []
-        if count_lands('Plains', state) >= 2:
-            events.append(Event(type=EventType.CREATE_TOKEN, payload={'controller': obj.controller, 'name': 'Kithkin Soldier', 'power': 1, 'toughness': 1, 'colors': {Color.WHITE}, 'subtypes': {'Kithkin', 'Soldier'}, 'optional': True}, source=obj.id))
-        if count_lands('Swamp', state) >= 2:
-            events.append(Event(type=EventType.TARGET_REQUIRED, payload={'source': obj.id, 'effect': 'put_minus_counter', 'counter_type': '-1/-1', 'amount': 1, 'optional': True}, source=obj.id))
+        plains = count_lands('Plains', state)
+        swamps = count_lands('Swamp', state)
+        # "if you control two or more Plains, you may create a 1/1 Kithkin Soldier"
+        events.append(Event(type=EventType.CREATE_TOKEN, payload={
+            'controller': obj.controller, 'name': 'Kithkin Soldier', 'power': 1,
+            'toughness': 1, 'colors': {Color.WHITE}, 'subtypes': {'Kithkin', 'Soldier'},
+            'optional': True, 'condition': 'two_or_more_plains',
+            'condition_met': plains >= 2}, source=obj.id))
+        # "if you control two or more Swamps, you may put a -1/-1 counter on target creature"
+        cpayload = {'counter_type': '-1/-1', 'amount': 1, 'optional': True,
+                    'target_filter': 'creature', 'condition': 'two_or_more_swamps',
+                    'condition_met': swamps >= 2}
+        victim = find_any_creature(obj, state, exclude_self=True)
+        if victim:
+            cpayload['object_id'] = victim
+        events.append(Event(type=EventType.COUNTER_ADDED, payload=cpayload, source=obj.id))
         return events
     return [make_etb_trigger(obj, effect)]
 
@@ -7452,10 +7502,20 @@ def selkie_hedge_mage_setup(obj: GameObject, state: GameState) -> list[Intercept
         return sum(1 for l in st.objects.values() if l.controller == obj.controller and CardType.LAND in l.characteristics.types and lt in l.characteristics.subtypes and l.zone == ZoneType.BATTLEFIELD)
     def effect(event: Event, state: GameState) -> list[Event]:
         events = []
-        if count_lands('Forest', state) >= 2:
-            events.append(Event(type=EventType.LIFE_CHANGE, payload={'player': obj.controller, 'amount': 3, 'optional': True}, source=obj.id))
-        if count_lands('Island', state) >= 2:
-            events.append(Event(type=EventType.TARGET_REQUIRED, payload={'source': obj.id, 'effect': 'bounce_tapped_creature', 'optional': True}, source=obj.id))
+        forests = count_lands('Forest', state)
+        islands = count_lands('Island', state)
+        # "if you control two or more Forests, you may gain 3 life"
+        events.append(Event(type=EventType.LIFE_CHANGE, payload={
+            'player': obj.controller, 'amount': 3, 'optional': True,
+            'condition': 'two_or_more_forests', 'condition_met': forests >= 2},
+            source=obj.id))
+        # "if you control two or more Islands, you may return target tapped creature
+        #  to its owner's hand"
+        tapped = find_any_creature(obj, state, exclude_self=True)
+        bev = _return_to_hand_event(obj, tapped, 'tapped_creature', optional=True)
+        bev.payload['condition'] = 'two_or_more_islands'
+        bev.payload['condition_met'] = islands >= 2
+        events.append(bev)
         return events
     return [make_etb_trigger(obj, effect)]
 
@@ -7464,7 +7524,19 @@ def ashling_the_extinguisher_setup(obj: GameObject, state: GameState) -> list[In
     def filter_fn(event: Event, state: GameState, source: GameObject) -> bool:
         return event.type == EventType.DAMAGE and event.payload.get('source') == source.id and event.payload.get('is_combat', False) and event.payload.get('target') in state.players
     def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.TARGET_REQUIRED, payload={'source': obj.id, 'effect': 'sacrifice_creature', 'player': event.payload.get('target')}, source=obj.id)]
+        # "choose target creature that player controls. The player sacrifices that creature."
+        damaged_player = event.payload.get('target')
+        victim = None
+        for o in _battlefield_creatures(state):
+            if o.controller == damaged_player:
+                victim = o.id
+                break
+        payload = {'sacrifice_type': 'creature', 'target_filter': 'creature_that_player_controls'}
+        if damaged_player:
+            payload['player'] = damaged_player
+        if victim:
+            payload['object_id'] = victim
+        return [Event(type=EventType.SACRIFICE, payload=payload, source=obj.id)]
     return [make_damage_trigger(obj, effect, combat_only=True, filter_fn=filter_fn)]
 
 def reaper_king_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
@@ -7476,7 +7548,17 @@ def reaper_king_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
         entering = state.objects.get(oid)
         return oid != source.id and entering and entering.controller == source.controller and 'Scarecrow' in entering.characteristics.subtypes
     def etb_effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.TARGET_REQUIRED, payload={'source': obj.id, 'effect': 'destroy_permanent'}, source=obj.id)]
+        # "Whenever another Scarecrow enters under your control, destroy target permanent."
+        target = None
+        for o in state.objects.values():
+            if (o.zone == ZoneType.BATTLEFIELD and o.id != obj.id and
+                    o.characteristics.types):
+                target = o.id
+                break
+        payload = {'target_filter': 'permanent'}
+        if target:
+            payload['object_id'] = target
+        return [Event(type=EventType.OBJECT_DESTROYED, payload=payload, source=obj.id)]
     lord = make_static_pt_boost(obj, 1, 1, other_creatures_with_subtype(obj, 'Scarecrow'))
     return lord + [make_etb_trigger(obj, etb_effect, etb_filter)]
 
@@ -7484,7 +7566,10 @@ def wicker_warcrawler_setup(obj: GameObject, state: GameState) -> list[Intercept
     def filter_fn(event: Event, state: GameState) -> bool:
         return (event.type == EventType.ATTACK_DECLARED and event.payload.get('attacker_id') == obj.id) or (event.type == EventType.BLOCK_DECLARED and event.payload.get('blocker_id') == obj.id)
     def effect(event: Event, state: GameState) -> list[Event]:
-        return [Event(type=EventType.DELAYED_TRIGGER, payload={'trigger_phase': 'end_of_combat', 'effect': Event(type=EventType.COUNTER_ADDED, payload={'object_id': obj.id, 'counter_type': '-1/-1', 'amount': 1}, source=obj.id)}, source=obj.id)]
+        # "put a -1/-1 counter on it at end of combat."
+        return [Event(type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '-1/-1', 'amount': 1,
+                     'timing': 'end_of_combat'}, source=obj.id)]
     def handler(event: Event, state: GameState) -> InterceptorResult:
         return InterceptorResult(action=InterceptorAction.REACT, new_events=effect(event, state))
     return [Interceptor(id=new_id(), source=obj.id, controller=obj.controller, priority=InterceptorPriority.REACT, filter=filter_fn, handler=handler, duration='while_on_battlefield')]
