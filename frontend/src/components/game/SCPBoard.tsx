@@ -141,7 +141,14 @@ export function SCPCardPanel({
         </div>
       )}
 
-      {card.text && <p className="mt-2 text-xs leading-relaxed text-slate-400">{card.text}</p>}
+      {!isSealed && (card.scp_rules?.length ?? 0) > 0 && (
+        <ul className="mt-2 space-y-1 border-l-2 border-cyan-500/40 pl-2 text-xs leading-relaxed text-slate-200">
+          {card.scp_rules?.map((line, i) => (
+            <li key={i}>{line}</li>
+          ))}
+        </ul>
+      )}
+      {card.text && <p className="mt-2 text-[11px] italic leading-relaxed text-slate-500">{card.text}</p>}
       {children && <div className="mt-3 flex flex-wrap gap-2">{children}</div>}
     </div>
   );

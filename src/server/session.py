@@ -2335,6 +2335,7 @@ class GameSession:
     def _serialize_permanent(self, obj) -> CardData:
         """Serialize a permanent for the client."""
         from src.engine.queries import get_power, get_toughness, is_creature
+        from src.cards.scp.rules_text import scp_rules_lines
 
         sealed_scp = (
             self.game.state.game_mode == "scp"
@@ -2417,6 +2418,7 @@ class GameSession:
             scp_hazard=0 if sealed_scp else (int(getattr(obj.card_def, "scp_hazard", 0) or 0) if obj.card_def else 0),
             scp_skills={} if sealed_scp else (dict(getattr(obj.card_def, "scp_skills", {}) or {}) if obj.card_def else {}),
             scp_bonus={} if sealed_scp else (dict(getattr(obj.card_def, "scp_bonus", {}) or {}) if obj.card_def else {}),
+            scp_rules=[] if (sealed_scp or not obj.card_def) else scp_rules_lines(obj.card_def),
             scp_status=obj.state.scp_status,
             scp_paperwork=obj.state.scp_paperwork,
             scp_exhausted=obj.state.scp_exhausted,
@@ -2430,6 +2432,8 @@ class GameSession:
 
     def _serialize_card(self, obj) -> CardData:
         """Serialize a card for the client (hand/graveyard)."""
+        from src.cards.scp.rules_text import scp_rules_lines
+
         # Depths cost for hand cards
         _depths_cost_hand: dict = {}
         if obj.card_def:
@@ -2479,6 +2483,7 @@ class GameSession:
             scp_hazard=int(getattr(obj.card_def, "scp_hazard", 0) or 0) if obj.card_def else 0,
             scp_skills=dict(getattr(obj.card_def, "scp_skills", {}) or {}) if obj.card_def else {},
             scp_bonus=dict(getattr(obj.card_def, "scp_bonus", {}) or {}) if obj.card_def else {},
+            scp_rules=scp_rules_lines(obj.card_def) if obj.card_def else [],
             scp_status=obj.state.scp_status,
             scp_paperwork=obj.state.scp_paperwork,
             scp_exhausted=obj.state.scp_exhausted,

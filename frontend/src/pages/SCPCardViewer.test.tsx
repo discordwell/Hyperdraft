@@ -98,4 +98,50 @@ describe('SCPCardViewer', () => {
     });
     expect(screen.getAllByText('Junior Researcher').length).toBeGreaterThan(0);
   });
+
+  it('renders the generated RULES block distinct from the flavor text', async () => {
+    vi.mocked(deckbuilderAPI.getAllCards).mockResolvedValue({
+      cards: [
+        scpCard({
+          name: 'O5 Auditor',
+          types: ['SCP_PERSONNEL'],
+          text: 'A bureaucrat who insists on remembering.',
+          extras: {
+            scp_red_tape: 3,
+            scp_clearance: 0,
+            scp_containment: 0,
+            scp_curiosity: 0,
+            scp_hazard: 0,
+            scp_skills: { research: 3, contain: 1 },
+            scp_bonus: {},
+            scp_rules: [
+              'All your personnel get +1 research while this is active.',
+              'Mnestic: While active, blocks antimemetic decay on your anomalies.',
+            ],
+            scp_keywords: ['Mnestic'],
+            scp_alt_win: null,
+            scp_expansion: 'SCP Core',
+            scp_expansion_code: 'CORE',
+            scp_archetype: 'foundation',
+            scp_art_prompt: '',
+          },
+        }),
+      ],
+      total: 1,
+      has_more: false,
+    });
+
+    renderViewer();
+
+    // The generated aura rule renders in the detail pane.
+    expect(
+      await screen.findByText('All your personnel get +1 research while this is active.'),
+    ).toBeInTheDocument();
+    // The keyword reminder (its meaning, not just the bare tag) renders too.
+    expect(screen.getByText(/blocks antimemetic decay/)).toBeInTheDocument();
+    // The flavor text is still shown, separately from the rules.
+    expect(
+      screen.getAllByText('A bureaucrat who insists on remembering.').length,
+    ).toBeGreaterThan(0);
+  });
 });

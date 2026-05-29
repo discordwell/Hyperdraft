@@ -338,6 +338,9 @@ class CardData(BaseModel):
     scp_hazard: int = 0
     scp_skills: dict[str, int] = Field(default_factory=dict)
     scp_bonus: dict[str, int] = Field(default_factory=dict)
+    # Generated player-facing rules lines (auras / bonuses / keyword reminders /
+    # alt-win) derived from the structured fields. See cards.scp.rules_text.
+    scp_rules: list[str] = Field(default_factory=list)
     scp_status: Optional[str] = None
     scp_paperwork: int = 0
     scp_exhausted: bool = False

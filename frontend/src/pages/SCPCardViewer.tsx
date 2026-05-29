@@ -105,6 +105,25 @@ function Metric({ label: metricLabel, value, tone = 'text-zinc-100' }: { label: 
   );
 }
 
+// A generated rules line. Keyword/alt-win lines are "Label: reminder" — bold
+// the label so opaque keywords (Blackfile, Phylactery Audit...) read clearly.
+// Aura/bonus lines have no leading label and render as plain sentences.
+function RuleLine({ text }: { text: string }) {
+  const idx = text.indexOf(': ');
+  // Generated keyword/alt-win lines are "Label: reminder". The longest real
+  // label ("Alternate victory (Compleation Overrun)") is 39 chars; cap at 60
+  // for headroom. Aura/bonus lines contain no ": " so they never match.
+  if (idx > 0 && idx <= 60) {
+    return (
+      <li>
+        <span className="font-semibold text-zinc-100">{text.slice(0, idx)}</span>
+        <span className="text-zinc-300"> — {text.slice(idx + 2)}</span>
+      </li>
+    );
+  }
+  return <li className="text-zinc-300">{text}</li>;
+}
+
 function SCPArt({ card, compact = false }: { card: CardDefinitionData; compact?: boolean }) {
   const code = str(card, 'scp_expansion_code', 'SCP');
   const type = primaryType(card);
@@ -192,6 +211,7 @@ function DetailCard({ card }: { card: CardDefinitionData }) {
   const tone = TYPE_TONES[type] ?? TYPE_TONES.SCP_MANDATE;
   const skills = metricEntries(card, 'scp_skills');
   const bonuses = metricEntries(card, 'scp_bonus');
+  const rules = list(card, 'scp_rules');
   const keywords = list(card, 'scp_keywords');
   const altWin = str(card, 'scp_alt_win');
   const artPrompt = str(card, 'scp_art_prompt');
@@ -240,7 +260,25 @@ function DetailCard({ card }: { card: CardDefinitionData }) {
             {card.subtypes.length > 0 ? ` - ${card.subtypes.join(' / ')}` : ''}
           </div>
           <div className={`min-h-40 px-4 py-3 ${tone}`}>
-            <p className="whitespace-pre-wrap text-sm leading-relaxed">{card.text || 'No printed text.'}</p>
+            {rules.length > 0 && (
+              <ul className="space-y-1.5 text-sm leading-relaxed">
+                {rules.map((line, index) => (
+                  <RuleLine key={index} text={line} />
+                ))}
+              </ul>
+            )}
+            {card.text && (
+              <p
+                className={`whitespace-pre-wrap text-xs italic leading-relaxed opacity-70 ${
+                  rules.length > 0 ? 'mt-3 border-t border-white/10 pt-2' : ''
+                }`}
+              >
+                {card.text}
+              </p>
+            )}
+            {rules.length === 0 && !card.text && (
+              <p className="text-sm leading-relaxed opacity-60">No printed text.</p>
+            )}
           </div>
           <div className="flex items-center justify-between border-t border-zinc-800 bg-zinc-900 px-3 py-2 text-xs text-zinc-400">
             <span>{str(card, 'scp_expansion') || 'SCP Core'}</span>

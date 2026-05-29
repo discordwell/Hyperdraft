@@ -148,6 +148,36 @@ describe('SCPBoard', () => {
     expect(screen.getByText('Opposing Active Anomalies')).toBeInTheDocument();
   });
 
+  it('renders the generated RULES block on an anomaly, distinct from flavor', () => {
+    const anomaly = makeAnomaly({
+      id: 'a-rules',
+      name: 'SCP-RULES',
+      text: 'Flavorful incident report prose.',
+      scp_rules: [
+        'Antimeme 3: At each of your end steps it gains a forget counter; at 3 counters it is forgotten (exiled).',
+      ],
+    });
+    const state = makeState({ scp_anomalies: { alice: [anomaly], bob: [] } });
+    render(<SCPBoard gameState={state} playerId="alice" />);
+    // The generated rules line renders...
+    expect(screen.getByText(/Antimeme 3:/)).toBeInTheDocument();
+    // ...alongside (not instead of) the flavor text.
+    expect(screen.getByText('Flavorful incident report prose.')).toBeInTheDocument();
+  });
+
+  it('hides rules on a sealed dossier', () => {
+    const sealed = makeAnomaly({
+      id: 'a-sealed',
+      name: 'Sealed Dossier',
+      scp_status: 'sealed',
+      scp_rules: [],
+      text: 'Sealed anomaly dossier. Reveal to activate its full file.',
+    });
+    const state = makeState({ scp_anomalies: { alice: [sealed], bob: [] } });
+    render(<SCPBoard gameState={state} playerId="alice" />);
+    expect(screen.queryByText(/Antimeme/)).not.toBeInTheDocument();
+  });
+
   it('does not call useSCPGame (the live socket hook)', () => {
     // The whole point of SCPBoard is to be hookless. Asserting the import
     // graph doesn't reach back into the live store would require ts-prune

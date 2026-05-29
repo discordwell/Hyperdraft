@@ -207,6 +207,8 @@ def _hearthstone_extras(card_def: CardDefinition) -> dict[str, Any]:
 
 
 def _scp_extras(card_def: CardDefinition) -> dict[str, Any]:
+    from src.cards.scp.rules_text import scp_rules_lines
+
     return {
         "scp_red_tape": int(getattr(card_def, "scp_red_tape", 0) or 0),
         "scp_clearance": int(getattr(card_def, "scp_clearance", 0) or 0),
@@ -215,6 +217,7 @@ def _scp_extras(card_def: CardDefinition) -> dict[str, Any]:
         "scp_hazard": int(getattr(card_def, "scp_hazard", 0) or 0),
         "scp_skills": dict(getattr(card_def, "scp_skills", {}) or {}),
         "scp_bonus": dict(getattr(card_def, "scp_bonus", {}) or {}),
+        "scp_rules": scp_rules_lines(card_def),
         "scp_keywords": list(getattr(card_def, "scp_keywords", []) or []),
         "scp_alt_win": getattr(card_def, "scp_alt_win", None),
         "scp_expansion": getattr(card_def, "scp_expansion", None),

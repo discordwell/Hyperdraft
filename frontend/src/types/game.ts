@@ -198,6 +198,7 @@ export interface CardData {
   scp_hazard?: number;
   scp_skills?: Record<string, number>;
   scp_bonus?: Record<string, number>;
+  scp_rules?: string[];
   scp_status?: string | null;
   scp_paperwork?: number;
   scp_exhausted?: boolean;
