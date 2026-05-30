@@ -712,7 +712,14 @@ def reset_assignment_slots(state: GameState, player_id: str) -> None:
 
 
 def _effective_hazard(obj: GameObject) -> int:
-    base = int(getattr(obj.card_def, "scp_hazard", 0) or 0)
+    # Live hazard: cards that permanently change an anomaly's hazard (e.g. Wurm
+    # taming reducing it, written as the absolute new value) set ``state.scp_hazard``
+    # — a dynamic attr that is None until first written. When set it overrides the
+    # immutable per-definition ``card_def.scp_hazard`` as the base. Unlike
+    # ``scp_suppressed`` (a per-turn modifier reset each breach tick), this base
+    # persists, so the change is permanent — which is what "tame the wurm" means.
+    live = getattr(obj.state, "scp_hazard", None)
+    base = int(live if live is not None else (getattr(obj.card_def, "scp_hazard", 0) or 0))
     suppressed = int(getattr(obj.state, "scp_suppressed", 0) or 0)
     mood = MOOD_MODS.get(obj.state.scp_mood or "", {})
     protocol_delta = sum(int(PROTOCOL_MODS.get(p, {}).get("hazard", 0) or 0) for p in obj.state.scp_protocols)

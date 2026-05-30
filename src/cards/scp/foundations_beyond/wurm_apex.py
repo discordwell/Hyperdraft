@@ -1090,6 +1090,90 @@ _APEX_RECLAMATION_SITE = _fbn_card(
 _APEX_RECLAMATION_SITE.scp_on_contain = _apex_reclamation_site_on_tame
 
 
+# 29b. Apex Pacification Reactor (mythic signature bomb — activated taming engine)
+def _apex_pacification_best_wurm(state, controller):
+    """Your highest-effective-hazard active Wurm Devourer anomaly (or None)."""
+    best, best_haz = None, -1
+    for aid in state.scp_anomalies.get(controller, []):
+        a = state.objects.get(aid)
+        if (a is not None and a.state.scp_status == "active"
+                and getattr(a.card_def, "scp_wurm_devourer", False)):
+            h = int(getattr(a.state, "scp_hazard", getattr(a.card_def, "scp_hazard", 0)) or 0)
+            if h > best_haz:
+                best, best_haz = a, h
+    return best, best_haz
+
+
+def _apex_pacification_effect(obj, state):
+    game = getattr(state, "_game", None)
+    best, best_haz = _apex_pacification_best_wurm(state, obj.controller)
+    if best is None:
+        return []
+    new_haz = max(0, best_haz - 3)
+    best.state.scp_hazard = new_haz  # permanent; now honored by _effective_hazard
+    cur_contain = getattr(best.state, "scp_containment", best.card_def.scp_containment)
+    best.state.scp_containment = cur_contain + 2
+    s = scp.site(state, obj.controller)
+    s["wurms_tamed"] = int(s.get("wurms_tamed", 0) or 0) + 1
+    events = [scp.Event(
+        type=scp.EventType.SCP_INCIDENT_RESOLVED,
+        payload={
+            "player": obj.controller, "reason": "apex_pacification",
+            "anomaly_id": best.id, "new_hazard": new_haz,
+            "wurms_tamed": s["wurms_tamed"],
+        },
+        source=obj.id, controller=obj.controller,
+    )]
+    if new_haz == 0 and game is not None:
+        events.extend(scp.gain_archives(game, obj.controller, 1, source=obj.id))
+    return events
+
+
+def _apex_pacification_value(obj, state, _mode):
+    # Fire when there's a high-hazard Wurm Devourer to pacify — each point of
+    # hazard removed is ~1 breach/turn avoided, and each tame advances the
+    # 3-tamed alt-win. 0 when no wurm is on board (nothing to tame, no waste).
+    best, best_haz = _apex_pacification_best_wurm(state, obj.controller)
+    if best is None or best_haz <= 0:
+        return 0.0
+    tamed = int(scp.site(state, obj.controller).get("wurms_tamed", 0) or 0)
+    return min(best_haz, 3) * 0.6 + (0.8 if tamed >= 2 else 0.3)
+
+
+def _apex_pacification_setup(obj, state):
+    from src.engine.scp_abilities import make_scp_activated_ability
+    from src.engine.scp_costs import SCPCost, SCPValueHint
+    make_scp_activated_ability(
+        obj,
+        cost=SCPCost(exhaust_self=True),
+        description=("Hard-tame your highest-hazard Wurm Devourer: hazard -3 + "
+                     "containment +2 + a tamed wurm; +1 archive if fully pacified"),
+        effect_fn=_apex_pacification_effect,
+        value_hint=SCPValueHint(custom_value_fn=_apex_pacification_value),
+    )
+    return []
+
+
+_APEX_PACIFICATION_REACTOR = _fbn_card(
+    "SCP-FBN-9099: Apex Pacification Reactor",
+    CardType.SCP_FACILITY,
+    archetype=_ARCH,
+    keywords={"Pacify"},
+    red_tape=2,
+    clearance=1,
+    subtypes={"Reactor", "Containment", "Megafauna"},
+    text=(
+        "Exhaust: hard-tame your highest-hazard Wurm Devourer anomaly — its "
+        "hazard -3 (permanently) and containment +2, and it counts as a tamed "
+        "wurm. If its hazard reaches 0, gain 1 archive. "
+        "The reactor does not sedate the specimen. It convinces the specimen "
+        "that being contained was its own idea."
+    ),
+    rarity="mythic",
+)
+_APEX_PACIFICATION_REACTOR.setup_interceptors = _apex_pacification_setup
+
+
 # ---------------------------------------------------------------------------
 # 1 Mandate (alt-win anchor)
 # ---------------------------------------------------------------------------
@@ -1156,6 +1240,7 @@ WURM_APEX_CARDS: list[CardDefinition] = [
     _CONTAINMENT_PIT_VAULT,
     _MEGAFAUNA_AUDIT_BUREAU,
     _APEX_RECLAMATION_SITE,
+    _APEX_PACIFICATION_REACTOR,
     # 1 Mandate
     _MANDATE_WAT,
 ]

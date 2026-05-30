@@ -627,6 +627,10 @@ def build_fbn_wurm_apex() -> list[CardDefinition]:
         "Apex Reclamation Site",                   # research+1, archive on tame
         "Containment Pit Vault",                   # contain+1
         "Megafauna Audit Bureau",                  # research+1
+        # NOTE: "SCP-FBN-9099: Apex Pacification Reactor" (taming-accelerant bomb)
+        # is built + tested but NOT decked — /card-fire-debug shows it never fires
+        # because this archetype self-destructs in ~3.5 turns and never tames a
+        # wurm (no taming-aware pilot). Swap it in once the archetype is rescued.
         # ── Mandate (1) ───────────────────────────────────────────────────────
         "Mandate FBN-WAT: Wurm Apex Tamed Doctrine",  # wurm_apex_tamed alt-win (3 tamed)
     )

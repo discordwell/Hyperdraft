@@ -24,7 +24,7 @@ def test_fbn_card_pool_size():
     # 300 baseline + verb-redesign signature bombs (Wave A): O5-7 Strain Harvester
     # (Phyrexian Strain) + Apollyon Convergence Array (Eldrazi Apex). Bump
     # deliberately per bomb — the exact-count guard catches unintended drift.
-    assert len(FBN_CARDS) == 302, f"expected 302 FBN cards, got {len(FBN_CARDS)}"
+    assert len(FBN_CARDS) == 303, f"expected 303 FBN cards, got {len(FBN_CARDS)}"
 
 
 def test_fbn_merged_into_scp_registry():

@@ -599,6 +599,33 @@ def test_apollyon_convergence_bomb_fires_aw_and_self_breach():
     assert scp.site(game.state, p2.id)["breach"] > opp_b0, "Annihilation Wave did not fire on activation"
 
 
+def test_wurm_apex_pacification_bomb_tames_highest_wurm():
+    """Wave A #6: the Pacification Reactor hard-tames a Wurm Devourer. Also
+    proves the engine fix — _effective_hazard now honors state.scp_hazard, so the
+    reduction is real (the whole Wurm 'tame -> reduce hazard' identity was dead)."""
+    game, p1, p2 = _setup()
+    wd = next(c for c in SCP_CARDS.values()
+              if getattr(c, "scp_wurm_devourer", False)
+              and int(getattr(c, "scp_hazard", 0) or 0) >= 4)
+    anom = game.create_object(name=wd.name, owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+                              characteristics=wd.characteristics, card_def=wd)
+    anom.controller = p1.id
+    anom.state.scp_status = "active"
+    scp.ensure_scp_state(game.state, p1.id)
+    game.state.scp_anomalies.setdefault(p1.id, []).append(anom.id)
+    base_haz = scp._effective_hazard(anom)
+    fac = _bf_obj(game, p1, "SCP-FBN-9099: Apex Pacification Reactor")
+    game.state.scp_facilities.setdefault(p1.id, []).append(fac.id)
+    assert getattr(fac.state, "activated_abilities", []), "pacification ability not registered"
+    tamed0 = int(scp.site(game.state, p1.id).get("wurms_tamed", 0) or 0)
+
+    ok, msg, _ev = scp.activate_ability(game, p1.id, fac.id, 0)
+    assert ok, msg
+    assert scp._effective_hazard(anom) == max(0, base_haz - 3), \
+        "hazard reduction not honored by _effective_hazard (the dead-field bug)"
+    assert int(scp.site(game.state, p1.id)["wurms_tamed"]) == tamed0 + 1, "wurms_tamed not bumped"
+
+
 # --------------------------------------------------------------------------- #
 # Wave A #2: MNR — Retrograde Erasure modal bomb + Mnestic Wake migration
 # --------------------------------------------------------------------------- #
