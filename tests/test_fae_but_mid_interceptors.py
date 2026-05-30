@@ -207,20 +207,17 @@ SKIPPED_CARDS = {
     'Ajani, Outland Chaperone': 'planeswalker: loyalty-activated abilities (structural)',
     'Aurora Awakener': 'reveal-until-X dig (variable, library-state dependent; not a single content event)',
     'Bloom Tender': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Brion Stoutarm': 'activated sacrifice ability (structural; no triggered/static interceptor)',
     'Chameleon Colossus': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Champion of the Weird': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Collective Inferno': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Dawnhand Dissident': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Deity of Scars': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Demigod of Revenge': 'cast-time graveyard recursion (return all copies; resolves before ETB; structural)',
-    'Devoted Druid': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Earwig Squad': 'prowl-gated ETB (search+exile only when prowl cost paid; alt-cost dependent)',
     'Elvish Branchbender': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Figure of Destiny': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Gathering Stone': 'choose-a-type cost-reducer / mana on ETB (structural; no content event)',
     'Glen Elendra Archmage': 'activated sacrifice ability (structural; no triggered/static interceptor)',
-    'Heap Doll': 'activated sacrifice ability (structural; no triggered/static interceptor)',
     'Heritage Druid': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Horde of Notions': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Maralen, Fae Ascendant': 'static lock / name-or-color-choice replacement effect (structural)',
@@ -235,20 +232,15 @@ SKIPPED_CARDS = {
     'Pili-Pala': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Pitiless Fists': 'PHASE B: aura has no static; its only effect is a targeted ETB fight (enchanted creature fights a chosen opponent creature) — needs cast-time target choice',
     'Reaping Willow': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Rhys the Redeemed': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Rimefire Torque': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Runed Halo': 'static lock / name-or-color-choice replacement effect (structural)',
-    'Scarblade Elite': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Scarblade Scout': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Sensation Gorger': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Shimmerwilds Growth': 'PHASE B: aura grants the enchanted LAND a "{T}: Add any color" mana ability — mana abilities are text-parsed by the priority engine, not registerable via the granted-ability API',
     'Sower of Temptation': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Spellstutter Sprite': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Stillmoon Cavalier': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Stoic Grove-Guide': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Sygg, River Guide': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Tattermunge Maniac': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Twilight Diviner': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Vendilion Clique': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Vexing Shusher': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Vinebred Brawler': 'structural / activated / replacement effect not expressible via a canonical trigger',
@@ -2676,6 +2668,33 @@ def _assert_land_produces(game, player, land_name, expected_colors):
         assert c in produced, f"{land_name}: expected to produce {c}, got {sorted(produced)}"
 
 
+def _assert_creature_mana_produces(game, player, card_name, expected_colors):
+    """Like _assert_land_produces but for a CREATURE mana source: clears the
+    same-timestamp summoning-sickness block (MTG adapter gates {T} abilities on
+    entered_zone_at == state.timestamp) before activating the engine-native
+    mana ability."""
+    _own_main(game, player)
+    obj = create_creature_on_battlefield(game, player, card_name)
+    obj.state.summoning_sickness = False
+    obj.entered_zone_at = -1  # been under control since before this turn
+    mana_actions = [a for a in game.priority_system.get_legal_actions(player.id)
+                    if a.source_id == obj.id and a.ability_id and a.ability_id.startswith("mana:")]
+    assert mana_actions, f"{card_name}: expected a mana ability in legal actions"
+
+    async def _run():
+        action = _PlayerAction(
+            type=_ActionType.ACTIVATE_ABILITY,
+            player_id=player.id, source_id=obj.id,
+            ability_id=mana_actions[0].ability_id,
+        )
+        return await game.priority_system._handle_activate_ability(action)
+    events = _asyncio.get_event_loop().run_until_complete(_run())
+    produced = {e.payload.get('color') for e in events if e.type == EventType.MANA_PRODUCED}
+    for c in expected_colors:
+        assert c in produced, f"{card_name}: expected to produce {c}, got {sorted(produced)}"
+
+
+
 def test_card_forest():
     """Forest: ({T}: Add {G}.)"""
     game, p1, p2 = _new_game()
@@ -2824,6 +2843,89 @@ def test_card_firdoch_core():
     _assert_land_produces(game, p1, "Firdoch Core", ["C"])
 
 
+
+# === Phase A Batch A tests ===
+def test_card_heap_doll():
+    """Heap Doll: Sacrifice Heap Doll: Exile target card from a graveyard."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Heap Doll")
+    victim = _spawn(game, p2, name='GY Card')
+    cost, resolve = _activate(game, p1, obj, targets=[_target_obj(victim)])
+    assert EventType.SACRIFICE in [e.type for e in cost], "should sacrifice itself"
+    assert any(e.type == EventType.EXILE for e in resolve), (
+        f"should exile the target card, got {[e.type.name for e in resolve]}")
+
+
+def test_card_scarblade_elite():
+    """Scarblade Elite: {T}, Exile an Assassin card from your graveyard: Destroy target creature."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Scarblade Elite")
+    victim = _spawn(game, p2, power=2, toughness=2, name='Victim')
+    cost, resolve = _activate(game, p1, obj, targets=[_target_obj(victim)])
+    assert EventType.TAP in [e.type for e in cost], "ability should tap the source"
+    assert any(e.type == EventType.DESTROY for e in resolve), (
+        f"should destroy the target creature, got {[e.type.name for e in resolve]}")
+
+
+def test_card_scarblade_scout():
+    """Scarblade Scout: {T}, Exile an Elf card from your graveyard: Destroy target creature that was dealt damage this turn."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Scarblade Scout")
+    victim = _spawn(game, p2, power=2, toughness=2, name='Victim')
+    cost, resolve = _activate(game, p1, obj, targets=[_target_obj(victim)])
+    assert EventType.TAP in [e.type for e in cost], "ability should tap the source"
+    assert any(e.type == EventType.DESTROY for e in resolve), (
+        f"should destroy the target creature, got {[e.type.name for e in resolve]}")
+
+
+def test_card_rhys_the_redeemed():
+    """Rhys the Redeemed: {2}{G/W}, {T}: Create a 1/1 green and white Elf Warrior creature token."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Rhys the Redeemed", mana={'generic': 2, 'g': 1})
+    cost, resolve = _activate(game, p1, obj)
+    assert EventType.TAP in [e.type for e in cost], "ability should tap the source"
+    assert any(e.type == EventType.OBJECT_CREATED for e in resolve), (
+        f"should create an Elf Warrior token, got {[e.type.name for e in resolve]}")
+
+
+def test_card_twilight_diviner():
+    """Twilight Diviner: {1}{B}, {T}: Target player loses 1 life and you gain 1 life."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Twilight Diviner", mana={'generic': 1, 'b': 1})
+    cost, resolve = _activate(game, p1, obj, targets=[_target_player(p2.id)])
+    assert EventType.TAP in [e.type for e in cost], "ability should tap the source"
+    drains = [e for e in resolve if e.type == EventType.LIFE_CHANGE and e.payload.get('amount') == -1
+              and e.payload.get('player') == p2.id]
+    gains = [e for e in resolve if e.type == EventType.LIFE_CHANGE and e.payload.get('amount') == 1
+             and e.payload.get('player') == p1.id]
+    assert drains and gains, (
+        f"target loses 1, you gain 1; got {[(e.type.name, e.payload.get('amount'), e.payload.get('player')) for e in resolve]}")
+
+
+def test_card_brion_stoutarm():
+    """Brion Stoutarm: {R}, {T}, Sacrifice another creature: deals damage equal to the sacrificed creature's power to target player or planeswalker."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Brion Stoutarm", mana={'r': 1})
+    _spawn(game, p1, power=5, toughness=5, name='Thrown Body')
+    cost, resolve = _activate(game, p1, obj, targets=[_target_player(p2.id)])
+    assert EventType.TAP in [e.type for e in cost], "ability should tap the source"
+    dmg = [e for e in resolve if e.type == EventType.DAMAGE]
+    assert dmg and dmg[0].payload.get('amount') == 5, (
+        f"should deal 5 (the 5/5 body's power), got {[(e.type.name, e.payload.get('amount')) for e in resolve]}")
+
+
+def test_card_devoted_druid():
+    """Devoted Druid: {T}: Add {G}. (engine-native mana ability)"""
+    game, p1, p2 = _new_game()
+    _assert_creature_mana_produces(game, p1, "Devoted Druid", ["G"])
+
+
+def test_card_stoic_grove_guide():
+    """Stoic Grove-Guide: {T}: Add one mana of any color that a creature you control is. (any-color -> colorless fallback)"""
+    game, p1, p2 = _new_game()
+    _assert_creature_mana_produces(game, p1, "Stoic Grove-Guide", ["C"])
+
+
 # ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
@@ -2840,7 +2942,11 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_steam_vents, test_card_temple_garden, test_card_eclipsed_realms,
     test_card_evolving_wilds,
     test_card_soulbright_seeker, test_card_sting_slinger, test_card_moonglove_extract,
-    test_card_fulminator_mage, test_card_springleaf_drum, test_card_firdoch_core]
+    test_card_fulminator_mage, test_card_springleaf_drum, test_card_firdoch_core,
+    # --- Phase A Batch A (activated / mana) ---
+    test_card_heap_doll, test_card_scarblade_elite, test_card_scarblade_scout,
+    test_card_rhys_the_redeemed, test_card_twilight_diviner, test_card_brion_stoutarm,
+    test_card_devoted_druid, test_card_stoic_grove_guide]
 
 
 def _run():

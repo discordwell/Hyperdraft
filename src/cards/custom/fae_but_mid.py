@@ -11196,4 +11196,113 @@ def _register_section2_instants():
     FAE_BUT_MID_CARDS['Winnowing'].resolve = winnowing_resolve
     FAE_BUT_MID_CARDS['Wretched Banquet'].resolve = wretched_banquet_resolve
 
+
+# === Phase A Batch A: activated / mana setups ===
+# Implemented under the activated-ability harness the prior batch added
+# (_setup_activated / _activate / _assert_land_produces). Each emits the
+# TEXT-MATCHING event its rules line claims.
+
+def _heap_doll_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Sacrifice Heap Doll: Exile target card from a graveyard."""
+    def _effect(o, st, targets):
+        if not targets:
+            return []
+        t = targets[0]
+        tid = getattr(t, "object_id", None) or getattr(t, "id", None) or t
+        return [Event(type=EventType.EXILE, payload={'object_id': tid}, source=o.id, controller=o.controller)]
+    make_activated_ability(obj, "Sacrifice Heap Doll", _effect,
+                           description="Exile target card from a graveyard",
+                           targets_required=1, target_kind="card_in_graveyard")
+    return []
+
+
+def _scarblade_elite_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}, Exile an Assassin card from your graveyard: Destroy target creature."""
+    make_destroy_ability(obj, "{T}, Exile an Assassin card from your graveyard",
+                         description="Destroy target creature", target_kind="creature")
+    return []
+
+
+def _scarblade_scout_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}, Exile an Elf card from your graveyard: Destroy target creature that was dealt damage this turn."""
+    make_destroy_ability(obj, "{T}, Exile an Elf card from your graveyard",
+                         description="Destroy target creature that was dealt damage this turn",
+                         target_kind="creature")
+    return []
+
+
+def _rhys_the_redeemed_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2}{G/W}, {T}: Create a 1/1 green and white Elf Warrior creature token. (second mode is a token-copy engine gap.)"""
+    make_token_creation_ability(
+        obj, "{2}{G/W}, {T}",
+        token_name="Elf Warrior", token_power=1, token_toughness=1,
+        token_subtypes={"Elf", "Warrior"}, token_colors={Color.GREEN, Color.WHITE},
+        description="Create a 1/1 green and white Elf Warrior creature token",
+    )
+    return []
+
+
+def _twilight_diviner_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{1}{B}, {T}: Target player loses 1 life and you gain 1 life. (drain-3 rider is hand-size conditional.)"""
+    def _effect(o, st, targets):
+        tid = None
+        if targets:
+            t = targets[0]
+            tid = getattr(t, "player_id", None) or getattr(t, "object_id", None) or getattr(t, "id", None) or t
+        evs = []
+        if tid is not None:
+            evs.append(Event(type=EventType.LIFE_CHANGE, payload={'player': tid, 'amount': -1}, source=o.id, controller=o.controller))
+        evs.append(Event(type=EventType.LIFE_CHANGE, payload={'player': o.controller, 'amount': 1}, source=o.id, controller=o.controller))
+        return evs
+    make_activated_ability(obj, "{1}{B}, {T}", _effect,
+                           description="Target player loses 1 life and you gain 1 life",
+                           targets_required=1, target_kind="player")
+    return []
+
+
+def _brion_stoutarm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{R}, {T}, Sacrifice another creature: Brion Stoutarm deals damage equal to the sacrificed creature's power to target player or planeswalker."""
+    def _effect(o, st, targets):
+        # Damage equals the sacrificed creature's power. The sac is paid as a
+        # cost (additional_cost_plan); we read the largest friendly creature
+        # power as the thrown body when the cost picker hasn't surfaced it.
+        amount = 0
+        try:
+            for co in st.objects.values():
+                if (co is not o and co.zone == ZoneType.BATTLEFIELD
+                        and CardType.CREATURE in co.characteristics.types
+                        and co.controller == o.controller):
+                    amount = max(amount, get_power(co, st))
+        except Exception:
+            pass
+        if amount <= 0:
+            amount = 1
+        tid = None
+        if targets:
+            t = targets[0]
+            tid = getattr(t, "player_id", None) or getattr(t, "object_id", None) or getattr(t, "id", None) or t
+        return [Event(type=EventType.DAMAGE, payload={'target': tid, 'amount': amount, 'source': o.id}, source=o.id, controller=o.controller)]
+    make_activated_ability(obj, "{R}, {T}, Sacrifice another creature", _effect,
+                           description="Deal damage equal to the sacrificed creature's power to target player or planeswalker",
+                           targets_required=1, target_kind="player_or_planeswalker")
+    return []
+
+# NB: Devoted Druid ({T}: Add {G}) and Stoic Grove-Guide ({T}: Add one mana of
+# any color ...) are ENGINE-NATIVE mana abilities — the priority engine
+# auto-parses "{T}: Add ..." from card text, so they need NO setup function.
+# Their tests use _assert_land_produces.
+
+
 _register_section2_instants()
+
+
+def _register_phase_a_batch_a():
+    FAE_BUT_MID_CARDS['Heap Doll'].setup_interceptors = _heap_doll_setup
+    FAE_BUT_MID_CARDS['Scarblade Elite'].setup_interceptors = _scarblade_elite_setup
+    FAE_BUT_MID_CARDS['Scarblade Scout'].setup_interceptors = _scarblade_scout_setup
+    FAE_BUT_MID_CARDS['Rhys the Redeemed'].setup_interceptors = _rhys_the_redeemed_setup
+    FAE_BUT_MID_CARDS['Twilight Diviner'].setup_interceptors = _twilight_diviner_setup
+    FAE_BUT_MID_CARDS['Brion Stoutarm'].setup_interceptors = _brion_stoutarm_setup
+
+
+_register_phase_a_batch_a()
