@@ -23,6 +23,15 @@ effect happen when triggered?"; this skill answers "does the AI ever trigger it?
 diagnostic was Pokemon-only and the recipe never called for it. **SCP support
 has since been added** (see "Engine support" / "SCP support" below).
 
+There is a third failure one rung below this skill: the AI fires the ability
+correctly, but the win-condition **mechanism** it feeds is an orphaned engine hook
+with no production caller, so the payoff counter never moves and the archetype is
+unwinnable by its own plan (the SCP wurm/rift/leyline/spark substrate bugs,
+2026-05-29). If `/card-fire-debug` reports an ability *does* fire yet the deck still
+never executes its game plan, audit the mechanism for a dead caller — see the
+"dead-caller audit" in `/test-interceptors`. Effect → mechanism → fire: a card is
+only done when all three pass.
+
 The decision tree (six steps):
 
 1. **Drawn at least once** — across the playtest, is the card in any hand?

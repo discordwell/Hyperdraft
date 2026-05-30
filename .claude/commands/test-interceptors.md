@@ -127,10 +127,29 @@ census:
    `assert any(e.type == SCP_INCIDENT_RESOLVED ...)`. A card that emits only a log
    event with no read-field change FAILS.
 
+**Companion check — orphaned win-condition mechanisms (the dead-caller audit).** The
+dead-field census above finds a card that *writes* a field the engine never reads.
+Its mirror image is just as deadly and harder to see: an engine that *defines* a
+payoff mechanism nothing ever calls. SCP ships `apply_<mechanic>(game, ...)` helpers
+(`apply_wurm_devourer`, `apply_planar_rift`, `apply_leyline_saturation`,
+`apply_spark_containment`) that mutate the win-condition counters — and 2026-05-29
+found **5 of them had ZERO production callers**. Each mechanic was fully implemented,
+documented in its card tagger ("the engine swaps this for…"), and unit-testable in
+isolation — yet no engine path invoked it, so the counters sat at 0 all game and
+9/10 archetypes were unwinnable by their own plan. To catch it: for every `apply_*`
+/ `_fire_*` mechanism the engine defines, grep for a *production* caller (not a
+comment, a test, or the definition itself); a hook with no caller is a dead win
+condition. The behavioral tell is a signature progress-counter that never moves
+across self-play — instrument it and assert it reaches non-zero at least once.
+
 This census is the engine-native counterpart of the MTG text-vs-events gate, and
 it catches the same disease (wired but no real effect) in a vocabulary where
-typed events don't exist. Note this is the **effect** gate; "does the AI ever
-fire the card" is the separate **fire** gate — see `/card-fire-debug`.
+typed events don't exist. These are the first two rungs of a three-level ladder
+the SCP work surfaced: (1) the **effect** is dead — `effect_fn` returns `[]` or
+writes a dead field (this gate); (2) the **mechanism** is dead — a correct effect
+no engine path calls (the dead-caller audit above); (3) the effect + mechanism
+work but the **AI never fires it** — the separate **fire** gate, `/card-fire-debug`.
+A card is only truly done when all three pass.
 
 ### 1. Spawn test-generator subagent
 
