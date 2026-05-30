@@ -11339,16 +11339,21 @@ def _mirror_entity_setup(obj: GameObject, state: GameState) -> list[Interceptor]
         for co in st.objects.values():
             if (co.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in co.characteristics.types
                     and co.controller == o.controller):
+                # "have base power and toughness X/X": approximate as a temporary
+                # additive modifier bringing each creature to X/X (the engine's
+                # PT_MODIFICATION path is additive; net result is X/X this turn).
+                cur_p = get_power(co, st)
+                cur_t = get_toughness(co, st)
                 events.append(Event(type=EventType.PT_MODIFICATION,
-                    payload={'object_id': co.id, 'set_power': x, 'set_toughness': x,
-                             'base_pt': True, 'duration': 'end_of_turn'},
+                    payload={'object_id': co.id, 'power_mod': x - cur_p,
+                             'toughness_mod': x - cur_t, 'duration': 'end_of_turn'},
                     source=o.id, controller=o.controller))
                 events.append(Event(type=EventType.GRANT_KEYWORD,
                     payload={'object_id': co.id, 'keyword': 'changeling', 'duration': 'end_of_turn'},
                     source=o.id, controller=o.controller))
         if not events:
             events.append(Event(type=EventType.PT_MODIFICATION,
-                payload={'set_power': x, 'set_toughness': x, 'base_pt': True, 'duration': 'end_of_turn',
+                payload={'power_mod': x, 'toughness_mod': x, 'duration': 'end_of_turn',
                          'target_filter': 'creatures_you_control'}, source=o.id, controller=o.controller))
         return events
     make_activated_ability(obj, "{X}", _effect,

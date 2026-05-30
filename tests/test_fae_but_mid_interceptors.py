@@ -2950,12 +2950,21 @@ def test_card_mirror_entity():
     obj = _setup_activated(game, p1, "Mirror Entity", mana={'generic': 3})
     ally = _spawn(game, p1, power=1, toughness=1, name='Ally')
     cost, resolve = _activate(game, p1, obj, x_value=3)
-    sets = [e for e in resolve if e.type == EventType.PT_MODIFICATION
-            and e.payload.get('set_power') == 3]
+    # "base P/T X/X" is realised as a temporary additive modifier that brings
+    # each creature to X/X (the 1/1 ally gets +2/+2 -> 3/3).
+    pumps = [e for e in resolve if e.type == EventType.PT_MODIFICATION
+             and e.payload.get('object_id') == ally.id]
     grants = [e for e in resolve if e.type == EventType.GRANT_KEYWORD
               and e.payload.get('keyword') == 'changeling']
-    assert sets and grants, (
-        f"should set base P/T to 3/3 and grant changeling; got {[(e.type.name, e.payload) for e in resolve]}")
+    assert pumps and pumps[0].payload.get('power_mod') == 2, (
+        f"the 1/1 ally should be brought to 3/3 (power_mod +2); got "
+        f"{[(e.type.name, e.payload.get('power_mod')) for e in resolve]}")
+    assert grants, "creatures you control should gain all creature types (changeling)"
+    # The additive bring-to-X actually changes the ally's power (not a no-op).
+    for e in resolve:
+        game.emit(e)
+    assert get_power(ally, game.state) == 3, (
+        f"ally should actually be 3/3 after resolution, got {get_power(ally, game.state)}")
 
 
 def test_card_stillmoon_cavalier():
