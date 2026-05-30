@@ -334,6 +334,8 @@ from src.cards.interceptor_helpers import (
     make_token_creation_ability, make_pump_self_ability,
     make_life_gain_ability, make_loot_ability, make_sac_destroy_ability,
     make_counter_ability,
+    # Generic replacement-effect primitive ("if X would happen, Y instead").
+    make_replacement_effect,
 )
 from src.cards.interceptor_helpers import becomes_creature
 
@@ -2406,12 +2408,51 @@ CINDER_STRIKE = make_sorcery(
 )
 
 # Collective Inferno - {3}{R}{R} Enchantment
+def collective_inferno_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Double all damage from your sources of the chosen creature type.
+
+    Wired via the damage-doubling replacer (``make_damage_doubler``) with a
+    ``source_filter``. "The chosen type" follows this set's convention for
+    choose-a-type effects: the most common subtype among the creatures you
+    control (computed at damage time, so it tracks the live board). Only your
+    own creatures of that type get doubled.
+    """
+    from src.engine.replacements import make_damage_doubler
+    src_controller = obj.controller
+
+    def _chosen_type(st: GameState):
+        from collections import Counter
+        tally: Counter = Counter()
+        for o in st.objects.values():
+            if (o.zone == ZoneType.BATTLEFIELD
+                    and o.controller == src_controller
+                    and CardType.CREATURE in o.characteristics.types):
+                tally.update(o.characteristics.subtypes)
+        if not tally:
+            return None
+        return tally.most_common(1)[0][0]
+
+    def source_is_chosen_type(damage_source, st: GameState) -> bool:
+        if damage_source is None:
+            return False
+        if damage_source.controller != src_controller:
+            return False
+        if CardType.CREATURE not in damage_source.characteristics.types:
+            return False
+        chosen = _chosen_type(st)
+        if chosen is None:
+            return False
+        return chosen in damage_source.characteristics.subtypes
+
+    return [make_damage_doubler(obj, source_filter=source_is_chosen_type)]
+
+
 COLLECTIVE_INFERNO = make_enchantment(
     name="Collective Inferno",
     mana_cost="{3}{R}{R}",
     colors={Color.RED},
     text="Convoke. As this enchantment enters, choose a creature type. Double all damage that sources you control of the chosen type would deal.",
-    setup_interceptors=None  # Would need damage replacement
+    setup_interceptors=collective_inferno_setup
 )
 
 # Elder Auntie - {2}{R} Creature — Goblin Warlock 2/2
@@ -2805,9 +2846,39 @@ DEEPWAY_NAVIGATOR = make_creature(
 
 # Doran, Besieged by Time - {1}{W}{B}{G} Legendary Creature — Treefolk Druid 0/5
 def doran_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Each creature assigns combat damage equal to toughness rather than power
-    # This is complex - needs combat damage modification
-    return []
+    """Each creature assigns combat damage equal to its toughness, not its power.
+
+    Replacement effect: rewrite each combat DAMAGE event whose source is a
+    creature so its amount becomes the source's toughness. The cost-reduction
+    clause (creature spells with toughness > power cost {1} less) is a separate
+    static cost query and is left out here.
+    """
+    from src.engine.queries import get_toughness
+
+    def combat_damage_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.DAMAGE:
+            return False
+        if not event.payload.get('is_combat'):
+            return False
+        src_id = event.source or event.payload.get('source')
+        src = st.objects.get(src_id) if src_id else None
+        if src is None:
+            return False
+        return CardType.CREATURE in src.characteristics.types
+
+    def to_toughness(event: Event, st: GameState) -> Event:
+        src_id = event.source or event.payload.get('source')
+        src = st.objects.get(src_id)
+        new_event = event.copy()
+        new_event.payload['amount'] = max(0, get_toughness(src, st))
+        return new_event
+
+    return make_replacement_effect(
+        obj,
+        event_filter=combat_damage_filter,
+        replace_fn=to_toughness,
+        duration='permanent',
+    )
 
 
 DORAN_BESIEGED = make_creature(
@@ -5956,6 +6027,14 @@ LLUWEN_IMPERFECT = make_creature(
 
 
 # Maralen, Fae Ascendant - {2}{U}{B} Legendary Creature — Faerie Wizard 3/3
+def maralen_fae_ascendant_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Players can't draw cards (replacement: zero the DRAW amount for everyone)."""
+    from src.engine.replacements import make_draw_replacer
+    return [make_draw_replacer(
+        obj, multiplier=0, affects_controller=True, affects_opponents=True,
+    )]
+
+
 MARALEN_FAE_ASCENDANT = make_creature(
     name="Maralen, Fae Ascendant",
     power=3,
@@ -5965,7 +6044,7 @@ MARALEN_FAE_ASCENDANT = make_creature(
     subtypes={"Faerie", "Wizard"},
     supertypes={"Legendary"},
     text="Flying. Players can't draw cards. At the beginning of each player's draw step, that player loses 2 life, searches their library for a card, puts it into their hand, then shuffles.",
-    setup_interceptors=None
+    setup_interceptors=maralen_fae_ascendant_setup
 )
 
 
@@ -7309,11 +7388,27 @@ BITTERBLOSSOM = make_enchantment(
     text="Tribal Enchantment — Faerie. At the beginning of your upkeep, you lose 1 life and create a 1/1 black Faerie Rogue creature token with flying."
 )
 
+def mornsong_aria_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Players can't draw cards or gain life (two replacement effects)."""
+    from src.engine.replacements import (
+        make_draw_replacer, make_life_gain_prevention,
+    )
+    return [
+        make_draw_replacer(
+            obj, multiplier=0, affects_controller=True, affects_opponents=True,
+        ),
+        make_life_gain_prevention(
+            obj, affects_controller=True, affects_opponents=True,
+        ),
+    ]
+
+
 MORNSONG_ARIA = make_enchantment(
     name="Mornsong Aria",
     mana_cost="{1}{B}{B}",
     colors={Color.BLACK},
-    text="Legendary Enchantment. Players can't draw cards or gain life. At the beginning of each player's draw step, that player loses 3 life, then may search their library for a card, put it into their hand, then shuffle."
+    text="Legendary Enchantment. Players can't draw cards or gain life. At the beginning of each player's draw step, that player loses 3 life, then may search their library for a card, put it into their hand, then shuffle.",
+    setup_interceptors=mornsong_aria_setup
 )
 
 # More Red Creatures
