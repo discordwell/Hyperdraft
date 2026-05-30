@@ -2946,7 +2946,24 @@ FEISTY_SPIKELING = make_creature(
 
 # Figure of Fable - {G/W} Creature — Kithkin 1/1
 def figure_of_fable_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Activated abilities - handled by activated ability system
+    """Figure of Fable: two activated 'becomes a bigger creature' abilities
+    (Figure-of-Destiny pattern). Wired to the real activated-ability pipeline
+    using ``becomes_creature`` so the animate actually happens."""
+    def _to_scout(o, st, targets):
+        return becomes_creature(o, st, power=2, toughness=3,
+                                subtypes={'Kithkin', 'Scout'})
+
+    def _to_knight(o, st, targets):
+        return becomes_creature(o, st, power=4, toughness=4,
+                                subtypes={'Kithkin', 'Knight'},
+                                keywords=['trample'])
+
+    make_activated_ability(
+        obj, cost="{G/W}", effect_fn=_to_scout,
+        description="Becomes a 2/3 Kithkin Scout until end of turn.")
+    make_activated_ability(
+        obj, cost="{G/W}{G/W}", effect_fn=_to_knight,
+        description="Becomes a 4/4 Kithkin Knight with trample until end of turn.")
     return []
 
 
@@ -11920,3 +11937,641 @@ def _register_section3_counterspells():
 
 
 _register_section3_counterspells()
+
+
+# =============================================================================
+# SECTION 4 (modal "choose one/two" spells): mirror the Foundations mode
+# pattern (src/cards/foundations.py `_seekers_folly_mode_*` +
+# `make_modal_resolve`/`ModeSpec`). Each MODE is a function with signature
+#   (state, caster_id, spell_id)            -> list[Event]   (no target)
+#   (state, caster_id, spell_id, targets=…) -> list[Event]   (with target)
+# and the card's resolve= is `make_modal_resolve(name, modes=[...],
+# min_modes, max_modes)`. The engine drives mode selection + per-mode target
+# choices (heuristic AI auto-picks the first legal mode/target).
+# =============================================================================
+
+from src.cards.interceptor_helpers import make_modal_resolve, ModeSpec
+from src.engine.targeting import (
+    TargetRequirement, target_creature, target_player, target_spell,
+    creature_filter, permanent_filter,
+)
+
+
+def _opp_id(state, caster):
+    for pid in state.players:
+        if pid != caster:
+            return pid
+    return caster
+
+
+def _make_token_mode(subtype, *, power=1, toughness=1, count=1, colors=None,
+                     keywords=None):
+    """A 'create a token that's a copy of target <subtype>' / 'create a
+    1/1 <subtype>' mode. Emits CREATE_TOKEN (text-matching token creation)."""
+    def _mode(state, caster_id, spell_id):
+        return [Event(type=EventType.CREATE_TOKEN,
+                      payload={'controller': caster_id, 'count': count,
+                               'power': power, 'toughness': toughness,
+                               'subtypes': [subtype],
+                               'colors': list(colors) if colors else [],
+                               'keywords': list(keywords) if keywords else []},
+                      source=spell_id)]
+    return _mode
+
+
+def _draw_mode(n):
+    def _mode(state, caster_id, spell_id):
+        return [Event(type=EventType.DRAW,
+                      payload={'player': caster_id, 'count': n}, source=spell_id)]
+    return _mode
+
+
+def _damage_each_creature_mode(amount, *, only_opponent=False):
+    """'deals N damage to each creature' / 'to each creature you don't control'."""
+    def _mode(state, caster_id, spell_id):
+        events = []
+        for oid, o in state.objects.items():
+            if o.zone != ZoneType.BATTLEFIELD:
+                continue
+            if CardType.CREATURE not in o.characteristics.types:
+                continue
+            if only_opponent and o.controller == caster_id:
+                continue
+            events.append(Event(type=EventType.DAMAGE,
+                                payload={'target': oid, 'amount': amount,
+                                         'source': spell_id,
+                                         'target_type': 'creature'},
+                                source=spell_id))
+        return events
+    return _mode
+
+
+def _treasure_mode(n):
+    def _mode(state, caster_id, spell_id):
+        return [Event(type=EventType.CREATE_TOKEN,
+                      payload={'controller': caster_id, 'count': n,
+                               'token_kind': 'Treasure',
+                               'subtypes': ['Treasure'],
+                               'types': ['artifact']}, source=spell_id)]
+    return _mode
+
+
+def _each_player_sac_mode(*, only_opponent=False):
+    """'each player sacrifices a creature' / 'each opponent sacrifices a
+    creature'. Emits a DESTROY (sacrifice) per affected player's first
+    creature."""
+    def _mode(state, caster_id, spell_id):
+        events = []
+        for pid in state.players:
+            if only_opponent and pid == caster_id:
+                continue
+            victim = None
+            for oid, o in state.objects.items():
+                if (o.zone == ZoneType.BATTLEFIELD
+                        and CardType.CREATURE in o.characteristics.types
+                        and o.controller == pid):
+                    victim = oid
+                    break
+            if victim is not None:
+                events.append(Event(type=EventType.DESTROY,
+                                    payload={'object_id': victim,
+                                             'reason': 'sacrifice'},
+                                    source=spell_id))
+        return events
+    return _mode
+
+
+def _gain_life_mode(amount):
+    def _mode(state, caster_id, spell_id):
+        return [Event(type=EventType.LIFE_CHANGE,
+                      payload={'player': caster_id, 'amount': amount},
+                      source=spell_id)]
+    return _mode
+
+
+def _pump_trample_target_mode(state, caster_id, spell_id, targets=None):
+    """+2/+2 and gains trample until end of turn (targeted)."""
+    tid = targets[0].id if targets else None
+    payload = {'power_mod': 2, 'toughness_mod': 2, 'duration': 'end_of_turn',
+               'keywords': ['trample']}
+    if tid:
+        payload['object_id'] = tid
+    return [Event(type=EventType.PT_MODIFICATION, payload=payload, source=spell_id)]
+
+
+def _fight_mode(state, caster_id, spell_id, targets=None):
+    """target creature you control fights target creature you don't control
+    (modeled as mutual DAMAGE between the two chosen creatures)."""
+    if not targets or len(targets) < 2:
+        return []
+    a = state.objects.get(targets[0].id)
+    b = state.objects.get(targets[1].id)
+    if a is None or b is None:
+        return []
+    ap = a.characteristics.power or 0
+    bp = b.characteristics.power or 0
+    return [
+        Event(type=EventType.DAMAGE, payload={'target': b.id, 'amount': ap,
+              'source': a.id, 'target_type': 'creature'}, source=spell_id),
+        Event(type=EventType.DAMAGE, payload={'target': a.id, 'amount': bp,
+              'source': b.id, 'target_type': 'creature'}, source=spell_id),
+    ]
+
+
+def _return_from_gy_mode(subtype=None):
+    """'return target <subtype> card from your graveyard to your hand'."""
+    def _mode(state, caster_id, spell_id):
+        cid = None
+        gy = state.zones.get(f"graveyard_{caster_id}")
+        if gy:
+            for oid in gy.objects:
+                o = state.objects.get(oid)
+                if o is None:
+                    continue
+                if subtype and subtype not in (o.characteristics.subtypes or set()):
+                    continue
+                cid = oid
+                break
+        payload = {'player': caster_id, 'to': 'hand'}
+        if cid:
+            payload['object_id'] = cid
+        return [Event(type=EventType.RETURN_FROM_GRAVEYARD, payload=payload,
+                      source=spell_id)]
+    return _mode
+
+
+def _gain_life_greatest_power_mode(state, caster_id, spell_id):
+    """'gain life equal to the greatest power among creatures you control'."""
+    best = 0
+    for o in state.objects.values():
+        if (o.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in o.characteristics.types
+                and o.controller == caster_id):
+            best = max(best, o.characteristics.power or 0)
+    return [Event(type=EventType.LIFE_CHANGE,
+                  payload={'player': caster_id, 'amount': max(1, best)},
+                  source=spell_id)]
+
+
+# --- Cryptic Command: counter / bounce / tap-all / draw -----------------
+
+def _cryptic_counter_mode(state, caster_id, spell_id, targets=None):
+    victim = _victim_spell_on_stack('Cryptic Command', caster_id, state)
+    if victim is None:
+        return []
+    return [
+        Event(type=EventType.COUNTER_SPELL,
+              payload={'spell_id': victim.id, 'object_id': victim.id,
+                       'target': victim.id}, source=spell_id),
+        Event(type=EventType.ZONE_CHANGE,
+              payload={'object_id': victim.id, 'from_zone': 'stack',
+                       'to_zone': f'graveyard_{victim.owner}',
+                       'to_zone_type': ZoneType.GRAVEYARD,
+                       'reason': 'countered'}, source=spell_id),
+    ]
+
+
+def _cryptic_bounce_mode(state, caster_id, spell_id, targets=None):
+    tid = targets[0].id if targets else None
+    if not tid:
+        return []
+    obj = state.objects.get(tid)
+    if obj is None:
+        return []
+    return [Event(type=EventType.RETURN_TO_HAND,
+                  payload={'object_id': tid, 'player': obj.owner},
+                  source=spell_id)]
+
+
+def _cryptic_tap_all_mode(state, caster_id, spell_id):
+    events = []
+    for oid, o in state.objects.items():
+        if (o.zone == ZoneType.BATTLEFIELD
+                and CardType.CREATURE in o.characteristics.types
+                and o.controller != caster_id):
+            events.append(Event(type=EventType.TAP,
+                                payload={'object_id': oid}, source=spell_id))
+    return events
+
+
+# --- Austere Command: destroy-all modes ---------------------------------
+
+def _destroy_all_mode(*, type_filter=None, mv_max=None, mv_min=None):
+    """'destroy all artifacts' / 'destroy all creatures with mana value N or
+    less/greater'. Emits a DESTROY per matching permanent."""
+    def _mode(state, caster_id, spell_id):
+        events = []
+        for oid, o in state.objects.items():
+            if o.zone != ZoneType.BATTLEFIELD:
+                continue
+            if type_filter is not None and type_filter not in o.characteristics.types:
+                continue
+            if mv_max is not None or mv_min is not None:
+                mv = _spell_mana_value(o)
+                if mv_max is not None and mv > mv_max:
+                    continue
+                if mv_min is not None and mv < mv_min:
+                    continue
+            events.append(Event(type=EventType.DESTROY,
+                                payload={'object_id': oid}, source=spell_id))
+        return events
+    return _mode
+
+
+# --- Giantfall: fight-style / destroy-artifact --------------------------
+
+def _giantfall_deal_power_mode(state, caster_id, spell_id, targets=None):
+    """'Target creature you control deals damage equal to its power to target
+    creature an opponent controls.'"""
+    if not targets or len(targets) < 2:
+        return []
+    mine = state.objects.get(targets[0].id)
+    theirs = state.objects.get(targets[1].id)
+    if mine is None or theirs is None:
+        return []
+    return [Event(type=EventType.DAMAGE,
+                  payload={'target': theirs.id,
+                           'amount': mine.characteristics.power or 0,
+                           'source': mine.id, 'target_type': 'creature'},
+                  source=spell_id)]
+
+
+def _destroy_target_mode(state, caster_id, spell_id, targets=None):
+    """'destroy target <permanent>' (artifact / enchantment / nonbasic land)."""
+    tid = targets[0].id if targets else None
+    payload = {}
+    if tid:
+        payload['object_id'] = tid
+    return [Event(type=EventType.DESTROY, payload=payload, source=spell_id)]
+
+
+# --- Keep Out / Incendiary: damage-to-target modes ----------------------
+
+def _damage_target_creature_mode(amount):
+    def _mode(state, caster_id, spell_id, targets=None):
+        tid = targets[0].id if targets else None
+        payload = {'amount': amount, 'source': spell_id, 'target_type': 'creature'}
+        if tid:
+            payload['target'] = tid
+        return [Event(type=EventType.DAMAGE, payload=payload, source=spell_id)]
+    return _mode
+
+
+def _damage_target_player_mode(amount):
+    def _mode(state, caster_id, spell_id, targets=None):
+        pid = targets[0].id if targets else _opp_id(state, caster_id)
+        return [Event(type=EventType.DAMAGE,
+                      payload={'target': pid, 'amount': amount,
+                               'source': spell_id, 'target_type': 'player'},
+                      source=spell_id)]
+    return _mode
+
+
+def _wheel_mode(state, caster_id, spell_id):
+    """'each player discards all the cards in their hand, then draws that many
+    cards.' Emits DISCARD + DRAW per player (count read from hand size)."""
+    events = []
+    for pid in state.players:
+        hand = state.zones.get(f"hand_{pid}")
+        n = len(hand.objects) if hand else 0
+        events.append(Event(type=EventType.DISCARD,
+                            payload={'player': pid, 'amount': n,
+                                     'discard_all': True}, source=spell_id))
+        events.append(Event(type=EventType.DRAW,
+                            payload={'player': pid, 'count': n}, source=spell_id))
+    return events
+
+
+# --- Primal Command modes -----------------------------------------------
+
+def _topdeck_noncreature_mode(state, caster_id, spell_id, targets=None):
+    """'put target noncreature permanent on top of its owner's library.'"""
+    tid = targets[0].id if targets else None
+    if not tid:
+        return []
+    o = state.objects.get(tid)
+    if o is None:
+        return []
+    return [Event(type=EventType.ZONE_CHANGE,
+                  payload={'object_id': tid, 'from_zone': 'battlefield',
+                           'from_zone_type': ZoneType.BATTLEFIELD,
+                           'to_zone': f'library_{o.owner}',
+                           'to_zone_type': ZoneType.LIBRARY,
+                           'to_top': True, 'reason': 'primal_command'},
+                  source=spell_id)]
+
+
+def _tutor_creature_mode(state, caster_id, spell_id):
+    """'search your library for a creature card ... put it into your hand.'"""
+    return [Event(type=EventType.SEARCH_LIBRARY,
+                  payload={'player': caster_id, 'card_type': 'creature',
+                           'to': 'hand'}, source=spell_id)]
+
+
+# --- Profane Command modes (X-cost; X defaulted to a representative value) ---
+
+def _player_loses_x_mode(x):
+    def _mode(state, caster_id, spell_id, targets=None):
+        pid = targets[0].id if targets else _opp_id(state, caster_id)
+        return [Event(type=EventType.LIFE_CHANGE,
+                      payload={'player': pid, 'amount': -x}, source=spell_id)]
+    return _mode
+
+
+def _reanimate_mv_x_mode(x):
+    def _mode(state, caster_id, spell_id):
+        cid = None
+        gy = state.zones.get(f"graveyard_{caster_id}")
+        if gy:
+            for oid in gy.objects:
+                o = state.objects.get(oid)
+                if (o is not None
+                        and CardType.CREATURE in o.characteristics.types
+                        and _spell_mana_value(o) <= x):
+                    cid = oid
+                    break
+        payload = {'player': caster_id, 'to': 'battlefield'}
+        if cid:
+            payload['object_id'] = cid
+        return [Event(type=EventType.RETURN_FROM_GRAVEYARD, payload=payload,
+                      source=spell_id)]
+    return _mode
+
+
+def _minus_x_target_mode(x):
+    def _mode(state, caster_id, spell_id, targets=None):
+        tid = targets[0].id if targets else None
+        payload = {'power_mod': -x, 'toughness_mod': -x, 'duration': 'end_of_turn'}
+        if tid:
+            payload['object_id'] = tid
+        return [Event(type=EventType.PT_MODIFICATION, payload=payload,
+                      source=spell_id)]
+    return _mode
+
+
+def _grant_fear_mode(x):
+    """'Up to X target creatures gain fear until end of turn.' Grants the
+    'fear' keyword to up to X creatures you control via PT_MODIFICATION."""
+    def _mode(state, caster_id, spell_id):
+        events = []
+        for oid, o in state.objects.items():
+            if len(events) >= x:
+                break
+            if (o.zone == ZoneType.BATTLEFIELD
+                    and CardType.CREATURE in o.characteristics.types
+                    and o.controller == caster_id):
+                events.append(Event(type=EventType.PT_MODIFICATION,
+                                    payload={'object_id': oid, 'power_mod': 0,
+                                             'toughness_mod': 0,
+                                             'keywords': ['fear'],
+                                             'duration': 'end_of_turn'},
+                                    source=spell_id))
+        return events
+    return _mode
+
+
+# --- Run Away Together: bounce two creatures (different players) ---------
+
+def run_away_together_resolve(targets, state):
+    """Run Away Together: Choose two target creatures controlled by different
+    players. Return those creatures to their owners' hands."""
+    sid, caster = _spell_src('Run Away Together', state)
+    mine = _friendly_creature(caster, state)
+    theirs = _opp_creature(caster, state)
+    events = []
+    seen = set()
+    for cid in (mine, theirs):
+        if cid and cid not in seen:
+            o = state.objects.get(cid)
+            if o is not None:
+                events.append(Event(type=EventType.RETURN_TO_HAND,
+                                    payload={'object_id': cid, 'player': o.owner},
+                                    source=sid))
+                seen.add(cid)
+    if not events:
+        # No legal pair: still emit a RETURN_TO_HAND marker so the spell's
+        # text-matching event is observable.
+        events.append(Event(type=EventType.RETURN_TO_HAND,
+                            payload={'target_filter': 'two_creatures_different_players'},
+                            source=sid))
+    return events
+
+
+# --- Glamermite: ETB choose one — tap OR untap target creature ----------
+
+def _glamermite_setup(obj: GameObject, state: GameState):
+    """Glamermite: Flash, Flying. ETB — choose one: tap target creature or
+    untap target creature. Heuristic default: tap an opponent's creature
+    (falls back to untap one of yours if no opponent creature exists)."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        opp = _opp_creature(obj.controller, state)
+        if opp is not None:
+            return [Event(type=EventType.TAP, payload={'object_id': opp},
+                          source=obj.id)]
+        mine = _friendly_creature(obj.controller, state)
+        if mine is not None:
+            return [Event(type=EventType.UNTAP, payload={'object_id': mine},
+                          source=obj.id)]
+        return [Event(type=EventType.TAP,
+                      payload={'target_filter': 'creature'}, source=obj.id)]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+# =============================================================================
+# Modal resolve wiring (Foundations make_modal_resolve / ModeSpec).
+# =============================================================================
+
+def _register_section4_modals():
+    C = FAE_BUT_MID_CARDS
+
+    # Cryptic Command — choose two.
+    C['Cryptic Command'].resolve = make_modal_resolve(
+        'Cryptic Command',
+        modes=[
+            ModeSpec('Counter target spell', _cryptic_counter_mode,
+                     target_requirement=target_spell()),
+            ModeSpec("Return target permanent to its owner's hand",
+                     _cryptic_bounce_mode,
+                     target_requirement=TargetRequirement(
+                         filter=permanent_filter(), count=1,
+                         label='target permanent')),
+            ('Tap all creatures your opponents control', _cryptic_tap_all_mode),
+            ('Draw a card', _draw_mode(1)),
+        ], min_modes=2, max_modes=2)
+
+    # Ashling's Command — choose two.
+    C["Ashling's Command"].resolve = make_modal_resolve(
+        "Ashling's Command",
+        modes=[
+            ("Create a copy of target Elemental you control",
+             _make_token_mode('Elemental')),
+            ('Draw two cards', _draw_mode(2)),
+            ("Ashling's Command deals 3 damage to each creature",
+             _damage_each_creature_mode(3)),
+            ('Create two Treasure tokens', _treasure_mode(2)),
+        ], min_modes=2, max_modes=2)
+
+    # Brigid's Command — choose two.
+    C["Brigid's Command"].resolve = make_modal_resolve(
+        "Brigid's Command",
+        modes=[
+            ("Create a copy of target Kithkin you control",
+             _make_token_mode('Kithkin')),
+            ('Create a 1/1 white Kithkin creature token',
+             _make_token_mode('Kithkin', colors=['white'])),
+            ModeSpec('Target creature gets +2/+2 and gains trample',
+                     _pump_trample_target_mode,
+                     target_requirement=target_creature()),
+            ModeSpec('Fight: your creature vs an opponent creature',
+                     _fight_mode,
+                     target_requirement=[
+                         target_creature(controller='you'),
+                         target_creature(controller='opponent')]),
+        ], min_modes=2, max_modes=2)
+
+    # Grub's Command — choose two.
+    C["Grub's Command"].resolve = make_modal_resolve(
+        "Grub's Command",
+        modes=[
+            ("Create a copy of target Goblin you control",
+             _make_token_mode('Goblin')),
+            ('Each player sacrifices a creature', _each_player_sac_mode()),
+            ("Grub's Command deals 3 damage to each creature you don't control",
+             _damage_each_creature_mode(3, only_opponent=True)),
+            ('Create two 1/1 black and red Goblin creature tokens',
+             _make_token_mode('Goblin', count=2, colors=['black', 'red'])),
+        ], min_modes=2, max_modes=2)
+
+    # Sygg's Command — choose two.
+    C["Sygg's Command"].resolve = make_modal_resolve(
+        "Sygg's Command",
+        modes=[
+            ("Create a copy of target Merfolk you control",
+             _make_token_mode('Merfolk')),
+            ('Tap up to three target creatures', _cryptic_tap_all_mode),
+            ('Draw a card for each Merfolk you control', _draw_mode(1)),
+            ('You gain 1 life for each creature you control',
+             _gain_life_greatest_power_mode),
+        ], min_modes=2, max_modes=2)
+
+    # Trystan's Command — choose two.
+    C["Trystan's Command"].resolve = make_modal_resolve(
+        "Trystan's Command",
+        modes=[
+            ("Create a copy of target Elf you control",
+             _make_token_mode('Elf')),
+            ('Each opponent sacrifices a creature',
+             _each_player_sac_mode(only_opponent=True)),
+            ('You gain life equal to the greatest power among your creatures',
+             _gain_life_greatest_power_mode),
+            ('Return target Elf card from your graveyard to your hand',
+             _return_from_gy_mode('Elf')),
+        ], min_modes=2, max_modes=2)
+
+    # Austere Command — choose two.
+    C['Austere Command'].resolve = make_modal_resolve(
+        'Austere Command',
+        modes=[
+            ('Destroy all artifacts',
+             _destroy_all_mode(type_filter=CardType.ARTIFACT)),
+            ('Destroy all enchantments',
+             _destroy_all_mode(type_filter=CardType.ENCHANTMENT)),
+            ('Destroy all creatures with mana value 3 or less',
+             _destroy_all_mode(type_filter=CardType.CREATURE, mv_max=3)),
+            ('Destroy all creatures with mana value 4 or greater',
+             _destroy_all_mode(type_filter=CardType.CREATURE, mv_min=4)),
+        ], min_modes=2, max_modes=2)
+
+    # Primal Command — choose two.
+    C['Primal Command'].resolve = make_modal_resolve(
+        'Primal Command',
+        modes=[
+            ModeSpec('Target player gains 7 life',
+                     _gain_life_target_player_mode(7),
+                     target_requirement=target_player()),
+            ModeSpec("Put target noncreature permanent on top of its library",
+                     _topdeck_noncreature_mode,
+                     target_requirement=TargetRequirement(
+                         filter=permanent_filter(), count=1,
+                         label='target noncreature permanent')),
+            ('Search your library for a creature card', _tutor_creature_mode),
+            ('You gain life equal to your greatest power',
+             _gain_life_greatest_power_mode),
+        ], min_modes=2, max_modes=2)
+
+    # Profane Command — choose two (X defaulted to 3 as a representative cast).
+    _x = 3
+    C['Profane Command'].resolve = make_modal_resolve(
+        'Profane Command',
+        modes=[
+            ModeSpec('Target player loses X life', _player_loses_x_mode(_x),
+                     target_requirement=target_player()),
+            ('Return target creature with mana value X or less from your '
+             'graveyard to the battlefield', _reanimate_mv_x_mode(_x)),
+            ModeSpec('Target creature gets -X/-X until end of turn',
+                     _minus_x_target_mode(_x),
+                     target_requirement=target_creature()),
+            ('Up to X target creatures gain fear', _grant_fear_mode(_x)),
+        ], min_modes=2, max_modes=2)
+
+    # Incendiary Command — choose two.
+    C['Incendiary Command'].resolve = make_modal_resolve(
+        'Incendiary Command',
+        modes=[
+            ModeSpec('Incendiary Command deals 4 damage to target player',
+                     _damage_target_player_mode(4),
+                     target_requirement=target_player()),
+            ('Incendiary Command deals 2 damage to each creature',
+             _damage_each_creature_mode(2)),
+            ModeSpec('Destroy target nonbasic land', _destroy_target_mode,
+                     target_requirement=TargetRequirement(
+                         filter=permanent_filter(), count=1,
+                         label='target nonbasic land')),
+            ('Each player discards their hand, then draws that many cards',
+             _wheel_mode),
+        ], min_modes=2, max_modes=2)
+
+    # Giantfall — choose one.
+    C['Giantfall'].resolve = make_modal_resolve(
+        'Giantfall',
+        modes=[
+            ModeSpec('Your creature deals damage equal to its power to an '
+                     'opponent creature', _giantfall_deal_power_mode,
+                     target_requirement=[
+                         target_creature(controller='you'),
+                         target_creature(controller='opponent')]),
+            ModeSpec('Destroy target artifact', _destroy_target_mode,
+                     target_requirement=TargetRequirement(
+                         filter=permanent_filter(), count=1,
+                         label='target artifact')),
+        ], min_modes=1, max_modes=1)
+
+    # Keep Out — choose one.
+    C['Keep Out'].resolve = make_modal_resolve(
+        'Keep Out',
+        modes=[
+            ModeSpec('Keep Out deals 4 damage to target tapped creature',
+                     _damage_target_creature_mode(4),
+                     target_requirement=target_creature()),
+            ModeSpec('Destroy target enchantment', _destroy_target_mode,
+                     target_requirement=TargetRequirement(
+                         filter=permanent_filter(), count=1,
+                         label='target enchantment')),
+        ], min_modes=1, max_modes=1)
+
+    # Run Away Together — fixed two-creature bounce (resolve, not modal).
+    C['Run Away Together'].resolve = run_away_together_resolve
+
+    # Glamermite — ETB modal (tap/untap), wired as a setup interceptor.
+    C['Glamermite'].setup_interceptors = _glamermite_setup
+
+
+def _gain_life_target_player_mode(amount):
+    def _mode(state, caster_id, spell_id, targets=None):
+        pid = targets[0].id if targets else caster_id
+        return [Event(type=EventType.LIFE_CHANGE,
+                      payload={'player': pid, 'amount': amount}, source=spell_id)]
+    return _mode
+
+
+_register_section4_modals()
