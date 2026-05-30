@@ -797,6 +797,15 @@ def run_test(game, player_id: str, anomaly_id: str, staff_ids: list[str], *, eme
             # _wurm_devourer tagger but never connected, so the entire Wurm
             # taming engine was dead (researching a wurm just banked archives).
             events.extend(apply_wurm_devourer(game, anomaly))
+            # apply_wurm_devourer bumps wurms_tamed but (unlike gain_archives) does
+            # NOT self-check victory, so completing the 3rd tame with an active Wurm
+            # Apex mandate satisfied wurm_apex_tamed yet never fired the win until
+            # some later unrelated action happened to call check_scp_victory — often
+            # never (→ draw_or_timeout; 3 of 4 satisfied games failed to win). Check
+            # victory HERE (only on the taming path) so the fix can't perturb other
+            # decks' win timing — a broad check at run_test's end regressed ETH's
+            # ethics_audit win path.
+            events.extend(check_scp_victory(game, source=anomaly.id))
         else:
             events.extend(gain_archives(game, player_id, 1, source=anomaly.id))
         hook = getattr(anomaly.card_def, "scp_on_test", None)

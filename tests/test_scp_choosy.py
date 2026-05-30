@@ -655,6 +655,46 @@ def test_wurm_research_test_tames_via_engine():
     assert scp._effective_hazard(an) < haz0, "taming did not reduce the wurm's hazard"
 
 
+def test_run_test_fires_alt_win_on_completing_tame():
+    """Engine bug fix: completing an alt-win via a successful test must resolve the
+    win immediately. apply_wurm_devourer bumps wurms_tamed but did NOT call
+    check_scp_victory, and run_test only checked LOSS — so taming the 3rd wurm with
+    an active Wurm Apex mandate satisfied wurm_apex_tamed yet the game ran on to a
+    draw_or_timeout (observed 3/4 satisfied games). run_test now checks victory too."""
+    game, p1, p2 = _setup()
+    # active alt-win mandate
+    mcd = scp.make_scp_card("WAT Doctrine", CardType.SCP_MANDATE, text="")
+    mcd.scp_alt_win = "wurm_apex_tamed"
+    m = game.create_object(name=mcd.name, owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+                           characteristics=mcd.characteristics, card_def=mcd)
+    m.controller = p1.id
+    m.state.scp_status = "active"
+    game.state.scp_mandates.setdefault(p1.id, []).append(m.id)
+    # two already tamed; the test below completes the third
+    scp.ensure_scp_state(game.state, p1.id)
+    scp.site(game.state, p1.id)["wurms_tamed"] = 2
+    wd = next(c for c in SCP_CARDS.values()
+              if getattr(c, "scp_wurm_devourer", False) and int(getattr(c, "scp_hazard", 0) or 0) >= 3)
+    an = game.create_object(name=wd.name, owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+                            characteristics=wd.characteristics, card_def=wd)
+    an.controller = p1.id
+    an.state.scp_status = "active"
+    game.state.scp_anomalies.setdefault(p1.id, []).append(an.id)
+    rcd = scp.make_scp_card("Vet", CardType.SCP_PERSONNEL, text="", skills={"research": 9})
+    r = game.create_object(name=rcd.name, owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+                           characteristics=rcd.characteristics, card_def=rcd)
+    r.controller = p1.id
+    r.state.scp_status = "active"
+    game.state.scp_personnel.setdefault(p1.id, []).append(r.id)
+
+    assert not game.is_game_over()
+    ok, msg, _ev = scp.run_test(game, p1.id, an.id, [r.id])
+    assert ok, msg
+    assert int(scp.site(game.state, p1.id)["wurms_tamed"]) == 3
+    assert game.is_game_over(), "completing the 3rd tame with an active mandate did not fire the win"
+    assert getattr(game.state.players[p2.id], "has_lost", False), "opponent not marked lost"
+
+
 def _bf_contain_staff(game, player, power=9):
     cd = scp.make_scp_card("Containment Crew", CardType.SCP_PERSONNEL, text="", skills={"contain": power})
     o = game.create_object(name=cd.name, owner_id=player.id, zone=ZoneType.BATTLEFIELD,
