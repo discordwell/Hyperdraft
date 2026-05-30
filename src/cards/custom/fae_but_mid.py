@@ -11284,6 +11284,60 @@ def cinder_strike_resolve(targets, state):
     return _eff()
 
 
+def gilt_leaf_ambush_resolve(targets, state):
+    """Gilt-Leaf Ambush: Tribal Instant — Elf. Create two 1/1 green Elf
+    Warrior creature tokens. Clash with an opponent. If you win, those
+    creatures gain deathtouch until end of turn."""
+    from src.engine.clash import clash
+    sid, caster = _spell_src('Gilt-Leaf Ambush', state)
+    events = []
+    token = {'controller': caster, 'name': 'Elf Warrior', 'power': 1,
+             'toughness': 1, 'colors': {Color.GREEN}, 'subtypes': {'Elf', 'Warrior'}}
+    events.append(Event(type=EventType.CREATE_TOKEN, payload=dict(token), source=sid))
+    events.append(Event(type=EventType.CREATE_TOKEN, payload=dict(token), source=sid))
+    res = clash(state, caster)
+    events.extend(res.events)
+    if res.won:
+        # Grant deathtouch to the creatures you control (the two new tokens
+        # resolve as OBJECT_CREATED after this; grant to current friendly
+        # creatures so the keyword applies to the board you built).
+        for _o in _bf_creatures(state):
+            if _o.controller == caster:
+                events.append(Event(type=EventType.GRANT_KEYWORD,
+                    payload={'object_id': _o.id, 'keyword': 'deathtouch',
+                             'duration': 'end_of_turn'}, source=sid))
+    return events
+
+
+def lash_out_resolve(targets, state):
+    """Lash Out: Lash Out deals 3 damage to target creature. Clash with an
+    opponent. If you win, Lash Out deals 3 damage to that creature's
+    controller."""
+    from src.engine.clash import clash
+    sid, caster = _spell_src('Lash Out', state)
+    events = []
+    _tid = _opp_creature(caster, state)
+    _p = {'amount': 3, 'target_filter': 'creature'}
+    target_controller = None
+    if _tid:
+        _p['target'] = _tid
+        _p['target_type'] = 'creature'
+        _to = state.objects.get(_tid)
+        target_controller = _to.controller if _to else None
+    events.append(Event(type=EventType.DAMAGE, payload=_p, source=sid))
+    res = clash(state, caster)
+    events.extend(res.events)
+    if res.won:
+        dmg_target = target_controller
+        if dmg_target is None:
+            dmg_target = next(_opps(caster, state), None)
+        if dmg_target is not None:
+            events.append(Event(type=EventType.DAMAGE,
+                payload={'target': dmg_target, 'amount': 3,
+                         'target_type': 'player'}, source=sid))
+    return events
+
+
 def crib_swap_resolve(targets, state):
     """Crib Swap: Changeling. Exile target creature. Its controller creates a 1/1 colorless Shapeshifter creature token with changeling."""
     sid, caster = _spell_src('Crib Swap', state)
@@ -11934,6 +11988,8 @@ def _register_section2_instants():
     FAE_BUT_MID_CARDS['Catharsis'].resolve = catharsis_resolve
     FAE_BUT_MID_CARDS['Cinder Strike'].resolve = cinder_strike_resolve
     FAE_BUT_MID_CARDS['Crib Swap'].resolve = crib_swap_resolve
+    FAE_BUT_MID_CARDS['Gilt-Leaf Ambush'].resolve = gilt_leaf_ambush_resolve
+    FAE_BUT_MID_CARDS['Lash Out'].resolve = lash_out_resolve
     FAE_BUT_MID_CARDS['Goatnap'].resolve = goatnap_resolve
     FAE_BUT_MID_CARDS['Darkness Descends'].resolve = darkness_descends_resolve
     FAE_BUT_MID_CARDS['Death Denied'].resolve = death_denied_resolve
