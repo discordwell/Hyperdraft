@@ -168,6 +168,11 @@ class LegalAction:
     mana_cost: Optional[ManaCost] = None
     crew_cost: int = 0  # Power required to crew (for CREW actions)
     crew_with: list[str] = None  # Creature IDs to use for crewing
+    # For X-cost activated abilities: the chosen X baked into the offer (the AI
+    # has no X-picker, so _get_activatable_abilities bakes the max affordable X
+    # here; _legal_to_player_action carries it into the PlayerAction). Humans
+    # see x_value=0 and the UI prompts for X. Default 0 = no X chosen.
+    x_value: int = 0
 
 
 class PrioritySystem:
@@ -2098,6 +2103,54 @@ class PrioritySystem:
             return self.turn_manager.can_play_land(player_id)
         return False
 
+    def _max_affordable_x(
+        self,
+        ability,
+        player_id: str,
+        effective_cost,
+    ) -> int:
+        """Largest X an X-cost activated ability can actually pay for now.
+
+        Probes the SAME affordability check the rest of the engine uses
+        (``mana_system.can_cast`` with a candidate ``x_value``) from an upper
+        bound downward, so the returned X is guaranteed payable by the exact
+        check applied at activation time — never an overcount that would fail
+        to pay and re-loop. Returns 0 when there is no mana system, no {X} in
+        the cost, or nothing beyond the fixed cost is affordable.
+        """
+        ms = self.mana_system
+        if ms is None:
+            return 0
+        cost = effective_cost if effective_cost is not None else ability.mana_cost
+        if cost is None:
+            return 0
+        x_count = int(getattr(cost, "x_count", 0) or 0)
+        if x_count < 1:
+            return 0
+        # Upper bound on X = all mana the player could spend: current pool +
+        # potential untapped-land mana, because can_cast (below) draws on both.
+        # get_available_mana over-counts dual lands, which is harmless — it only
+        # seeds the probe; can_cast is authoritative (it also enforces x_count
+        # and colour requirements). Cap so a pathological optimistic count stays
+        # cheap (<=30 can_cast calls).
+        upper = 0
+        try:
+            avail = ms.get_available_mana(player_id)
+            upper += sum(int(v) for v in avail.values())
+        except Exception:
+            pass
+        try:
+            upper += int(ms.get_pool(player_id).total())
+        except Exception:
+            pass
+        for candidate in range(max(0, min(upper, 30)), 0, -1):
+            try:
+                if ms.can_cast(player_id, cost, candidate):
+                    return candidate
+            except Exception:
+                continue
+        return 0
+
     def _get_activatable_abilities(
         self,
         obj,
@@ -2148,6 +2201,25 @@ class PrioritySystem:
                 effective_mana_cost=effective_cost,
             ):
                 continue
+            # X-cost activated abilities (e.g. Mirror Entity "{X}: ...").
+            # The AI never chooses an X (it has no x-picker for activated
+            # abilities), so it would execute at the default x_value=0 — a free
+            # no-op that pays nothing, changes nothing, and is re-offered every
+            # priority window. That ping-pong burns the 5000-iteration priority
+            # cap and stalls games. Bake the max affordable X into the action so
+            # the AI activates it meaningfully (and consumes mana, so it can't
+            # be re-offered for free); skip the free X=0 case entirely for AI
+            # players. Human players keep the normal surface (the UI prompts for
+            # X), so only the AI's degenerate X=0 loop is removed.
+            x_for_action = 0
+            if getattr(ability, "has_x_cost", False):
+                x_for_action = self._max_affordable_x(
+                    ability, player_id, effective_cost,
+                )
+                if self.is_ai_player(player_id) and x_for_action < 1:
+                    # Only an unproductive free X=0 activation is available —
+                    # don't offer it to the AI (prevents the priority loop).
+                    continue
             actions.append(LegalAction(
                 type=ActionType.ACTIVATE_ABILITY,
                 source_id=obj.id,
@@ -2155,6 +2227,7 @@ class PrioritySystem:
                 description=f"Activate {obj.name}: {ability.description}",
                 requires_mana=bool(ability.mana_cost and not ability.mana_cost.is_free()),
                 mana_cost=effective_cost or ability.mana_cost,
+                x_value=x_for_action,
             ))
 
         # Marvin-style ability mirror: surface activated abilities copied

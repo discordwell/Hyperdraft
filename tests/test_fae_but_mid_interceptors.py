@@ -3366,9 +3366,20 @@ def test_card_bloom_tender():
 
 
 def test_card_heritage_druid():
-    """Heritage Druid: Tap three untapped Elves you control: Add {G}{G}{G}."""
+    """Heritage Druid: {T}: Add {G}{G}{G}, only with three+ untapped Elves.
+
+    POLISH-PASS (2026-05-29): the cost was reworked from the unpayable
+    "Tap three untapped Elves you control" (which paid nothing and looped the
+    priority system forever) to the engine-payable {T} self-tap gated on a
+    three-untapped-Elf precondition. The ability must therefore be set up with
+    a board of three Elves before it can fire.
+    """
     game, p1, p2 = _new_game()
     obj = _setup_activated(game, p1, "Heritage Druid")
+    # Precondition: need three+ untapped Elves you control. The Druid is one;
+    # add two more untapped Elves so the ability is legal.
+    create_creature_on_battlefield(game, p1, "Imperious Perfect")  # Elf
+    create_creature_on_battlefield(game, p1, "Imperious Perfect")  # Elf
     cost, resolve = _activate(game, p1, obj)
     greens = [e for e in resolve if e.type == EventType.MANA_PRODUCED and e.payload.get('color') == 'G']
     assert len(greens) == 3, f"should add GGG (3 green), got {[(e.type.name, e.payload.get('color')) for e in resolve]}"

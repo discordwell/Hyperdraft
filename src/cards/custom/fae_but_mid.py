@@ -7121,7 +7121,10 @@ HERITAGE_DRUID = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Elf", "Druid"},
-    text="Tap three untapped Elves you control: Add {G}{G}{G}."
+    # POLISH-PASS (2026-05-29): cost reworded to the engine-payable {T} form
+    # (see _heritage_druid_setup) — the old "Tap three untapped Elves" cost was
+    # unpayable and infinitely re-activatable, hanging every Elf game.
+    text="{T}: Add {G}{G}{G}. Activate only if you control three or more untapped Elves."
 )
 
 # Imperious Perfect - {1}{G}{G} Creature
@@ -12793,8 +12796,39 @@ def _bloom_tender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
 
 
 def _heritage_druid_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    """Tap three untapped Elves you control: Add {G}{G}{G}."""
+    """Tap three untapped Elves you control: Add {G}{G}{G}.
+
+    POLISH-PASS (2026-05-29) — INFINITE-LOOP FIX. The original cost string
+    "Tap three untapped Elves you control" parsed to a `tap` CostStep that the
+    activated-ability cost-payer does NOT implement (pay_activation_cost has no
+    'tap'-other-permanents handler), so paying the cost tapped nothing. The
+    ability was therefore *free and infinitely re-activatable*: the heuristic AI
+    valued the {G}{G}{G} ramp, activated it, never tapped anything, and the
+    priority loop ping-ponged until it hit the 5000-iteration cap — every Elf
+    game ground to a multi-minute crawl.
+
+    The engine can't express "tap three OTHER creatures" as a payable cost, so
+    this is modelled with the supported `{T}` self-tap (which finitely gates
+    re-activation: a tapped Druid can't re-tap) plus a precondition that you
+    control three+ untapped Elves — preserving the "Elfball needs a board"
+    identity while making the cost actually payable and bounded.
+    """
     from src.engine.mana import ManaType as _MT
+
+    def _three_untapped_elves(o, st):
+        n = 0
+        for c in st.objects.values():
+            if (c.controller == o.controller
+                    and c.zone == ZoneType.BATTLEFIELD
+                    and CardType.CREATURE in c.characteristics.types
+                    and c.characteristics.subtypes
+                    and 'Elf' in c.characteristics.subtypes
+                    and not c.state.tapped):
+                n += 1
+                if n >= 3:
+                    return True
+        return False
+
     def _effect(o, st, targets):
         events = []
         _g = getattr(st, '_game', None); ms = getattr(_g, 'mana_system', None)
@@ -12805,8 +12839,10 @@ def _heritage_druid_setup(obj: GameObject, state: GameState) -> list[Interceptor
                 payload={'player': o.controller, 'color': _MT.GREEN.value, 'amount': 1},
                 source=o.id, controller=o.controller))
         return events
-    make_activated_ability(obj, "Tap three untapped Elves you control", _effect,
-                           description="Add {G}{G}{G}")
+
+    make_activated_ability(obj, "{T}", _effect,
+                           description="Add {G}{G}{G} (needs three+ untapped Elves)",
+                           precondition_fn=_three_untapped_elves)
     return []
 
 

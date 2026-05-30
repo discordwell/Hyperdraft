@@ -1931,7 +1931,11 @@ class AIEngine:
             player_id=player_id,
             card_id=legal_action.card_id,
             ability_id=legal_action.ability_id,
-            source_id=legal_action.source_id
+            source_id=legal_action.source_id,
+            # Carry the X baked into an X-cost activated ability's offer (see
+            # LegalAction.x_value); without this the AI would activate at X=0 —
+            # a free no-op that re-loops the priority system.
+            x_value=getattr(legal_action, 'x_value', 0) or 0,
         )
 
         # If action is a spell cast, try to select targets

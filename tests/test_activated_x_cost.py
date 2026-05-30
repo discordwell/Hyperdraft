@@ -383,6 +383,65 @@ def test_gogo_master_of_mimicry_xx_cost_emits_x_copies():
     asyncio.get_event_loop().run_until_complete(_run())
 
 
+def test_ai_x_cost_ability_bakes_max_affordable_x_and_suppresses_free_zero():
+    """AI X-picking for {X}: activated abilities (priority-loop fix, 2026-05-29).
+
+    Regression for the polish-pass stall: an {X}: activated ability (e.g. Mirror
+    Entity) surfaced to the AI at the default x_value=0 — a free no-op re-offered
+    every priority window, ping-ponging to the 5000-iteration priority cap and
+    grinding Elf/changeling games to a multi-minute crawl. The fix
+    (priority.py _get_activatable_abilities + the new _max_affordable_x) bakes
+    the max *affordable* X into the surfaced action and skips the unproductive
+    free X=0 case for AI players, while leaving the human surface unchanged.
+    """
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    _setup_game_for_player(p1.id, game)
+    game.priority_system.set_ai_player(p1.id)
+
+    # Mirror Entity's shape: a pure {X}: activated ability (no fixed cost).
+    def setup(obj, state):
+        def _eff(o, st, targets, *, x_value: int = 0):
+            return []
+        make_activated_ability(obj, "{X}", _eff,
+                               description="creatures become X/X")
+        return []
+
+    card = make_creature(
+        name="X Pump Bear", power=2, toughness=2, mana_cost="{1}{G}",
+        colors={Color.GREEN}, setup_interceptors=setup,
+    )
+    obj = _spawn_on_battlefield(game, p1, card)
+
+    def _x_actions():
+        return [a for a in game.priority_system.get_legal_actions(p1.id)
+                if a.type == ActionType.ACTIVATE_ABILITY and a.source_id == obj.id]
+
+    # Case 1 — no mana: the only available X is the free X=0 no-op. The AI must
+    # NOT be offered it (offering it is the infinite priority loop).
+    assert not _x_actions(), \
+        "AI must not be offered the free X=0 activation (priority-loop bug)"
+
+    # Case 2 — four mana: offered exactly once, with the max affordable X baked
+    # in (so activating consumes mana and can't be re-offered for free).
+    _give_player_mana(p1, game.priority_system.mana_system, green=4)
+    acts = _x_actions()
+    assert len(acts) == 1, f"expected exactly one X activation, got {len(acts)}"
+    assert acts[0].x_value == 4, \
+        f"AI should bake max affordable X (=4) into the action, got {acts[0].x_value}"
+
+    # The AI's LegalAction -> PlayerAction conversion must CARRY x_value through;
+    # otherwise the chosen action activates at X=0 (no mana spent) and re-loops.
+    from src.ai.engine import AIEngine
+    pa = AIEngine(difficulty='medium')._legal_to_player_action(
+        acts[0], p1.id, game.state)
+    assert pa.x_value == 4, \
+        f"_legal_to_player_action must carry x_value (=4), got {pa.x_value}"
+
+    print("PASS: AI X-cost ability bakes max affordable X and suppresses free X=0")
+
+
 if __name__ == "__main__":
     test_parse_activation_cost_recognises_x_x()
     test_register_activated_ability_sets_has_x_cost_flag()
@@ -391,4 +450,5 @@ if __name__ == "__main__":
     test_insufficient_mana_for_chosen_x_blocks_activation()
     test_legacy_effect_fn_signature_still_works()
     test_gogo_master_of_mimicry_xx_cost_emits_x_copies()
+    test_ai_x_cost_ability_bakes_max_affordable_x_and_suppresses_free_zero()
     print("\nAll X-cost activated-ability tests passed.")
