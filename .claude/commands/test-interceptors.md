@@ -93,6 +93,45 @@ runner:         python tests/<file>.py  (or pytest, etc.)
 ==> spawning test-generator subagent...
 ```
 
+### 0.5 Engine-native sets: verify by state mutation, not typed events (the dead-field census)
+
+The text→`EventType` mapping below (DRAW / DAMAGE / LIFE_CHANGE …) assumes an
+MTG-style engine where every effect is a **typed event**. The engine-native sets
+(**SCP, Pokemon, YGO, Cats**) don't work that way: most effects are **direct
+state-field mutations** — `site["secrecy"] -= 2`, `obj.state.scp_suppressed += 1`,
+`obj.state.scp_compleation += 1` — with at most a generic info-event
+(`SCP_INCIDENT_RESOLVED`) logged alongside. Asserting "a typed event fired" is
+useless here: the info-event fires whether or not the real mutation happened (the
+SCP analog of the slice-N info-pulse stub).
+
+For these engines, the "expected effect" oracle is **the set of state fields the
+engine actually reads**, and the failure you're hunting is a card that **writes a
+field the engine never reads** — a silent no-op that looks correct. Build the
+census:
+
+1. **Derive the oracle from the engine, not the cards.** Grep the engine module
+   (`src/engine/<game>.py`) for the site-dict keys and `obj.state.<field>` it
+   reads/writes in its resolution paths (breach tick, hazard calc, win/loss
+   checks, counter appliers). That set is ground truth.
+2. **Flag every card-side write outside the oracle.** Grep the card modules for
+   writes to fields/keys not in the oracle — those are dead. Real examples found
+   2026-05-29: SCP cards wrote `obj.state.scp_hazard` (12× in Wurm Apex — the
+   archetype's whole "tame → reduce hazard" identity), but `_effective_hazard`
+   reads `card_def.scp_hazard − scp_suppressed`, so the live lever is
+   `scp_suppressed` and every `scp_hazard` write was cosmetic. Likewise 18
+   `compleation_<pid>` site-dict keys the engine never reads (it reads
+   `obj.state.scp_compleation`).
+3. **Generate effect tests that assert the mutation, not an event.** Fire the
+   card's real path (play / reveal / activate / assign) and assert the *engine-read
+   field* changed — e.g. `assert site["secrecy"] == before - 2`, not
+   `assert any(e.type == SCP_INCIDENT_RESOLVED ...)`. A card that emits only a log
+   event with no read-field change FAILS.
+
+This census is the engine-native counterpart of the MTG text-vs-events gate, and
+it catches the same disease (wired but no real effect) in a vocabulary where
+typed events don't exist. Note this is the **effect** gate; "does the AI ever
+fire the card" is the separate **fire** gate — see `/card-fire-debug`.
+
 ### 1. Spawn test-generator subagent
 
 Use `Agent` tool with `subagent_type=general-purpose`. Brief:

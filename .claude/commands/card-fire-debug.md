@@ -10,6 +10,19 @@ actually fires in playtests, six possible failure modes account for ~all
 real-world cases. This skill walks all six in one shot and reports the
 specific blocker plus a suggested patch.
 
+This applies equally to **activated / modal abilities**, not just whole cards —
+"the AI never activates this ability" is the same six-step tree (drawn →
+deployed → ability offered as a legal action → value-scored above its fire
+threshold → precondition met → cost payable → out-competes the turn's other
+plays). The SCP verb-redesign "inert bombs" (2026-05-29) were exactly this:
+6 signature abilities that passed every *effect* gate (`/test-interceptors`
+green — the effect fired correctly when invoked) yet fired ~never in real games,
+because nothing checked the *fire* path. **`/test-interceptors` answers "does the
+effect happen when triggered?"; this skill answers "does the AI ever trigger it?"
+— run both.** That class of bug stayed invisible for ~9 commits because this
+diagnostic was Pokemon-only and the recipe never called for it (see "Engine
+support" below to extend it).
+
 The decision tree (six steps):
 
 1. **Drawn at least once** — across the playtest, is the card in any hand?
@@ -140,3 +153,44 @@ Currently Pokemon only. Adding a new engine means:
 
 The decision tree itself (Step 1 through Step 6) is engine-agnostic —
 only the per-engine probe needs to be added.
+
+### SCP support (spec — derived by hand 2026-05-29, not yet coded)
+
+The "inert bombs" were diagnosed by walking these six steps manually. That
+diagnosis IS the SCP probe spec — wire it into `diagnose_card_fire.py`:
+
+1. **Drawn** — hand membership across the playtest. SCP twist: games are short
+   and breach-dominated (a self-mirror can end in 4-6 turns), so a 1-of
+   signature card may never be drawn at all (Apollyon Convergence Array: 0
+   hand-instances in 3×50-turn eldrazi games). FAIL → bump deck count, add a
+   tutor, or the deck/format is too fast for the payoff (a deck-speed item).
+2. **Legal action** — for an activated ability: does `legal_scp_actions` emit
+   `SCP_ACTIVATE_ABILITY` (one per modal mode) when the card is on the
+   battlefield, un-exhausted, and affordable? For deployment: does the card get
+   played from hand via `open_dossier` (works for every SCP card type)?
+3. **Scorer positive** — SCP has TWO scorers, check both: deployment is
+   `scp_adapter.score()` (a bomb must out-rank generic rank-2 facilities — see
+   `_carries_signature_bomb`); activation is `_consider_activated_abilities`,
+   which fires iff `_estimate_ability_value(value_hint) − _cost_value(cost) >
+   _ability_fire_threshold`. The flat 0.5 `exhaust_self` cost-weight lived here
+   (put gain~1.0 facility bombs below the bar).
+4. **Precondition met** — `precondition_fn` AND a conditional
+   `value_hint`/`custom_value_fn` that returns 0.0 until the condition is met
+   (the "win-more cliff": Containment Singularity scored 0 below 2 contained).
+   SCP analog of the evolution-prereq step. Credit *progress toward* the
+   condition, not only the turn it's crossed.
+5. **Cost payable** — `can_pay_scp_cost` (ethics is INVERTED — paying reduces
+   debt; `exhaust_self` requires un-exhausted). CRITICAL: facility exhaustion +
+   `once_per_turn` counters must reset each turn (`reset_turn_abilities`) or the
+   ability is silently once-per-GAME — a fire-path bug that looks like a value
+   bug.
+6. **Ranked competitively** — deployment: the bomb's `score()` rank vs the rest
+   of hand (a 1-of at flat rank 2 loses every deploy race); activation: does its
+   value clear the threshold, or does it lose to "do nothing"? (Public Spectacle
+   net 0.50, not > 0.50 — missed by epsilon.)
+
+Wrap `scp_adapter.score()`, `_consider_activated_abilities`,
+`_estimate_ability_value`, `_cost_value`; sample `legal_scp_actions` membership
+and `can_pay_scp_cost`; drive games via the `scp_tournament.run_one_game` wiring.
+Until this is coded, the cheap stand-in is to instrument `SCP_ABILITY_ACTIVATED`
+in the event log across a tournament (what the re-validation probe did).

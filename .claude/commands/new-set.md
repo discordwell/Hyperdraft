@@ -290,12 +290,26 @@ Invoke the existing `/test-interceptors` skill with `--game <engine> --set <CODE
 
 The fixer agent gets the failure list and the relevant card source files. Brief: "categorize each failure (empty-effect / wrong-effect / trigger-never-fires / engine-gap), fix what you can in cards, escalate engine gaps to a punch list in `engine_gaps.md`. Re-run `tests/test_<set>_interceptors.py` after edits. Don't loosen assertions to make tests pass."
 
-#### Why both sub-stages?
+#### 7.5c — Fire verification: does the AI ever USE the card? (LOAD-BEARING for payoffs)
 
-- **Drift check** catches text/code mismatches (cheap, deterministic, parser-driven). 5-minute fixes; would have caught Hidden Aggression in 1s.
-- **Interceptor verification** catches "wired but does nothing" — the depths trap, where ~30% of generated cards historically register an interceptor whose `effect_fn` returns `[]`. CLAUDE.md notes ~736 of 2,486 wired MTG cards across 12 sets currently fall into this bucket.
+7.5a and 7.5b verify a card **does the right thing when triggered**. They do NOT verify the AI **ever triggers it**. These are different gates, and the second one has no other coverage: a card that scores well in design review, carries a non-trivial `value_hint`, and leaves the Stage-8 tournament "in-band" can still be completely inert — and a tournament whose marquee cards never fire produces balance numbers for a board they never touched.
 
-Together they close the gap between "smoke test passed" and "the cards actually work." Without this stage, every Stage 8 tournament result is contaminated by silent-failure cards, and every LLM-pilot iteration in `/ultra-loop` (which `/new-game-plus` invokes downstream) burns hours rediscovering the same bugs through gameplay.
+This is not hypothetical. The SCP verb-redesign (2026-05-29) shipped 6 signature activated abilities that passed every effect gate (`/test-interceptors` green) yet fired ~never in real games — uncalibrated value-gating put them below the fire threshold, a missing turn-reset made each one silently once-per-game, and a 1-of payoff lost every deploy race. Every per-archetype "tournament in-band" gate validated a board where the marquee mythic was a dead facility. It went unnoticed for ~9 commits because nothing asserted the fire path.
+
+So: for the deck's **signature / payoff / build-around cards** (finishers, engines, activated-ability "bombs" — not vanilla filler), verify they actually FIRE under the AI:
+
+- Run **`/card-fire-debug --card "<name>"`** for each payoff card (or batch). It walks the six-step tree — drawn → deployed/legal → value-scored above threshold → precondition met → cost payable → out-competes the turn's other plays — and names the exact blocker plus a patch location.
+- If the engine isn't wired into `/card-fire-debug` yet (it is Pokemon-only as of 2026-05; see that skill's "Engine support" for the SCP spec), the cheap stand-in is to **instrument the card's play/activation event across a Stage-8 tournament and assert each payoff card fires ≥ 1×** in self-play. A payoff card that fires zero times across the tournament fails this gate.
+
+**The rule (codify it):** "scores well in review", "has a non-trivial `value_hint`", and "the deck is tournament-in-band" are **NOT** fire gates — every one of them is satisfiable while the card is inert. Only a real-loop assertion that the card actually fired counts. Any new autonomous behavior (the AI plays X / activates Y) needs this gate from its first commit, not after N archetypes ship on faith.
+
+#### Why three sub-stages?
+
+- **Drift check (7.5a)** catches text/code mismatches (cheap, deterministic, parser-driven). 5-minute fixes; would have caught Hidden Aggression in 1s.
+- **Interceptor verification (7.5b)** catches "wired but does nothing" — the depths trap, where ~30% of generated cards historically register an interceptor whose `effect_fn` returns `[]`. CLAUDE.md notes ~736 of 2,486 wired MTG cards across 12 sets currently fall into this bucket.
+- **Fire verification (7.5c)** catches "works, but the AI never uses it" — the inert-payoff trap, invisible to both checks above because the effect IS correct; it just never runs.
+
+Together they close the gap between "smoke test passed" and "the cards actually work *and get played*." Without 7.5a/b, every Stage 8 tournament result is contaminated by silent-failure cards; without 7.5c, the tournament's headline cards may be dead and the balance data is for a board that never existed. And every LLM-pilot iteration in `/ultra-loop` (which `/new-game-plus` invokes downstream) burns hours rediscovering the same bugs through gameplay.
 
 ### Stage 8 — Capability-audit + multi-agent fix loop (up to 3 cycles, parallel within each cycle)
 

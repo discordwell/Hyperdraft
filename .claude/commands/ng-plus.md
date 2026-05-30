@@ -244,6 +244,22 @@ the pass rate this gate reports is the *text-matching* pass rate.
 has multiple sets, run P0 against each (one invocation per set,
 aggregate the pass rate).
 
+**Fire check — the other half of P0**: `/test-interceptors` proves a card's
+effect is correct WHEN TRIGGERED; it does not prove the AI ever triggers it.
+The "Zero-play cards" the punchlist feeds forward are exactly this failure — but
+a raw zero-play *count* never says *why*. For each zero-play card, and for every
+deck's signature / payoff / build-around card regardless of count, run
+**`/card-fire-debug --card "<name>"`** to get the specific blocker (drawn /
+legal / scored / precondition / cost / out-competed) plus a patch location,
+instead of guessing or assuming "balanced low". A card that is effect-correct
+(P0 green) yet never fires is not weak — it is **inert**, and any win-rate it
+shows is for a board it never touched. (SCP verb-redesign 2026-05-29: 6 signature
+abilities, all P0-clean via `/test-interceptors`, all firing ~never — uncalibrated
+value-gating + a once-per-game reset bug + losing every deploy race. The effect
+gate can't see this; only the fire gate can.) If `/card-fire-debug` lacks support
+for this engine, instrument the play/activation event across the P1 tournament
+and assert each payoff card fires ≥ 1×.
+
 **Gate (auto-repair, never halt)**: if pass rate < 70%, invoke the
 auto-repair pattern (§"Auto-repair pattern"):
 

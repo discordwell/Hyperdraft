@@ -10,6 +10,8 @@ AI-powered TCG playground on an event-driven rules engine.
 
 - When spawning >5 agents in a single command, ask user if they want to use `model: "sonnet"` instead of opus to reduce cost/latency.
 - When following a skill and a turn uncovers bugs, gaps, or errors, instead of moving on to the next step first fix those bugs then move on.
+- When a new subsystem lands (not every commit), review it with a **parallel multi-reviewer `/code-review`** — split the diff by area (engine / AI / cards / server+frontend / tests) with one reviewer per area, and give one reviewer an *independent root-cause investigation* of the riskiest claim rather than a checklist pass. A single-pass review missed the SCP inert-bomb class for ~9 commits; the 4-way split re-derived the root cause and found the turn-reset bug. Run it when a subsystem lands, not only at "major revision" boundaries.
+- A card/ability is not "done" when its effect is correct — it's done when the AI actually **fires it in self-play**. `/test-interceptors` is the effect gate; `/card-fire-debug` is the fire gate. "Scores well in review" / "has a value_hint" / "tournament in-band" are not fire gates (see the SCP inert-bomb retrospective).
 
 ## Concurrent worktree safety
 
