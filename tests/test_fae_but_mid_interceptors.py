@@ -160,7 +160,6 @@ SKIPPED_CARDS = {
     "Gristle Glutton": "activated tap/blight ability (structural)",
     "Morcant's Eyes": "aura static (enchant creature) needs an attached creature",
     "Champion of the Path": "grants a triggered ability to OTHER creatures (static; setup returns [])",
-    "Goliath Daydreamer": "cast-replacement (exile-on-resolve) effect (structural)",
     "Chitinous Graspling": "keyword-only (Changeling/Reach); setup returns [] — vanilla-equivalent",
     "Gangly Stompling": "keyword-only (Changeling/Trample); setup returns [] — vanilla-equivalent",
     "Treefolk-bough Spear": "equipment dynamic-P/T static needs an attached creature",
@@ -175,7 +174,6 @@ SKIPPED_CARDS = {
     'Goatnap': 'instant/sorcery: gain-control effect: not expressible as a single content event',
     'Lash Out': 'instant/sorcery: clash mechanic: outcome-dependent secondary effect (structural)',
     'Noggle the Mind': 'instant/sorcery: hand-shuffle + variable draw (structural)',
-    'Pollen Lullaby': 'instant/sorcery: damage-prevention replacement effect (structural)',
     'Spiral into Solitude': 'instant/sorcery: exile an attacking/blocking creature (combat-restricted target) + opponent makes a token',
     # --- Section 2 structural skips (lands / activated / equipment / aura / replacement / PW) ---
     'Ajani, Outland Chaperone': 'planeswalker: loyalty-activated abilities (structural)',
@@ -3589,6 +3587,70 @@ def test_card_collective_inferno():
         f"got {mine.state.damage}")
 
 
+def test_card_pollen_lullaby():
+    """Pollen Lullaby: 'Prevent all combat damage that would be dealt this turn'
+    — combat DAMAGE is zeroed; noncombat damage is untouched."""
+    game, p1, p2 = _new_game()
+    create_creature_on_battlefield(game, p1, "Pollen Lullaby")
+    attacker = _spawn(game, p1, power=5, toughness=5, name="Atk")
+    target = _spawn(game, p2, power=1, toughness=20, name="Tgt")
+    game.emit(Event(type=EventType.DAMAGE,
+                    payload={"target": target.id, "amount": 5,
+                             "source": attacker.id, "is_combat": True},
+                    source=attacker.id))
+    assert target.state.damage == 0, (
+        f"Pollen Lullaby: combat damage should be prevented (0), "
+        f"got {target.state.damage}")
+    other = _spawn(game, p2, power=1, toughness=20, name="Tgt2")
+    game.emit(Event(type=EventType.DAMAGE,
+                    payload={"target": other.id, "amount": 3,
+                             "source": attacker.id, "is_combat": False},
+                    source=attacker.id))
+    assert other.state.damage == 3, (
+        f"Pollen Lullaby: noncombat damage must be unaffected (3), "
+        f"got {other.state.damage}")
+
+
+def test_card_goliath_daydreamer():
+    """Goliath Daydreamer: your instants/sorceries are 'exile[d] ... with a dream
+    counter ... instead of putting it into your graveyard as it resolves' — an
+    instant headed to your graveyard lands in exile with a dream counter; a
+    creature is left alone."""
+    game, p1, p2 = _new_game()
+    create_creature_on_battlefield(game, p1, "Goliath Daydreamer")
+    inst = game.create_object(
+        name="MyBolt", owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=Characteristics(types={CardType.INSTANT}),
+        card_def=None)
+    game.emit(Event(type=EventType.ZONE_CHANGE,
+                    payload={"object_id": inst.id,
+                             "from_zone_type": ZoneType.STACK,
+                             "to_zone_type": ZoneType.GRAVEYARD,
+                             "from_zone": "stack",
+                             "to_zone": f"graveyard_{p1.id}"},
+                    source=inst.id))
+    assert inst.zone == ZoneType.EXILE, (
+        f"Goliath Daydreamer: instant should be redirected to exile, "
+        f"got {inst.zone}")
+    assert inst.state.counters.get("dream") == 1, (
+        f"Goliath Daydreamer: exiled card needs a dream counter, "
+        f"got {inst.state.counters.get('dream')}")
+    creature = game.create_object(
+        name="MyBear", owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=Characteristics(types={CardType.CREATURE}),
+        card_def=None)
+    game.emit(Event(type=EventType.ZONE_CHANGE,
+                    payload={"object_id": creature.id,
+                             "from_zone_type": ZoneType.STACK,
+                             "to_zone_type": ZoneType.GRAVEYARD,
+                             "from_zone": "stack",
+                             "to_zone": f"graveyard_{p1.id}"},
+                    source=creature.id))
+    assert creature.zone == ZoneType.GRAVEYARD, (
+        f"Goliath Daydreamer: a creature must NOT be redirected, "
+        f"got {creature.zone}")
+
+
 def test_card_raiding_schemes():
     """Raiding Schemes: 'Each noncreature spell you cast has conspire' — the
     conspire grant registers on the runtime registry when it enters."""
@@ -3659,6 +3721,7 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     # --- Section 5: replacement effects (replacements.py) + conspire grant ---
     test_card_maralen_fae_ascendant, test_card_mornsong_aria,
     test_card_doran_besieged_by_time, test_card_collective_inferno,
+    test_card_pollen_lullaby, test_card_goliath_daydreamer,
     test_card_raiding_schemes]
 
 

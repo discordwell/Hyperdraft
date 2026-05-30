@@ -2618,8 +2618,47 @@ GOATNAP = make_sorcery(
 
 # Goliath Daydreamer - {2}{R}{R} Creature — Giant Wizard 4/4
 def goliath_daydreamer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Complex effect - needs exile zone tracking and spell resolution modification
-    return []
+    """Your instants/sorceries are exiled with a dream counter instead of going
+    to your graveyard as they resolve.
+
+    Replacement effect on ZONE_CHANGE -> graveyard for an instant/sorcery you
+    own: redirect it to exile and stamp a dream counter. (The "cast a dream-
+    countered card free when this attacks" half is a separate activated/attack
+    window and is not part of this static replacement.)
+    """
+    src_controller = obj.controller
+
+    def gy_filter(event: Event, st: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.GRAVEYARD:
+            return False
+        target_id = event.payload.get('object_id')
+        target = st.objects.get(target_id) if target_id else None
+        if target is None:
+            return False
+        if target.owner != src_controller:
+            return False
+        types = target.characteristics.types
+        return (CardType.INSTANT in types) or (CardType.SORCERY in types)
+
+    def to_exile_with_dream(event: Event, st: GameState) -> Event:
+        target_id = event.payload.get('object_id')
+        target = st.objects.get(target_id)
+        if target is not None:
+            target.state.counters['dream'] = target.state.counters.get('dream', 0) + 1
+        new_event = event.copy()
+        new_event.payload['to_zone_type'] = ZoneType.EXILE
+        new_event.payload['to_zone_key'] = 'exile'
+        new_event.payload['redirected_to_exile'] = True
+        return new_event
+
+    return make_replacement_effect(
+        obj,
+        event_filter=gy_filter,
+        replace_fn=to_exile_with_dream,
+        duration='permanent',
+    )
 
 
 GOLIATH_DAYDREAMER = make_creature(
@@ -8082,11 +8121,38 @@ PREEMINENT_CAPTAIN = make_creature(
     setup_interceptors=preeminent_captain_setup
 )
 
+def pollen_lullaby_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Prevent all combat damage that would be dealt this turn.
+
+    Replacement effect (end_of_turn duration): zero out every combat DAMAGE
+    event. The clash-based "don't untap" rider is outcome-dependent and is not
+    modeled here.
+    """
+    def combat_damage_filter(event: Event, st: GameState) -> bool:
+        return (event.type == EventType.DAMAGE
+                and bool(event.payload.get('is_combat'))
+                and event.payload.get('amount', 0) > 0)
+
+    def prevent(event: Event, st: GameState) -> Event:
+        new_event = event.copy()
+        new_event.payload['amount'] = 0
+        new_event.payload['_prevented_by'] = obj.id
+        return new_event
+
+    return make_replacement_effect(
+        obj,
+        event_filter=combat_damage_filter,
+        replace_fn=prevent,
+        duration='end_of_turn',
+    )
+
+
 POLLEN_LULLABY = make_instant(
     name="Pollen Lullaby",
     mana_cost="{1}{W}",
     colors={Color.WHITE},
-    text="Prevent all combat damage that would be dealt this turn. Clash with an opponent. If you win, creatures that player controls don't untap during their next untap step."
+    text="Prevent all combat damage that would be dealt this turn. Clash with an opponent. If you win, creatures that player controls don't untap during their next untap step.",
+    setup_interceptors=pollen_lullaby_setup
 )
 
 # Blue Cards
