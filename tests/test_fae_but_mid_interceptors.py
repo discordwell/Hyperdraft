@@ -147,9 +147,8 @@ def _new_game():
 
 
 SKIPPED_CARDS = {
-    "Goldmeadow Nomad": "graveyard-activated ability (structural; no battlefield interceptor)",
     "Evershrike's Gift": "aura static + death trigger needs an attached creature",
-    "Timid Shieldbearer": "activated ability (can-attack grant); no triggered interceptor",
+    "Timid Shieldbearer": "activated 'can attack as though it didn't have defender' — combat._can_attack hard-checks the defender keyword with no override marker/event (engine gap, mirrors EOE/Tarkir/Avatar printings)",
     "Morcant's Eyes": "aura static (enchant creature) needs an attached creature",
     "Champion of the Path": "grants a triggered ability to OTHER creatures (static; setup returns [])",
     "Chitinous Graspling": "keyword-only (Changeling/Reach); setup returns [] — vanilla-equivalent",
@@ -175,7 +174,6 @@ SKIPPED_CARDS = {
     'Demigod of Revenge': 'cast-time graveyard recursion (return all copies; resolves before ETB; structural)',
     'Earwig Squad': 'prowl-gated ETB (search+exile only when prowl cost paid; alt-cost dependent)',
     'Gathering Stone': 'choose-a-type cost-reducer / mana on ETB (structural; no content event)',
-    'Glen Elendra Archmage': 'activated sacrifice ability (structural; no triggered/static interceptor)',
     'Kinbinding': 'dynamic lord +X/+X where X = creatures entered under your control this turn — no per-turn-entry-count helper/precedent exists',
     'Mirrormind Crown': 'equipment: grants statics/abilities to the held creature (needs an attached host)',
     'Mistbind Clique': 'champion mechanic (exile-on-ETB + return-on-leave; structural)',
@@ -190,7 +188,7 @@ SKIPPED_CARDS = {
     'Sower of Temptation': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Tattermunge Maniac': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Vendilion Clique': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Vexing Shusher': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
+    'Vexing Shusher': "{R/G}: Target spell can't be countered — StackItem.can_be_countered is set at push time with no MAKE_UNCOUNTERABLE event/marker the engine consumes (engine gap; no content event to fire)",
     'Vinebred Brawler': 'structural / activated / replacement effect not expressible via a canonical trigger',
 }
 
@@ -2874,6 +2872,44 @@ def test_card_gristle_glutton():
         f"should then draw a card, got {[e.type.name for e in resolve]}")
 
 
+def test_card_glen_elendra_archmage():
+    """Glen Elendra Archmage: {U}, Sacrifice Glen Elendra Archmage: Counter target noncreature spell."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Glen Elendra Archmage")
+    abils = getattr(obj.state, 'activated_abilities', None) or []
+    assert abils, "Glen Elendra Archmage should register an activated counterspell ability"
+    spell = _push_spell(game, p2, 'Opp Sorcery', mana_cost='{1}{R}',
+                        types={CardType.SORCERY}, colors={Color.RED})
+    ab = abils[0]
+    effect_fn = ab['effect_fn'] if isinstance(ab, dict) else ab.effect_fn
+    evs = effect_fn(obj, game.state, []) or []
+    assert any(e.type == EventType.COUNTER_SPELL and e.payload.get('spell_id') == spell.id
+               for e in evs), (
+        f"activated ability should counter the noncreature spell, got {[e.type.name for e in evs]}")
+
+
+def test_card_goldmeadow_nomad():
+    """Goldmeadow Nomad: {W}, Exile this card from your graveyard: Create a 1/1 green and white Kithkin creature token."""
+    game, p1, p2 = _new_game()
+    card_def = FAE_BUT_MID_CARDS["Goldmeadow Nomad"]
+    obj = game.create_object(name="Goldmeadow Nomad", owner_id=p1.id, zone=ZoneType.HAND,
+                             characteristics=card_def.characteristics, card_def=None)
+    obj.card_def = card_def
+    # Move to graveyard so setup_in_graveyard registers the activated ability.
+    game.emit(Event(type=EventType.ZONE_CHANGE,
+                    payload={'object_id': obj.id, 'from_zone': f'hand_{p1.id}',
+                             'to_zone': f'graveyard_{p1.id}', 'to_zone_type': ZoneType.GRAVEYARD}))
+    abils = getattr(obj.state, 'activated_abilities', None) or []
+    assert abils, "Goldmeadow Nomad should register a graveyard-activated ability"
+    ab = abils[0]
+    effect_fn = ab['effect_fn'] if isinstance(ab, dict) else ab.effect_fn
+    evs = effect_fn(obj, game.state, []) or []
+    assert any(e.type == EventType.EXILE for e in evs), (
+        f"should exile this card from the graveyard, got {[e.type.name for e in evs]}")
+    assert any(e.type == EventType.OBJECT_CREATED for e in evs), (
+        f"should create a Kithkin token, got {[e.type.name for e in evs]}")
+
+
 # === Phase A Batch A tests ===
 def test_card_heap_doll():
     """Heap Doll: Sacrifice Heap Doll: Exile target card from a graveyard."""
@@ -3768,6 +3804,7 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     # --- Re-exam batch: creature activated abilities ---
     test_card_surly_farrier, test_card_safewright_cavalry, test_card_flame_chain_mauler,
     test_card_bre_of_clan_stoutarm, test_card_gristle_glutton,
+    test_card_glen_elendra_archmage, test_card_goldmeadow_nomad,
     # --- Phase A Batch A (activated / mana) ---
     test_card_heap_doll, test_card_scarblade_elite, test_card_scarblade_scout,
     test_card_rhys_the_redeemed, test_card_twilight_diviner, test_card_brion_stoutarm,

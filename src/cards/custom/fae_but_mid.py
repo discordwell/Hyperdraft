@@ -1114,7 +1114,33 @@ GALLANT_FOWLKNIGHT = make_creature(
 
 
 def goldmeadow_nomad_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Activated ability from graveyard - handled by graveyard ability system
+    # On the battlefield this card is a vanilla 1/2 Kithkin Scout; its only
+    # ability is graveyard-activated (see goldmeadow_nomad_gy_setup).
+    return []
+
+
+def goldmeadow_nomad_gy_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{W}, Exile this card from your graveyard: Create a 1/1 green and white Kithkin
+    creature token. Activate only as a sorcery."""
+    def _effect(o: GameObject, st: GameState, targets) -> list[Event]:
+        if o.zone != ZoneType.GRAVEYARD:
+            return []
+        return [
+            Event(type=EventType.EXILE, payload={'object_id': o.id},
+                  source=o.id, controller=o.controller),
+            Event(type=EventType.OBJECT_CREATED,
+                  payload={'name': 'Kithkin Token', 'controller': o.controller,
+                           'owner': o.controller, 'to_zone_type': ZoneType.BATTLEFIELD,
+                           'types': {CardType.CREATURE}, 'subtypes': {'Kithkin'},
+                           'colors': {Color.GREEN, Color.WHITE},
+                           'power': 1, 'toughness': 1, 'is_token': True},
+                  source=o.id, controller=o.controller),
+        ]
+    make_activated_ability(
+        obj, cost="{W}", effect_fn=_effect,
+        description="Exile from graveyard: Create a 1/1 GW Kithkin token",
+        sorcery_speed=True,
+    )
     return []
 
 
@@ -1128,6 +1154,7 @@ GOLDMEADOW_NOMAD = make_creature(
     text="{W}, Exile this card from your graveyard: Create a 1/1 green and white Kithkin creature token. Activate only as a sorcery.",
     setup_interceptors=goldmeadow_nomad_setup
 )
+GOLDMEADOW_NOMAD.setup_in_graveyard = goldmeadow_nomad_gy_setup
 
 
 # =============================================================================
@@ -7012,6 +7039,46 @@ DEMIGOD_OF_REVENGE = make_creature(
 )
 
 # Glen Elendra Archmage - {3}{U} Creature
+def glen_elendra_archmage_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{U}, Sacrifice Glen Elendra Archmage: Counter target noncreature spell.
+
+    (Persist is a death-recursion rider — engine gap for the return-with-counter
+    half; the canonical activated ability is the targeted counterspell, wired to
+    the Foundations CANCEL mechanic exactly like Glen Elendra Guardian.)"""
+    def _counter_noncreature(o, st, targets):
+        victim = None
+        if targets:
+            tid = getattr(targets[0], 'id', None) or getattr(targets[0], 'object_id', None)
+            cand = st.objects.get(tid) if tid else None
+            if cand is not None and cand.zone == ZoneType.STACK:
+                victim = cand
+        if victim is None:
+            victim = _victim_spell_on_stack(
+                "Glen Elendra Archmage", o.controller, st,
+                predicate=lambda s: CardType.CREATURE not in s.characteristics.types)
+        if victim is None:
+            return []
+        return [
+            Event(type=EventType.COUNTER_SPELL,
+                  payload={'spell_id': victim.id, 'object_id': victim.id,
+                           'target': victim.id}, source=o.id),
+            Event(type=EventType.ZONE_CHANGE,
+                  payload={'object_id': victim.id, 'from_zone': 'stack',
+                           'to_zone': f'graveyard_{victim.owner}',
+                           'to_zone_type': ZoneType.GRAVEYARD,
+                           'reason': 'countered'}, source=o.id),
+        ]
+    make_activated_ability(
+        obj,
+        cost="{U}, Sacrifice Glen Elendra Archmage",
+        effect_fn=_counter_noncreature,
+        description="Counter target noncreature spell",
+        targets_required=1,
+        target_kind="spell",
+    )
+    return []
+
+
 GLEN_ELENDRA_ARCHMAGE = make_creature(
     name="Glen Elendra Archmage",
     power=2,
@@ -7019,7 +7086,8 @@ GLEN_ELENDRA_ARCHMAGE = make_creature(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Faerie", "Wizard"},
-    text="Flying. {U}, Sacrifice Glen Elendra Archmage: Counter target noncreature spell. Persist."
+    text="Flying. {U}, Sacrifice Glen Elendra Archmage: Counter target noncreature spell. Persist.",
+    setup_interceptors=glen_elendra_archmage_setup
 )
 
 # Stillmoon Cavalier - {1}{W/B}{W/B} Creature
