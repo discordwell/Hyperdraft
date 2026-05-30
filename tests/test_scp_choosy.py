@@ -655,6 +655,89 @@ def test_wurm_research_test_tames_via_engine():
     assert scp._effective_hazard(an) < haz0, "taming did not reduce the wurm's hazard"
 
 
+def _bf_contain_staff(game, player, power=9):
+    cd = scp.make_scp_card("Containment Crew", CardType.SCP_PERSONNEL, text="", skills={"contain": power})
+    o = game.create_object(name=cd.name, owner_id=player.id, zone=ZoneType.BATTLEFIELD,
+                           characteristics=cd.characteristics, card_def=cd)
+    o.controller = player.id
+    o.state.scp_status = "active"
+    game.state.scp_personnel.setdefault(player.id, []).append(o.id)
+    return o
+
+
+def test_spark_containment_contain_bumps_clearance():
+    """Wiring regression: a successful contain bumps clearance by the controller's
+    active scp_spark_containment total (apply_spark_containment had zero callers)."""
+    game, p1, p2 = _setup()
+    sp = next(c for c in SCP_CARDS.values()
+              if int(getattr(c, "scp_spark_containment", 0) or 0) >= 1
+              and CardType.SCP_PERSONNEL in c.characteristics.types)
+    so = game.create_object(name=sp.name, owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+                            characteristics=sp.characteristics, card_def=sp)
+    so.controller = p1.id
+    so.state.scp_status = "active"
+    game.state.scp_personnel.setdefault(p1.id, []).append(so.id)
+    anom = scp.make_scp_card("Easy Anomaly", CardType.SCP_ANOMALY, text="", hazard=1, containment=1)
+    an = game.create_object(name=anom.name, owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+                            characteristics=anom.characteristics, card_def=anom)
+    an.controller = p1.id
+    an.state.scp_status = "active"
+    game.state.scp_anomalies.setdefault(p1.id, []).append(an.id)
+    _bf_contain_staff(game, p1)
+    clr0 = int(scp.site(game.state, p1.id).get("clearance", 0) or 0)
+    cs = game.state.scp_personnel[p1.id][-1]
+    ok, msg, _ev = scp.contain_anomaly(game, p1.id, an.id, [cs])
+    assert ok, msg
+    assert int(scp.site(game.state, p1.id)["clearance"]) > clr0, \
+        "spark containment did not bump clearance (apply_spark_containment unwired)"
+
+
+def test_leyline_saturation_open_drops_opposing_suppressed():
+    """Wiring regression: opening a non-anomaly dossier drops scp_suppressed on
+    opposing active Leyline anomalies (apply_leyline_saturation had zero callers)."""
+    game, p1, p2 = _setup()
+    ley = next(c for c in SCP_CARDS.values() if int(getattr(c, "scp_leyline_saturation", 0) or 0) >= 1)
+    an = game.create_object(name=ley.name, owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+                            characteristics=ley.characteristics, card_def=ley)
+    an.controller = p1.id
+    an.state.scp_status = "active"
+    game.state.scp_anomalies.setdefault(p1.id, []).append(an.id)
+    sup0 = int(getattr(an.state, "scp_suppressed", 0) or 0)
+    proc = next(c for c in SCP_CARDS.values()
+                if CardType.SCP_PROCEDURE in c.characteristics.types
+                and int(getattr(c, "scp_red_tape", 0) or 0) == 0)
+    pc = game.create_object(name=proc.name, owner_id=p2.id, zone=ZoneType.HAND,
+                            characteristics=proc.characteristics, card_def=proc)
+    pc.controller = p2.id
+    ok, msg, _ev = scp.open_dossier(game, p2.id, pc.id)
+    assert ok, msg
+    assert int(getattr(an.state, "scp_suppressed", 0) or 0) < sup0, \
+        "leyline saturation did not drop opposing suppressed (apply_leyline_saturation unwired)"
+
+
+def test_planar_rift_contain_fills_rift_window():
+    """Wiring regression: containing a Planar Rift anomaly fills the rift_window
+    shelf (apply_planar_rift had zero callers — the rift engine was dead)."""
+    game, p1, p2 = _setup()
+    rift = next(c for c in SCP_CARDS.values() if int(getattr(c, "scp_planar_rift", 0) or 0) >= 1)
+    lc = SCP_CARDS["Junior Researcher"]
+    for _ in range(4):
+        game.create_object(name=lc.name, owner_id=p1.id, zone=ZoneType.LIBRARY,
+                           characteristics=lc.characteristics, card_def=lc)
+    an = game.create_object(name=rift.name, owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+                            characteristics=rift.characteristics, card_def=rift)
+    an.controller = p1.id
+    an.state.scp_status = "active"
+    game.state.scp_anomalies.setdefault(p1.id, []).append(an.id)
+    _bf_contain_staff(game, p1)
+    cs = game.state.scp_personnel[p1.id][-1]
+    win0 = len(scp.site(game.state, p1.id).get("rift_window", []) or [])
+    ok, msg, _ev = scp.contain_anomaly(game, p1.id, an.id, [cs])
+    assert ok, msg
+    assert len(scp.site(game.state, p1.id).get("rift_window", []) or []) > win0, \
+        "planar rift did not fill the rift_window (apply_planar_rift unwired)"
+
+
 # --------------------------------------------------------------------------- #
 # Wave A #2: MNR — Retrograde Erasure modal bomb + Mnestic Wake migration
 # --------------------------------------------------------------------------- #

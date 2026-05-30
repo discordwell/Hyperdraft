@@ -480,6 +480,12 @@ def open_dossier(
     # whether it lands sealed / pending / active. Sealed dossiers have skipped
     # the reveal path, so this is the only hook they fire.
     events.extend(_fire_card_hook(game, obj, "scp_on_open_dossier", state))
+    # Leyline Saturation (Leyline Anomaly / Spirit Archive strains): opening a
+    # non-anomaly dossier drops scp_suppressed on each opposing active Leyline
+    # anomaly (negative suppression = bonus hazard). apply_leyline_saturation
+    # existed but had ZERO callers — only its end-of-turn cleanup half was wired,
+    # so the ambient-hazard plan did nothing. It self-gates on the opened type.
+    events.extend(apply_leyline_saturation(game, player_id, obj))
     events.extend(check_scp_loss(game))
     return True, "Dossier opened", events
 
@@ -872,6 +878,15 @@ def contain_anomaly(game, player_id: str, anomaly_id: str, staff_ids: list[str],
             events.extend(_fire_static_trigger(
                 game, "scp_on_dragon_contain", player_id, state=state,
             ))
+        # Planar Rift (Multiverse Rift): containing a scp_planar_rift anomaly
+        # exiles X library cards onto the rift-window shelf for cascade plays.
+        # apply_planar_rift existed but had ZERO callers — the rift engine was dead.
+        if int(getattr(anomaly.card_def, "scp_planar_rift", 0) or 0) > 0:
+            events.extend(apply_planar_rift(game, player_id, anomaly))
+        # Spark Containment (Planeswalker Detention): each successful contain
+        # bumps clearance by the controller's active scp_spark_containment total.
+        # apply_spark_containment also had ZERO callers (no-op when total is 0).
+        events.extend(apply_spark_containment(game, player_id))
     else:
         site(state, player_id)["breach"] += max(1, _effective_hazard(anomaly))
         site(state, player_id)["secrecy"] -= 1

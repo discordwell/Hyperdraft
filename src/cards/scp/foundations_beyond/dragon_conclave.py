@@ -1077,9 +1077,11 @@ def _audit_chamber_on_contain(obj: GameObject, state: GameState) -> list[Event]:
 # that the engine can register via scp_audit_chamber_hook. The engine's
 # SCP_CONTAINED handler checks for active facilities with this attribute
 # and fires it.
-# TODO: engine does not yet have a facility scp_on_dragon_contain hook scan.
-# When it ships, wire via: _DRAGONLORD_AUDIT_CHAMBER.scp_on_dragon_contain = _audit_chamber_on_contain
-_DRAGONLORD_AUDIT_CHAMBER.scp_facility_on_dragon_contain = _audit_chamber_on_contain
+# contain_anomaly fires scp_on_dragon_contain via _fire_static_trigger, which
+# DOES scan facilities — so the facility just has to store the hook under the
+# canonical name. (It was stored as scp_facility_on_dragon_contain, which the
+# engine never reads, so the Audit Chamber's on-contain payoff never fired.)
+_DRAGONLORD_AUDIT_CHAMBER.scp_on_dragon_contain = _audit_chamber_on_contain
 
 
 # ---------------------------------------------------------------------------
