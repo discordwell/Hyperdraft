@@ -177,9 +177,7 @@ SKIPPED_CARDS = {
     "Painter's Servant": 'static lock / name-or-color-choice replacement effect (structural)',
     'Rimefire Torque': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Runed Halo': 'static lock / name-or-color-choice replacement effect (structural)',
-    'Sensation Gorger': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Shimmerwilds Growth': 'PHASE B: aura grants the enchanted LAND a "{T}: Add any color" mana ability — mana abilities are text-parsed by the priority engine, not registerable via the granted-ability API',
-    'Sower of Temptation': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Tattermunge Maniac': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Vendilion Clique': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Vexing Shusher': "{R/G}: Target spell can't be countered — StackItem.can_be_countered is set at push time with no MAKE_UNCOUNTERABLE event/marker the engine consumes (engine gap; no content event to fire)",
@@ -3020,6 +3018,39 @@ def test_card_overbeing_of_myth():
     assert drew, f"should draw an additional card at the draw step, got {[e.type.name for e in game.state.event_log[log0:]]}"
 
 
+def test_card_sower_of_temptation():
+    """Sower of Temptation: When Sower of Temptation enters, gain control of target
+    creature for as long as Sower of Temptation remains on the battlefield."""
+    game, p1, p2 = _new_game()
+    enemy = _spawn(game, p2, power=3, toughness=3, name='Stolen Creature')
+    log0 = len(game.state.event_log)
+    create_creature_on_battlefield(game, p1, "Sower of Temptation")
+    gc = [e for e in game.state.event_log[log0:]
+          if e.type == EventType.GAIN_CONTROL and e.payload.get('object_id') == enemy.id
+          and e.payload.get('new_controller') == p1.id]
+    assert gc, (
+        "ETB should gain control of a target creature; got "
+        f"{[(e.type.name, e.payload.get('new_controller')) for e in game.state.event_log[log0:] if e.type == EventType.GAIN_CONTROL]}")
+
+
+def test_card_sensation_gorger():
+    """Sensation Gorger: Kinship ... each player discards their hand, then draws four cards."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    obj = create_creature_on_battlefield(game, p1, "Sensation Gorger")
+    for i in range(2):
+        game.create_object(name=f'Hand Card {i}', owner_id=p1.id, zone=ZoneType.HAND,
+                           characteristics=Characteristics(types={CardType.SORCERY}), card_def=None)
+    log0 = len(game.state.event_log)
+    game.emit(Event(type=EventType.PHASE_START, payload={'phase': 'upkeep', 'active_player': p1.id}))
+    new = game.state.event_log[log0:]
+    assert any(e.type == EventType.DISCARD for e in new), (
+        f"each player should discard their hand, got {[e.type.name for e in new]}")
+    assert any(e.type == EventType.DRAW and e.payload.get('count') == 4 for e in new), (
+        f"each player should then draw four cards, got "
+        f"{[(e.type.name, e.payload.get('count')) for e in new if e.type == EventType.DRAW]}")
+
+
 # === Phase A Batch A tests ===
 def test_card_heap_doll():
     """Heap Doll: Sacrifice Heap Doll: Exile target card from a graveyard."""
@@ -3921,6 +3952,8 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_champion_of_the_path,
     # --- Re-exam batch: spell-cast untap + characteristic-defining P/T ---
     test_card_nettle_sentinel, test_card_overbeing_of_myth,
+    # --- Re-exam batch: ETB gain-control + Kinship payoff ---
+    test_card_sower_of_temptation, test_card_sensation_gorger,
     # --- Phase A Batch A (activated / mana) ---
     test_card_heap_doll, test_card_scarblade_elite, test_card_scarblade_scout,
     test_card_rhys_the_redeemed, test_card_twilight_diviner, test_card_brion_stoutarm,

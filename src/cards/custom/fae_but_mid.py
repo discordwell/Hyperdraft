@@ -7529,6 +7529,23 @@ VENDILION_CLIQUE = make_creature(
     text="Flash. Flying. When Vendilion Clique enters, look at target player's hand. You may choose a nonland card from it. If you do, that player reveals the chosen card, puts it on the bottom of their library, then draws a card."
 )
 
+def sower_of_temptation_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """When Sower of Temptation enters, gain control of target creature for as long as
+    Sower of Temptation remains on the battlefield.
+
+    Emits GAIN_CONTROL on ETB (duration tied to the source's presence), mirroring the
+    established duskmourn GAIN_CONTROL ETB pattern."""
+    def etb_effect(event: Event, st: GameState) -> list[Event]:
+        target = find_opponent_creature(obj, st)
+        if not target:
+            return []
+        return [Event(type=EventType.GAIN_CONTROL,
+                      payload={'object_id': target, 'new_controller': obj.controller,
+                               'duration': 'while_source_on_battlefield', 'source': obj.id},
+                      source=obj.id, controller=obj.controller)]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
 SOWER_OF_TEMPTATION = make_creature(
     name="Sower of Temptation",
     power=2,
@@ -7536,7 +7553,8 @@ SOWER_OF_TEMPTATION = make_creature(
     mana_cost="{2}{U}{U}",
     colors={Color.BLUE},
     subtypes={"Faerie", "Wizard"},
-    text="Flying. When Sower of Temptation enters, gain control of target creature for as long as Sower of Temptation remains on the battlefield."
+    text="Flying. When Sower of Temptation enters, gain control of target creature for as long as Sower of Temptation remains on the battlefield.",
+    setup_interceptors=sower_of_temptation_setup
 )
 
 MISTBIND_CLIQUE = make_creature(
@@ -8555,6 +8573,30 @@ WORT_THE_RAIDMOTHER = make_creature(
     setup_interceptors=wort_the_raidmother_setup
 )
 
+def sensation_gorger_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Kinship — At the beginning of your upkeep, ... each player discards their hand,
+    then draws four cards.
+
+    The Kinship reveal-condition is a 'may' gated on a top-of-library type match the
+    engine can't model as a deterministic choice, so (like Wolf-Skull Shaman) the
+    payoff is wired to the upkeep trigger: each player discards their hand, then draws
+    four cards."""
+    def _effect(event: Event, st: GameState) -> list[Event]:
+        events: list[Event] = []
+        for pid in st.players.keys():
+            hand = st.zones.get(f'hand_{pid}')
+            count = len(hand.objects) if hand else 0
+            if count > 0:
+                events.append(Event(type=EventType.DISCARD,
+                                    payload={'player': pid, 'count': count, 'discard_hand': True},
+                                    source=obj.id, controller=obj.controller))
+            events.append(Event(type=EventType.DRAW,
+                                payload={'player': pid, 'count': 4},
+                                source=obj.id, controller=obj.controller))
+        return events
+    return [make_upkeep_trigger(obj, _effect)]
+
+
 SENSATION_GORGER = make_creature(
     name="Sensation Gorger",
     power=2,
@@ -8562,7 +8604,8 @@ SENSATION_GORGER = make_creature(
     mana_cost="{1}{R}{R}",
     colors={Color.RED},
     subtypes={"Goblin", "Shaman"},
-    text="Kinship — At the beginning of your upkeep, you may look at the top card of your library. If it shares a creature type with Sensation Gorger, you may reveal it. If you do, each player discards their hand, then draws four cards."
+    text="Kinship — At the beginning of your upkeep, you may look at the top card of your library. If it shares a creature type with Sensation Gorger, you may reveal it. If you do, each player discards their hand, then draws four cards.",
+    setup_interceptors=sensation_gorger_setup
 )
 
 # Green Cards
