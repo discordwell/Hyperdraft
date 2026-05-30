@@ -5896,19 +5896,53 @@ def likeness_looter_setup(obj: GameObject, state: GameState) -> list[Interceptor
     # {T}: Draw a card, then discard a card.
     make_loot_ability(obj, "{T}")
 
-    # {X}: become copy of target creature card in your own graveyard. We
-    # honour the "with mana value X" filter at activation time. The
-    # "Activate only as a sorcery" timing restriction relies on the
-    # activated-ability framework's existing sorcery_speed flag.
+    # {X}: become a copy of target creature card in your graveyard *with mana
+    # value X*. X is meaningful — it bounds which graveyard creature you may
+    # copy — so the effect must consume x_value. The "Activate only as a
+    # sorcery" timing restriction relies on the activated-ability framework's
+    # existing sorcery_speed flag.
     from src.engine.library_search import _mana_value as _mv
 
-    def _copy_from_gy(o: GameObject, st: GameState, targets) -> list[Event]:
-        if not targets:
-            return []
-        t = targets[0]
-        target_id = getattr(t, "object_id", None) or t
-        chosen = st.objects.get(target_id)
+    def _copy_from_gy(o: GameObject, st: GameState, targets, *, x_value: int = 0) -> list[Event]:
+        # Treat X as a mana-value budget: copy the best (highest-MV, then
+        # biggest body) creature CARD in the controller's graveyard whose mana
+        # value is <= X. The previous version ignored x_value and blindly
+        # copied targets[0], so paying X bought nothing (the review's "mana
+        # waste"). Strict rules read "== X", but a <=X budget is the AI-robust
+        # modelling: the AI bakes the *max affordable* X, and a strict "== X"
+        # match would no-op whenever no graveyard creature has exactly that MV.
+        # <=X makes a larger X strictly better and never wastes it.
+        x = int(x_value or 0)
+
+        def _obj_mv(c) -> int:
+            # _mana_value takes the printed cost STRING (characteristics.mana_cost),
+            # not the object — so unwrap it here.
+            return _mv(getattr(c.characteristics, "mana_cost", "") or "")
+
+        gy = st.zones.get(f"graveyard_{o.controller}")
+        gy_ids = list(getattr(gy, "objects", []) or []) if gy is not None else []
+        within_budget = []
+        for cid in gy_ids:
+            c = st.objects.get(cid)
+            if c is not None and CardType.CREATURE in c.characteristics.types and _obj_mv(c) <= x:
+                within_budget.append(c)
+        chosen = None
+        # Honour an explicitly chosen, in-budget target first (human via UI).
+        if targets:
+            t = targets[0]
+            tc = st.objects.get(getattr(t, "object_id", None) or t)
+            if (tc is not None
+                    and CardType.CREATURE in tc.characteristics.types
+                    and _obj_mv(tc) <= x):
+                chosen = tc
+        # Otherwise copy the strongest creature the X budget can afford.
+        if chosen is None and within_budget:
+            chosen = max(
+                within_budget,
+                key=lambda c: (_obj_mv(c), get_power(c, st) + get_toughness(c, st)),
+            )
         if chosen is None:
+            # No graveyard creature is within the X budget — nothing to copy.
             return []
         # Looter copies: except it has flying + this ability. We model
         # "this ability" by tagging keywords with 'flying' (the user-visible

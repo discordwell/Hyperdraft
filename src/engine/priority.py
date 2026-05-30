@@ -2106,17 +2106,25 @@ class PrioritySystem:
     def _max_affordable_x(
         self,
         ability,
+        obj,
         player_id: str,
         effective_cost,
+        *,
+        is_active: bool = True,
+        is_main: bool = True,
+        stack_empty: bool = True,
     ) -> int:
         """Largest X an X-cost activated ability can actually pay for now.
 
-        Probes the SAME affordability check the rest of the engine uses
-        (``mana_system.can_cast`` with a candidate ``x_value``) from an upper
-        bound downward, so the returned X is guaranteed payable by the exact
-        check applied at activation time — never an overcount that would fail
-        to pay and re-loop. Returns 0 when there is no mana system, no {X} in
-        the cost, or nothing beyond the fixed cost is affordable.
+        Probes the FULL activation-affordability check the engine applies at
+        activation time (``can_pay_activation`` with a candidate ``x_value``)
+        from an upper bound downward — so the returned X is payable by mana
+        *and* by any non-mana X-gated cost (e.g. Winter, Cursed Rider's
+        "Exile X artifact cards from your graveyard"). Probing mana alone
+        (``can_cast``) could bake an X the non-mana gate forbids, producing a
+        dead offer the AI can't actually pay. Returns 0 when there is no mana
+        system, no {X} in the cost, or nothing beyond the fixed cost is
+        affordable.
         """
         ms = self.mana_system
         if ms is None:
@@ -2128,11 +2136,11 @@ class PrioritySystem:
         if x_count < 1:
             return 0
         # Upper bound on X = all mana the player could spend: current pool +
-        # potential untapped-land mana, because can_cast (below) draws on both.
+        # potential untapped-land mana (the mana check below draws on both).
         # get_available_mana over-counts dual lands, which is harmless — it only
-        # seeds the probe; can_cast is authoritative (it also enforces x_count
-        # and colour requirements). Cap so a pathological optimistic count stays
-        # cheap (<=30 can_cast calls).
+        # seeds the probe; can_pay_activation (below) is authoritative (it
+        # enforces mana, x_count, colour AND any non-mana X-gated cost). Cap so
+        # a pathological optimistic count stays cheap (<=30 checks).
         upper = 0
         try:
             avail = ms.get_available_mana(player_id)
@@ -2143,9 +2151,21 @@ class PrioritySystem:
             upper += int(ms.get_pool(player_id).total())
         except Exception:
             pass
+        from .activated import can_pay_activation
         for candidate in range(max(0, min(upper, 30)), 0, -1):
             try:
-                if ms.can_cast(player_id, cost, candidate):
+                # Full check: mana (via can_cast, inside) PLUS non-mana X-gated
+                # costs (exile-X-from-graveyard, etc.). Strictly tighter than
+                # can_cast alone, so the baked X is always fully payable.
+                if can_pay_activation(
+                    ability, obj, self.state, player_id,
+                    mana_system=ms,
+                    is_active_player=is_active,
+                    is_main_phase=is_main,
+                    stack_empty=stack_empty,
+                    x_value=candidate,
+                    effective_mana_cost=cost,
+                ):
                     return candidate
             except Exception:
                 continue
@@ -2218,7 +2238,8 @@ class PrioritySystem:
             x_for_action = 0
             if getattr(ability, "has_x_cost", False) and self.is_ai_player(player_id):
                 x_for_action = self._max_affordable_x(
-                    ability, player_id, effective_cost,
+                    ability, obj, player_id, effective_cost,
+                    is_active=is_active, is_main=is_main, stack_empty=stack_empty,
                 )
                 if x_for_action < 1:
                     # Only an unproductive free X=0 activation is available —
@@ -2268,7 +2289,8 @@ class PrioritySystem:
             x_for_action = 0
             if getattr(mirror_view, "has_x_cost", False) and self.is_ai_player(player_id):
                 x_for_action = self._max_affordable_x(
-                    mirror_view, player_id, effective_cost,
+                    mirror_view, obj, player_id, effective_cost,
+                    is_active=is_active, is_main=is_main, stack_empty=stack_empty,
                 )
                 if x_for_action < 1:
                     continue
