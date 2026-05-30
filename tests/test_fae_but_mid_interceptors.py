@@ -167,7 +167,6 @@ SKIPPED_CARDS = {
     'Mirrormind Crown': "equipment token-creation replacement (first tokens each turn become copies of equipped creature) — no replacement hook that rewrites OBJECT_CREATED/CREATE_TOKEN into copy tokens (engine gap)",
     'Nettlevine Blight': 'PHASE B: aura grants the enchanted permanent an end-step "sacrifice then re-attach to a permanent you control" triggered ability — needs a granted self-moving aura trigger',
     "Painter's Servant": 'static lock / name-or-color-choice replacement effect (structural)',
-    'Rimefire Torque': "'As this artifact enters, choose a creature type' gates every clause (charge-counter accrual + copy-next-spell) on a chosen-type the engine can't model as a deterministic choice; copy-the-next-spell also has no engine support (engine gap)",
     'Runed Halo': "grants the PLAYER 'protection from a chosen card name'. targeting.py protection only covers color/type/everything ON OBJECTS via has_ability; there is no name-based protection, no GRANT_PROTECTION event, and _player_can_be_targeted is a hard-coded `return True` stub (players aren't GameObjects). Wiring needs engine work, which is out of scope for card-wiring.",
     'Shimmerwilds Growth': 'PHASE B: aura grants the enchanted LAND a "{T}: Add any color" mana ability — mana abilities are text-parsed by the priority engine, not registerable via the granted-ability API',
     'Vendilion Clique': "ETB 'look at target player's hand, you MAY choose a nonland card, put it on the bottom, they draw' — the effect is entirely contingent on inspecting the hand and choosing a specific card (a player decision the harness can't deterministically drive); only the trailing draw is a plain event (engine gap for the hand-choice-to-bottom interaction)",
@@ -4319,6 +4318,37 @@ def test_card_retched_wretch_no_counter_stays_dead():
         f"Retched Wretch without a -1/-1 counter should stay dead, in {obj.zone}"
 
 
+def test_card_rimefire_torque():
+    """Rimefire Torque: as it enters, choose a creature type; whenever a
+    permanent you control of the chosen type enters, put a charge counter on it.
+    Choose 'Goblin', then enter a Goblin and assert a charge accrues."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Rimefire Torque")
+    pc = game.state.pending_choice
+    assert pc is not None and pc.choice_type == "choose_creature_type", \
+        f"Rimefire Torque: expected a choose_creature_type choice, got {pc and pc.choice_type}"
+    ok, err, _ = game.submit_choice(pc.id, p1.id, ['Goblin'])
+    assert ok, f"Rimefire Torque: type choice submit failed: {err}"
+    assert getattr(obj.state, 'chosen_type', None) == 'Goblin', \
+        "Rimefire Torque: chosen type should be stored on obj.state"
+    # A Goblin you control enters -> charge counter.
+    _spawn(game, p1, subtypes={'Goblin'}, name='Gob')
+    assert obj.state.counters.get('charge', 0) >= 1, \
+        f"Rimefire Torque: a chosen-type permanent entering should add a charge counter (got {obj.state.counters.get('charge', 0)})"
+    _assert_emits(game, ['COUNTER_ADDED'], "Rimefire Torque")
+
+
+def test_card_rimefire_torque_wrong_type_no_charge():
+    """Rimefire Torque: a NON-chosen-type permanent entering adds no charge."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Rimefire Torque")
+    pc = game.state.pending_choice
+    game.submit_choice(pc.id, p1.id, ['Goblin'])
+    _spawn(game, p1, subtypes={'Merfolk'}, name='Fish')  # wrong type
+    assert obj.state.counters.get('charge', 0) == 0, \
+        "Rimefire Torque: a non-chosen-type permanent should not add a charge"
+
+
 # ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
@@ -4390,7 +4420,8 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_goatnap, test_card_the_aurora_cycle,
     # --- FINISH-TAIL batch (last feasible cards) ---
     test_card_chitinous_graspling, test_card_gangly_stompling,
-    test_card_retched_wretch, test_card_retched_wretch_no_counter_stays_dead]
+    test_card_retched_wretch, test_card_retched_wretch_no_counter_stays_dead,
+    test_card_rimefire_torque, test_card_rimefire_torque_wrong_type_no_charge]
 
 
 def _run():

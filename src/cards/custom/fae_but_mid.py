@@ -339,7 +339,76 @@ from src.cards.interceptor_helpers import (
     make_replacement_effect,
 )
 from src.cards.interceptor_helpers import becomes_creature
+from src.cards.interceptor_helpers import make_cost_reduction
 
+
+# =============================================================================
+# CHOOSE-A-TYPE helper ("As this permanent enters, choose a creature type.")
+# =============================================================================
+# Additive: the ETB sets ``state.pending_choice`` to a "choose_creature_type"
+# choice whose handler stores the picked type on ``obj.state.chosen_type``.
+# AI controllers resolve it inline (heuristic_pick = most-common owned subtype);
+# humans answer through the normal session flow. Gated effects (charge accrual,
+# cost reduction) read ``obj.state.chosen_type`` at trigger/query time.
+
+# Lorwyn-flavoured baseline so the choice always has options even on an empty
+# board. Chosen-type effects only matter once a creature of that type exists.
+_FBM_BASELINE_TYPES = [
+    "Kithkin", "Merfolk", "Faerie", "Goblin", "Elf", "Treefolk",
+    "Elemental", "Giant", "Shapeshifter", "Soldier",
+]
+
+
+def _fbm_type_options(obj: GameObject, state: GameState) -> list[str]:
+    """Distinct creature subtypes you control, then the Lorwyn baseline."""
+    seen: list[str] = []
+    for perm in state.objects.values():
+        if (perm.controller == obj.controller and
+                perm.zone == ZoneType.BATTLEFIELD and
+                CardType.CREATURE in perm.characteristics.types):
+            for st in sorted(perm.characteristics.subtypes):
+                if st not in seen:
+                    seen.append(st)
+    for st in _FBM_BASELINE_TYPES:
+        if st not in seen:
+            seen.append(st)
+    return seen
+
+
+def make_choose_type_etb(obj: GameObject):
+    """Return an ETB interceptor that asks the controller to choose a creature
+    type and stores it on ``obj.state.chosen_type``. Additive."""
+    from src.engine.pending_choice_helpers import create_choice_and_resolve
+
+    def _store_choice(choice, selected, st) -> list[Event]:
+        if selected:
+            pick = selected[0]
+            # selected may be an index (AI fallback [0]) or the type string.
+            if isinstance(pick, int):
+                opts = choice.options or []
+                pick = opts[pick] if 0 <= pick < len(opts) else None
+            if isinstance(pick, str):
+                obj.state.chosen_type = pick
+        return []
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        options = _fbm_type_options(obj, state)
+        if not options:
+            return []
+        return create_choice_and_resolve(
+            state,
+            choice_type="choose_creature_type",
+            player_id=obj.controller,
+            prompt="Choose a creature type",
+            options=options,
+            source_id=obj.id,
+            min_choices=1,
+            max_choices=1,
+            handler=_store_choice,
+            heuristic_pick=options[0],
+        )
+
+    return make_etb_trigger(obj, etb_effect)
 
 
 # =============================================================================
@@ -4172,10 +4241,42 @@ RIME_CHILL = make_instant(
 
 
 # Rimefire Torque - {1}{U} Artifact
+def rimefire_torque_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # As enters: choose a creature type (stored on obj.state.chosen_type).
+    # Whenever a permanent you control of the chosen type enters, put a charge
+    # counter on this artifact. ({T}, remove three charges: copy next spell —
+    # spell-copy is an engine gap, so only the charge accrual is wired.)
+    def chosen_enters_filter(event: Event, state: GameState, src: GameObject) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        chosen = getattr(src.state, 'chosen_type', None)
+        if not chosen:
+            return False
+        entering = state.objects.get(event.payload.get('object_id'))
+        if not entering or entering.controller != src.controller:
+            return False
+        return chosen in entering.characteristics.subtypes
+
+    def add_charge(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': 'charge', 'amount': 1},
+            source=obj.id,
+        )]
+
+    return [
+        make_choose_type_etb(obj),
+        make_etb_trigger(obj, add_charge, chosen_enters_filter),
+    ]
+
+
 RIMEFIRE_TORQUE = make_artifact(
     name="Rimefire Torque",
     mana_cost="{1}{U}",
-    text="As this artifact enters, choose a creature type. Whenever a permanent you control of the chosen type enters, put a charge counter on this artifact. {T}, Remove three charge counters: Copy the next instant or sorcery spell you cast this turn."
+    text="As this artifact enters, choose a creature type. Whenever a permanent you control of the chosen type enters, put a charge counter on this artifact. {T}, Remove three charge counters: Copy the next instant or sorcery spell you cast this turn.",
+    setup_interceptors=rimefire_torque_setup
 )
 
 
