@@ -6900,6 +6900,45 @@ def make_activated_ability(
     )
 
 
+def make_regenerate_ability(
+    obj: GameObject,
+    cost: str,
+    *,
+    description: str = "",
+):
+    """Register a ``"{cost}: Regenerate this"`` activated ability on ``obj``.
+
+    On activation (after the cost is paid by the activated-ability engine), the
+    effect installs a one-shot regeneration shield via
+    :func:`src.engine.replacements.make_regeneration_shield`: the next time this
+    permanent would be destroyed this turn, it is tapped, all damage is removed,
+    and it leaves combat instead. The shield is single-use and expires at end of
+    turn if unused.
+
+    ``cost`` is the full activation cost string, e.g. ``"{G}"`` (Wall of Roots-
+    style) or ``"{B/G}, Remove a -1/-1 counter from Deity of Scars"`` — the
+    activated-ability cost parser already understands mana, tap, sacrifice, and
+    counter-removal costs.
+
+    Use inside a ``setup_interceptors`` function; the setup should still return
+    ``[]`` (or whatever other interceptors it registers).
+    """
+    def regenerate_effect(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        from src.engine.replacements import make_regeneration_shield
+        make_regeneration_shield(o, st)
+        # The shield's own REGENERATE marker fires only when it later replaces a
+        # destroy; activating the ability just installs the shield, so we return
+        # no events here.
+        return []
+
+    return make_activated_ability(
+        obj,
+        cost=cost,
+        effect_fn=regenerate_effect,
+        description=description or f"{cost}: Regenerate this permanent",
+    )
+
+
 def make_exhaust_ability(
     obj: GameObject,
     cost: str,

@@ -148,6 +148,7 @@ class EventType(Enum):
 
     # Additional card-used events
     DESTROY = auto()                       # Destroy a permanent
+    REGENERATE = auto()                    # Regeneration shield replaced a destroy (tap + clear damage + leave combat)
     COUNTER = auto()                       # Counter a spell/ability
     COUNTER_SPELL = auto()                 # Alias for COUNTER (counter a spell)
     COUNTER_SPELL_UNLESS_PAY = auto()      # Alias (counter unless pay)

@@ -627,6 +627,100 @@ def make_graveyard_to_exile_replacer(
     return make_replacement_interceptor(source_obj, event_filter, transform)
 
 
+# ---------------------------------------------------------------------------
+# REGENERATION (CR 701.16)
+# ---------------------------------------------------------------------------
+#
+# "Regenerate <permanent>" sets up a one-shot replacement shield: the next time
+# that permanent *would be destroyed* this turn, instead tap it, remove all
+# damage marked on it, and remove it from combat. Regeneration replaces a
+# destruction event ONLY — it does not stop sacrifice, state-based zero-
+# toughness death, or "can't be regenerated" destruction. We model the shield
+# as a single-use PREVENT-priority interceptor: when an OBJECT_DESTROYED would
+# remove the permanent, the shield PREVENTs the move, mutates the object's state
+# in place (tap + clear damage + leave combat) so the SBA loop won't re-destroy
+# it, and consumes itself (uses_remaining=1).
+
+# OBJECT_DESTROYED reasons that regeneration does NOT replace. A destroy with
+# any of these reasons falls through the shield to its normal resolution.
+_REGEN_NON_REPLACEABLE_REASONS = frozenset({"sacrifice", "zero_toughness"})
+
+
+def make_regeneration_shield(target_obj: GameObject, state: GameState) -> Interceptor:
+    """Install a one-shot regeneration shield on ``target_obj``.
+
+    Builds, registers (on ``state.interceptors`` and ``target_obj.interceptor_ids``),
+    and returns a single-use PREVENT-priority interceptor. Call this from an
+    effect_fn / resolve where you have the live ``state`` (e.g. a "{cost}:
+    Regenerate this" activated ability). The interceptor:
+
+    * fires on ``OBJECT_DESTROYED`` whose ``object_id`` is this permanent,
+      while it is on the battlefield, when the destroy reason is a genuine
+      "destroy" (not sacrifice / zero-toughness);
+    * PREVENTs the destruction and, in the handler, taps the permanent, clears
+      ``damage``/``damage_marked``, and clears the ``attacking``/``blocking``
+      combat flags so the lethal-damage SBA won't immediately re-destroy it;
+    * emits a ``REGENERATE`` marker event as a side-effect for logs/observers;
+    * consumes itself after one use (``uses_remaining=1``), so a second
+      destruction the same turn kills the permanent unless another shield is up.
+
+    Additive discipline: only objects that have had a shield installed carry
+    this interceptor, so destroy/damage handling for every other permanent is
+    completely unchanged.
+    """
+    target_id = target_obj.id
+    interceptor_id = new_id()
+
+    def filter_fn(event: Event, st: GameState) -> bool:
+        if event.type != EventType.OBJECT_DESTROYED:
+            return False
+        if event.payload.get("object_id") != target_id:
+            return False
+        if event.payload.get("reason") in _REGEN_NON_REPLACEABLE_REASONS:
+            return False
+        src = st.objects.get(target_id)
+        return bool(src and src.zone == ZoneType.BATTLEFIELD)
+
+    def handler(event: Event, st: GameState) -> InterceptorResult:
+        obj = st.objects.get(target_id)
+        if obj is None:
+            return InterceptorResult(action=InterceptorAction.PASS)
+        # Tap, remove all damage, and remove from combat. Mutating state here
+        # (rather than only emitting events) guarantees the SBA's next pass
+        # sees damage == 0 so it won't re-destroy the regenerated permanent.
+        obj.state.tapped = True
+        obj.state.damage = 0
+        obj.state.damage_marked = 0
+        obj.state.attacking = False
+        obj.state.blocking = False
+        regen_event = Event(
+            type=EventType.REGENERATE,
+            payload={"object_id": target_id},
+            source=target_id,
+            controller=obj.controller,
+        )
+        return InterceptorResult(
+            action=InterceptorAction.PREVENT,
+            new_events=[regen_event],
+        )
+
+    interceptor = Interceptor(
+        id=interceptor_id,
+        source=target_id,
+        controller=target_obj.controller,
+        priority=InterceptorPriority.PREVENT,
+        filter=filter_fn,
+        handler=handler,
+        duration="end_of_turn",
+        uses_remaining=1,
+    )
+    interceptor.timestamp = state.next_timestamp()
+    state.interceptors[interceptor_id] = interceptor
+    if interceptor_id not in target_obj.interceptor_ids:
+        target_obj.interceptor_ids.append(interceptor_id)
+    return interceptor
+
+
 __all__ = [
     "make_replacement_interceptor",
     "make_life_gain_replacer",
@@ -637,5 +731,6 @@ __all__ = [
     "make_damage_doubler",
     "make_skip_to_graveyard_replacer",
     "make_graveyard_to_exile_replacer",
+    "make_regeneration_shield",
     "REPLACED_KEY",
 ]
