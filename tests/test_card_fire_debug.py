@@ -20,10 +20,18 @@ if __name__ != "__main__":
 
 from scripts.play.diagnose_card_fire import (
     _run_pokemon_diagnostic_game,
+    _run_scp_diagnostic_game,
     CardTelemetry,
     diagnose,
+    diagnose_scp,
 )
 
+
+# Seed the global RNG so the Pokemon probe (which uses random.shuffle for
+# library order + mulligans) is deterministic across runs — otherwise Voidmage's
+# draw is luck-dependent and Test 1/2 flake. The SCP probe seeds itself per game.
+import random
+random.seed(20260529)
 
 passed = 0
 failed = 0
@@ -228,6 +236,116 @@ check(
     ),
     f"patch was: {missing_patch[:120]}",
 )
+
+
+# =============================================================================
+# Test 4: SCP diagnose_scp decision tree (synthetic telemetry — deterministic)
+# =============================================================================
+
+print("\n=== Test 4: SCP diagnose_scp decision tree (synthetic) ===")
+
+
+def _scp_tele(**kw) -> CardTelemetry:
+    t = CardTelemetry(card_name="Synthetic SCP Card", games_run=3)
+    for k, v in kw.items():
+        setattr(t, k, v)
+    return t
+
+
+# Step 0 — not in any deck.
+s, v, p = diagnose_scp(_scp_tele(deck_count_p1=0, deck_count_p2=0))
+check("scp Step 0: not in deck -> FAIL",
+      v == "FAIL" and s[0].name.startswith("Step 0"), f"verdict {v}")
+
+# Step 1 — in deck but never drawn.
+s, v, p = diagnose_scp(_scp_tele(deck_count_p1=1, drawn_count=0))
+check("scp Step 1: never drawn -> FAIL",
+      v == "FAIL" and any(st.name.startswith("Step 1") and not st.passed for st in s),
+      f"verdict {v}")
+
+# Step 2 — drawn but never deployed (the deploy-race failure).
+s, v, p = diagnose_scp(_scp_tele(deck_count_p1=1, drawn_count=5, scp_on_battlefield_turns=0))
+check("scp Step 2: never deployed -> FAIL", v == "FAIL" and "deploy" in p.lower(),
+      f"verdict {v} patch {p[:60]}")
+
+# Fired — the happy path.
+s, v, p = diagnose_scp(_scp_tele(deck_count_p1=1, drawn_count=5, scp_on_battlefield_turns=4,
+                                 scp_has_ability=True, scp_times_fired=2))
+check("scp fired -> PASS", v == "PASS", f"verdict {v}")
+
+# Value below the fire bar (the calibration failure the inert bombs hit).
+s, v, p = diagnose_scp(_scp_tele(deck_count_p1=1, drawn_count=5, scp_on_battlefield_turns=4,
+                                 scp_has_ability=True, scp_times_fired=0,
+                                 scp_gain=[1.0, 1.0], scp_cost=[0.5], scp_fire_threshold=0.5))
+check("scp value below bar -> FAIL with fire-bar patch",
+      v == "FAIL" and "fire bar" in p.lower(), f"verdict {v} patch {p[:60]}")
+
+# Ability never scored (gated out before the value check — unaffordable / once_per_turn).
+s, v, p = diagnose_scp(_scp_tele(deck_count_p1=1, drawn_count=5, scp_on_battlefield_turns=4,
+                                 scp_has_ability=True, scp_times_fired=0, scp_gain=[]))
+check("scp gated before scoring -> FAIL", v == "FAIL" and "gated out" in p.lower(),
+      f"verdict {v} patch {p[:60]}")
+
+# No activated ability — deploy IS the fire.
+s, v, p = diagnose_scp(_scp_tele(deck_count_p1=1, drawn_count=5, scp_on_battlefield_turns=4,
+                                 scp_has_ability=False))
+check("scp no-ability deployed -> PASS", v == "PASS", f"verdict {v}")
+
+
+# =============================================================================
+# Test 5: SCP probe runs end-to-end on a real deck (Public Spectacle)
+# =============================================================================
+
+print("\n=== Test 5: SCP probe on site_zero_masquerade (integration) ===")
+
+scp_agg = CardTelemetry(card_name="SZB Public Spectacle Suite")
+for i in range(3):
+    tele = run(_run_scp_diagnostic_game(
+        card_name="SZB Public Spectacle Suite",
+        p1_deck_name="site_zero_masquerade",
+        p2_deck_name="site_zero_masquerade",
+        difficulty="balanced",
+        max_turns=25,
+        seed=i,
+    ))
+    scp_agg.merge(tele)
+if scp_agg.games_run > 0:
+    scp_agg.deck_count_p1 //= scp_agg.games_run
+    scp_agg.deck_count_p2 //= scp_agg.games_run
+
+scp_steps, scp_verdict, scp_patch = diagnose_scp(scp_agg)
+print(f"  verdict: {scp_verdict}")
+for st in scp_steps:
+    print(f"    [{'OK' if st.passed else 'X'}] {st.name}")
+
+check("scp probe ran 3 games", scp_agg.games_run == 3, f"ran {scp_agg.games_run}")
+check("scp deck presence detected (1 copy)", scp_agg.deck_count_p1 == 1,
+      f"deck count {scp_agg.deck_count_p1}")
+check("scp bomb reached the battlefield", scp_agg.scp_on_battlefield_turns > 0,
+      f"bf turns {scp_agg.scp_on_battlefield_turns}")
+check("scp bomb's activated ability detected", scp_agg.scp_has_ability)
+check("scp probe yields a real verdict", scp_verdict in ("PASS", "WARN", "FAIL"),
+      f"got {scp_verdict}")
+
+
+# =============================================================================
+# Test 6: missing SCP card — Step 0 catches it on the real probe
+# =============================================================================
+
+print("\n=== Test 6: missing SCP card — Step 0 ===")
+
+miss_tele = run(_run_scp_diagnostic_game(
+    card_name="Totally Made Up SCP 999",
+    p1_deck_name="site_zero_masquerade",
+    p2_deck_name="site_zero_masquerade",
+    difficulty="balanced",
+    max_turns=8,
+    seed=0,
+))
+miss_steps, miss_verdict, miss_patch = diagnose_scp(miss_tele)
+check("scp missing card -> FAIL", miss_verdict == "FAIL", f"got {miss_verdict}")
+check("scp missing card -> Step 0 fails",
+      miss_steps and miss_steps[0].name.startswith("Step 0") and not miss_steps[0].passed)
 
 
 # =============================================================================

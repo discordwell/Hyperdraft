@@ -299,7 +299,7 @@ This is not hypothetical. The SCP verb-redesign (2026-05-29) shipped 6 signature
 So: for the deck's **signature / payoff / build-around cards** (finishers, engines, activated-ability "bombs" — not vanilla filler), verify they actually FIRE under the AI:
 
 - Run **`/card-fire-debug --card "<name>"`** for each payoff card (or batch). It walks the six-step tree — drawn → deployed/legal → value-scored above threshold → precondition met → cost payable → out-competes the turn's other plays — and names the exact blocker plus a patch location.
-- If the engine isn't wired into `/card-fire-debug` yet (it is Pokemon-only as of 2026-05; see that skill's "Engine support" for the SCP spec), the cheap stand-in is to **instrument the card's play/activation event across a Stage-8 tournament and assert each payoff card fires ≥ 1×** in self-play. A payoff card that fires zero times across the tournament fails this gate.
+- `/card-fire-debug` supports Pokemon and SCP today. If your engine isn't wired in yet, the cheap stand-in is to **instrument the card's play/activation event across a Stage-8 tournament and assert each payoff card fires ≥ 1×** in self-play. A payoff card that fires zero times across the tournament fails this gate.
 
 **The rule (codify it):** "scores well in review", "has a non-trivial `value_hint`", and "the deck is tournament-in-band" are **NOT** fire gates — every one of them is satisfiable while the card is inert. Only a real-loop assertion that the card actually fired counts. Any new autonomous behavior (the AI plays X / activates Y) needs this gate from its first commit, not after N archetypes ship on faith.
 

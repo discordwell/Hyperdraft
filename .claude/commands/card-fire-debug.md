@@ -20,8 +20,8 @@ green — the effect fired correctly when invoked) yet fired ~never in real game
 because nothing checked the *fire* path. **`/test-interceptors` answers "does the
 effect happen when triggered?"; this skill answers "does the AI ever trigger it?"
 — run both.** That class of bug stayed invisible for ~9 commits because this
-diagnostic was Pokemon-only and the recipe never called for it (see "Engine
-support" below to extend it).
+diagnostic was Pokemon-only and the recipe never called for it. **SCP support
+has since been added** (see "Engine support" / "SCP support" below).
 
 The decision tree (six steps):
 
@@ -142,22 +142,34 @@ Run: `python tests/test_card_fire_debug.py`
 
 ## Engine support
 
-Currently Pokemon only. Adding a new engine means:
+**Pokemon and SCP** are supported. The engine is inferred from the `--p1` deck
+name (an SCP deck → SCP engine), or set it explicitly with `--engine scp`.
+Adding a further engine means:
 
-1. Plug in the engine's legal-action discovery (mirror
-   `_run_pokemon_diagnostic_game`'s use of `legal_pokemon_actions`).
+1. Plug in the engine's legal-action / play discovery (mirror
+   `_run_pokemon_diagnostic_game`'s use of `legal_pokemon_actions`, or the SCP
+   probe's battlefield + event-log sampling).
 2. Wrap the AI adapter's scorer methods (look for the engine's
-   `<engine>_adapter.py::_score_*` methods).
-3. Map "card type → eligibility precondition" for Step 2 (Pokemon's
-   bench < 5 for Basics, `supporter_played_this_turn` for Supporters, etc.).
+   `<engine>_adapter.py::_score_*` / value-estimator methods).
+3. Map "card type → eligibility precondition" for Step 2.
 
 The decision tree itself (Step 1 through Step 6) is engine-agnostic —
 only the per-engine probe needs to be added.
 
-### SCP support (spec — derived by hand 2026-05-29, not yet coded)
+### SCP support (implemented 2026-05-29)
 
-The "inert bombs" were diagnosed by walking these six steps manually. That
-diagnosis IS the SCP probe spec — wire it into `diagnose_card_fire.py`:
+```
+python -m scripts.play.diagnose_card_fire \
+  --card "SZB Public Spectacle Suite" \
+  --p1 site_zero_masquerade --p2 site_zero_masquerade \
+  --games 4 --max-turns 25 --engine scp
+```
+
+`_run_scp_diagnostic_game` wraps `_estimate_ability_value`/`_cost_value` to
+capture the value math at consideration time, samples hand + battlefield
+presence each turn, and counts `SCP_ABILITY_ACTIVATED`. `diagnose_scp` leads
+with the ground-truth fire count, then explains a non-fire via the six steps
+below. The original "inert bombs" diagnosis (walked by hand) IS this probe:
 
 1. **Drawn** — hand membership across the playtest. SCP twist: games are short
    and breach-dominated (a self-mirror can end in 4-6 turns), so a 1-of
