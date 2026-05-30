@@ -843,6 +843,13 @@ class SCPAIAdapter:
             redaction_target = max(hazard, containment)
             if self._has_mandate(state, player_id, "veil_lockdown") and suppress_power >= redaction_target:
                 return (90 + hazard + containment, "suppress", anomaly)
+            # Wurm Apex: researching a Wurm Devourer SATES it — a successful test
+            # tames it (reduces hazard = breach control) AND advances the
+            # wurms_tamed alt-win. Prefer it over plain containment whenever we can
+            # land the test, so the taming engine — the deck's whole game plan —
+            # actually runs instead of the AI passively containing/suppressing.
+            if getattr(anomaly.card_def, "scp_wurm_devourer", False) and research_power >= curiosity:
+                return (85 + curiosity, "research", anomaly)
             if (
                 (self.pilot in {"archivist", "quarantine"} or self._has_mandate(state, player_id, "redaction"))
                 and site["breach"] < self._breach_danger
