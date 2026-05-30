@@ -207,15 +207,11 @@ SKIPPED_CARDS = {
     'Aurora Awakener': 'reveal-until-X dig (variable, library-state dependent; not a single content event)',
     'Champion of the Weird': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Collective Inferno': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Dawnhand Dissident': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Deity of Scars': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Demigod of Revenge': 'cast-time graveyard recursion (return all copies; resolves before ETB; structural)',
     'Earwig Squad': 'prowl-gated ETB (search+exile only when prowl cost paid; alt-cost dependent)',
-    'Elvish Branchbender': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Figure of Destiny': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Gathering Stone': 'choose-a-type cost-reducer / mana on ETB (structural; no content event)',
     'Glen Elendra Archmage': 'activated sacrifice ability (structural; no triggered/static interceptor)',
-    'Horde of Notions': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Maralen, Fae Ascendant': 'static lock / name-or-color-choice replacement effect (structural)',
     'Mirrormind Crown': 'equipment: grants statics/abilities to the held creature (needs an attached host)',
     'Mistbind Clique': 'champion mechanic (exile-on-ETB + return-on-leave; structural)',
@@ -225,7 +221,6 @@ SKIPPED_CARDS = {
     'Overbeing of Myth': 'structural / activated / replacement effect not expressible via a canonical trigger',
     "Painter's Servant": 'static lock / name-or-color-choice replacement effect (structural)',
     'Pitiless Fists': 'PHASE B: aura has no static; its only effect is a targeted ETB fight (enchanted creature fights a chosen opponent creature) — needs cast-time target choice',
-    'Reaping Willow': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Rimefire Torque': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Runed Halo': 'static lock / name-or-color-choice replacement effect (structural)',
     'Sensation Gorger': 'structural / activated / replacement effect not expressible via a canonical trigger',
@@ -3018,6 +3013,65 @@ def test_card_pili_pala():
     assert produced, f"should add one mana, got {[(e.type.name, e.payload) for e in resolve]}"
 
 
+
+# === Phase A Batch C tests ===
+def test_card_reaping_willow():
+    """Reaping Willow: {1}{W/B}, Remove two counters: Return target creature card with mana value 3 or less from your graveyard to the battlefield."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Reaping Willow", mana={'generic': 1, 'w': 1})
+    cost, resolve = _activate(game, p1, obj)
+    reanims = [e for e in resolve if e.type == EventType.RETURN_FROM_GRAVEYARD]
+    assert reanims, f"should reanimate a creature, got {[e.type.name for e in resolve]}"
+    # to the battlefield (no to:hand), filtered to creatures of MV<=3.
+    assert reanims[0].payload.get('card_type') == 'creature', "should target a creature card"
+    assert reanims[0].payload.get('max_mv') == 3, "mana value 3 or less"
+
+
+def test_card_horde_of_notions():
+    """Horde of Notions: {W}{U}{B}{R}{G}: You may play target Elemental card from your graveyard without paying its mana cost."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Horde of Notions",
+                           mana={'w': 1, 'u': 1, 'b': 1, 'r': 1, 'g': 1})
+    cost, resolve = _activate(game, p1, obj)
+    plays = [e for e in resolve if e.type == EventType.RETURN_FROM_GRAVEYARD]
+    assert plays, f"should play a card from graveyard, got {[e.type.name for e in resolve]}"
+
+
+def test_card_figure_of_destiny():
+    """Figure of Destiny: {R/W}: becomes a Kithkin Spirit with base power and toughness 2/2."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Figure of Destiny", mana={'r': 1})
+    assert get_power(obj, game.state) == 1, "Figure starts 1/1"
+    _activate(game, p1, obj)
+    # becomes_creature installs QUERY interceptors — get_power must now read 2/2.
+    assert get_power(obj, game.state) == 2 and get_toughness(obj, game.state) == 2, (
+        f"Figure should become base 2/2, got {get_power(obj, game.state)}/{get_toughness(obj, game.state)}")
+
+
+def test_card_elvish_branchbender():
+    """Elvish Branchbender: {T}: target Forest becomes an X/X Treefolk creature, where X is the number of Elves you control."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Elvish Branchbender")  # itself an Elf
+    _spawn(game, p1, subtypes=['Elf'], name='Elf 2')
+    forest = _spawn(game, p1, types=[CardType.LAND], subtypes=['Forest'], name='Forest',
+                    power=0, toughness=0)
+    assert get_power(forest, game.state) == 0, "Forest starts as a non-creature (0 power)"
+    _activate(game, p1, obj, targets=[_target_obj(forest)])
+    # 2 Elves on the battlefield (Branchbender + Elf 2) -> Forest becomes 2/2.
+    assert get_power(forest, game.state) == 2 and get_toughness(forest, game.state) == 2, (
+        f"Forest should become 2/2 (2 Elves), got {get_power(forest, game.state)}/{get_toughness(forest, game.state)}")
+
+
+def test_card_dawnhand_dissident():
+    """Dawnhand Dissident: {T}, Blight 1: Surveil 1."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Dawnhand Dissident")
+    cost, resolve = _activate(game, p1, obj)
+    surveils = [e for e in resolve if e.type == EventType.SURVEIL]
+    assert surveils and surveils[0].payload.get('amount') == 1, (
+        f"should Surveil 1, got {[(e.type.name, e.payload.get('amount')) for e in resolve]}")
+
+
 # ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
@@ -3042,7 +3096,10 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     # --- Phase A Batch B (activated team/self + custom mana) ---
     test_card_inner_flame_igniter, test_card_chameleon_colossus, test_card_mirror_entity,
     test_card_stillmoon_cavalier, test_card_sygg_river_guide, test_card_bloom_tender,
-    test_card_heritage_druid, test_card_pili_pala]
+    test_card_heritage_druid, test_card_pili_pala,
+    # --- Phase A Batch C (reanimate / becomes-creature / surveil) ---
+    test_card_reaping_willow, test_card_horde_of_notions, test_card_figure_of_destiny,
+    test_card_elvish_branchbender, test_card_dawnhand_dissident]
 
 
 def _run():

@@ -335,6 +335,8 @@ from src.cards.interceptor_helpers import (
     make_life_gain_ability, make_loot_ability, make_sac_destroy_ability,
     make_counter_ability,
 )
+from src.cards.interceptor_helpers import becomes_creature
+
 
 
 # =============================================================================
@@ -11464,6 +11466,101 @@ def _pili_pala_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
     return []
 
 
+
+# === Phase A Batch C: reanimate / becomes-creature / surveil ===
+
+def _reaping_willow_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{1}{W/B}, Remove two counters from among permanents you control:
+    Return target creature card with mana value 3 or less from your graveyard to the battlefield."""
+    def _effect(o, st, targets):
+        tid = None
+        if targets:
+            t = targets[0]
+            tid = getattr(t, "object_id", None) or getattr(t, "id", None) or t
+        payload = {'player': o.controller, 'card_type': 'creature', 'max_mv': 3}
+        if tid is not None:
+            payload['object_id'] = tid
+        return [Event(type=EventType.RETURN_FROM_GRAVEYARD, payload=payload,
+                      source=o.id, controller=o.controller)]
+    make_activated_ability(obj, "{1}{W/B}, Remove two -1/-1 counters",
+                           _effect,
+                           description="Return target creature card with mana value 3 or less from your graveyard to the battlefield",
+                           targets_required=0, target_kind="creature_in_graveyard")
+    return []
+
+
+def _horde_of_notions_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{W}{U}{B}{R}{G}: You may play target Elemental card from your graveyard without paying its mana cost."""
+    def _effect(o, st, targets):
+        tid = None
+        if targets:
+            t = targets[0]
+            tid = getattr(t, "object_id", None) or getattr(t, "id", None) or t
+        payload = {'player': o.controller, 'card_type': 'creature', 'free': True}
+        if tid is not None:
+            payload['object_id'] = tid
+        return [Event(type=EventType.RETURN_FROM_GRAVEYARD, payload=payload,
+                      source=o.id, controller=o.controller)]
+    make_activated_ability(obj, "{W}{U}{B}{R}{G}", _effect,
+                           description="Play target Elemental card from your graveyard without paying its mana cost",
+                           targets_required=0, target_kind="card_in_graveyard")
+    return []
+
+
+def _figure_of_destiny_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{R/W}: Figure of Destiny becomes a Kithkin Spirit with base power and toughness 2/2. (later upgrades are engine gaps.)"""
+    def _effect(o, st, targets):
+        # becomes_creature installs QUERY interceptors that set the base P/T to
+        # 2/2 (real, observable via get_power) and returns no events. We return
+        # [] — the test asserts get_power(o) == 2 post-activation.
+        becomes_creature(o, st, power=2, toughness=2,
+                         subtypes={"Kithkin", "Spirit"}, keep_land=False)
+        return []
+    make_activated_ability(obj, "{R/W}", _effect,
+                           description="Figure of Destiny becomes a Kithkin Spirit with base power and toughness 2/2")
+    return []
+
+
+def _elvish_branchbender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}: Until end of turn, target Forest becomes an X/X Treefolk creature in addition to its other types, where X is the number of Elves you control."""
+    def _count_elves(o, st):
+        n = 0
+        for co in st.objects.values():
+            if (co.zone == ZoneType.BATTLEFIELD and co.controller == o.controller
+                    and "Elf" in (co.characteristics.subtypes or set())):
+                n += 1
+        return max(1, n)
+    def _effect(o, st, targets):
+        if not targets:
+            return []
+        t = targets[0]
+        tid = getattr(t, "object_id", None) or getattr(t, "id", None) or t
+        forest = st.objects.get(tid)
+        if forest is None:
+            return []
+        x = _count_elves(o, st)
+        # becomes_creature installs QUERY interceptors (real, observable via
+        # get_power) and returns no events. The test asserts get_power == X.
+        becomes_creature(forest, st, power=x, toughness=x,
+                         subtypes={"Treefolk"}, keep_land=True)
+        return []
+    make_activated_ability(obj, "{T}", _effect,
+                           description="Target Forest becomes an X/X Treefolk creature, where X is the number of Elves you control",
+                           targets_required=1, target_kind="land")
+    return []
+
+
+def _dawnhand_dissident_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{T}, Blight 1: Surveil 1. (the second blight-2 exile ability + cast-from-counters mode are engine gaps.)"""
+    def _effect(o, st, targets):
+        return [Event(type=EventType.SURVEIL,
+                      payload={'player': o.controller, 'amount': 1},
+                      source=o.id, controller=o.controller)]
+    make_activated_ability(obj, "{T}", _effect,
+                           description="Surveil 1")
+    return []
+
+
 _register_section2_instants()
 
 
@@ -11491,3 +11588,14 @@ def _register_phase_a_batch_b():
 
 
 _register_phase_a_batch_b()
+
+
+def _register_phase_a_batch_c():
+    FAE_BUT_MID_CARDS['Reaping Willow'].setup_interceptors = _reaping_willow_setup
+    FAE_BUT_MID_CARDS['Horde of Notions'].setup_interceptors = _horde_of_notions_setup
+    FAE_BUT_MID_CARDS['Figure of Destiny'].setup_interceptors = _figure_of_destiny_setup
+    FAE_BUT_MID_CARDS['Elvish Branchbender'].setup_interceptors = _elvish_branchbender_setup
+    FAE_BUT_MID_CARDS['Dawnhand Dissident'].setup_interceptors = _dawnhand_dissident_setup
+
+
+_register_phase_a_batch_c()
