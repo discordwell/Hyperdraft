@@ -173,9 +173,7 @@ SKIPPED_CARDS = {
     'Kinbinding': 'dynamic lord +X/+X where X = creatures entered under your control this turn — no per-turn-entry-count helper/precedent exists',
     'Mirrormind Crown': "equipment token-creation replacement (first tokens each turn become copies of equipped creature) — no replacement hook that rewrites OBJECT_CREATED/CREATE_TOKEN into copy tokens (engine gap)",
     'Mistbind Clique': 'champion mechanic (exile-on-ETB + return-on-leave; structural)',
-    'Nettle Sentinel': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Nettlevine Blight': 'PHASE B: aura grants the enchanted permanent an end-step "sacrifice then re-attach to a permanent you control" triggered ability — needs a granted self-moving aura trigger',
-    'Overbeing of Myth': 'structural / activated / replacement effect not expressible via a canonical trigger',
     "Painter's Servant": 'static lock / name-or-color-choice replacement effect (structural)',
     'Rimefire Torque': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Runed Halo': 'static lock / name-or-color-choice replacement effect (structural)',
@@ -2984,6 +2982,44 @@ def test_card_champion_of_the_path():
         f"{[(e.type.name, e.payload.get('target'), e.payload.get('amount')) for e in game.state.event_log[log0:] if e.type == EventType.DAMAGE]}")
 
 
+def test_card_nettle_sentinel():
+    """Nettle Sentinel: ... Whenever you cast a green spell, you may untap Nettle Sentinel."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Nettle Sentinel")
+    obj.state.tapped = True
+    log0 = len(game.state.event_log)
+    spell = _push_spell(game, p1, 'Green Spell', mana_cost='{1}{G}',
+                        types={CardType.SORCERY}, colors={Color.GREEN})
+    game.emit(Event(type=EventType.SPELL_CAST,
+                    payload={'spell_id': spell.id, 'caster': p1.id, 'controller': p1.id,
+                             'colors': {Color.GREEN}, 'types': {CardType.SORCERY}},
+                    source=spell.id, controller=p1.id))
+    new = {e.type.name for e in game.state.event_log[log0:]}
+    assert 'UNTAP' in new, (
+        f"casting a green spell should let you untap Nettle Sentinel, got {sorted(new - _PLUMBING)}")
+
+
+def test_card_overbeing_of_myth():
+    """Overbeing of Myth: power and toughness are each equal to the number of cards in your
+    hand. At the beginning of your draw step, draw an additional card."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Overbeing of Myth")
+    # Three cards in hand -> base P/T 3/3 (characteristic-defining).
+    for i in range(3):
+        game.create_object(name=f'Hand Card {i}', owner_id=p1.id, zone=ZoneType.HAND,
+                           characteristics=Characteristics(types={CardType.SORCERY}), card_def=None)
+    assert get_power(obj, game.state) == 3 and get_toughness(obj, game.state) == 3, (
+        f"P/T should equal cards in hand (3), got "
+        f"{get_power(obj, game.state)}/{get_toughness(obj, game.state)}")
+    # At the beginning of your draw step, draw an additional card.
+    game.state.active_player = p1.id
+    log0 = len(game.state.event_log)
+    game.emit(Event(type=EventType.PHASE_START, payload={'phase': 'draw', 'active_player': p1.id}))
+    drew = [e for e in game.state.event_log[log0:]
+            if e.type == EventType.DRAW and e.payload.get('player') == p1.id]
+    assert drew, f"should draw an additional card at the draw step, got {[e.type.name for e in game.state.event_log[log0:]]}"
+
+
 # === Phase A Batch A tests ===
 def test_card_heap_doll():
     """Heap Doll: Sacrifice Heap Doll: Exile target card from a graveyard."""
@@ -3883,6 +3919,8 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_morcants_eyes, test_card_evershrikes_gift, test_card_treefolk_bough_spear,
     # --- Re-exam batch: static lord-grant of a triggered ability ---
     test_card_champion_of_the_path,
+    # --- Re-exam batch: spell-cast untap + characteristic-defining P/T ---
+    test_card_nettle_sentinel, test_card_overbeing_of_myth,
     # --- Phase A Batch A (activated / mana) ---
     test_card_heap_doll, test_card_scarblade_elite, test_card_scarblade_scout,
     test_card_rhys_the_redeemed, test_card_twilight_diviner, test_card_brion_stoutarm,

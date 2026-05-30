@@ -7715,6 +7715,21 @@ DEVOTED_DRUID = make_creature(
     text="{T}: Add {G}. Put a -1/-1 counter on Devoted Druid: Untap Devoted Druid."
 )
 
+def nettle_sentinel_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Whenever you cast a green spell, you may untap Nettle Sentinel.
+
+    ("doesn't untap during your untap step" is a static untap-replacement — an
+    engine gap — but the canonical triggered ability is the green-spell untap,
+    mirroring Cinder Pyromancer.)"""
+    def _effect(event: Event, st: GameState) -> list[Event]:
+        colors = event.payload.get('colors') or set()
+        if Color.GREEN in colors:
+            return [Event(type=EventType.UNTAP, payload={'object_id': obj.id, 'optional': True},
+                          source=obj.id)]
+        return []
+    return [make_spell_cast_trigger(obj, _effect, controller_only=True)]
+
+
 NETTLE_SENTINEL = make_creature(
     name="Nettle Sentinel",
     power=2,
@@ -7722,7 +7737,8 @@ NETTLE_SENTINEL = make_creature(
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Elf", "Warrior"},
-    text="Nettle Sentinel doesn't untap during your untap step. Whenever you cast a green spell, you may untap Nettle Sentinel."
+    text="Nettle Sentinel doesn't untap during your untap step. Whenever you cast a green spell, you may untap Nettle Sentinel.",
+    setup_interceptors=nettle_sentinel_setup
 )
 
 MASKED_ADMIRERS = make_creature(
@@ -8001,6 +8017,40 @@ GODHEAD_OF_AWE = make_creature(
     setup_interceptors=godhead_of_awe_setup
 )
 
+def overbeing_of_myth_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Overbeing of Myth's power and toughness are each equal to the number of cards
+    in your hand. At the beginning of your draw step, draw an additional card."""
+    def pt_filter(event: Event, st: GameState) -> bool:
+        return (event.type in (EventType.QUERY_POWER, EventType.QUERY_TOUGHNESS)
+                and event.payload.get('object_id') == obj.id)
+
+    def pt_handler(event: Event, st: GameState) -> InterceptorResult:
+        hand = st.zones.get(f'hand_{obj.controller}')
+        n = len(hand.objects) if hand else 0
+        ne = event.copy()
+        ne.payload['value'] = n  # characteristic-defining: base P/T = cards in hand
+        return InterceptorResult(action=InterceptorAction.TRANSFORM, transformed_event=ne)
+
+    def draw_filter(event: Event, st: GameState) -> bool:
+        return (event.type == EventType.PHASE_START
+                and event.payload.get('phase') == 'draw'
+                and st.active_player == obj.controller)
+
+    def draw_handler(event: Event, st: GameState) -> InterceptorResult:
+        return InterceptorResult(action=InterceptorAction.REACT, new_events=[
+            Event(type=EventType.DRAW, payload={'player': obj.controller, 'count': 1},
+                  source=obj.id)])
+
+    return [
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.QUERY, filter=pt_filter,
+                    handler=pt_handler, duration='while_on_battlefield'),
+        Interceptor(id=new_id(), source=obj.id, controller=obj.controller,
+                    priority=InterceptorPriority.REACT, filter=draw_filter,
+                    handler=draw_handler, duration='while_on_battlefield'),
+    ]
+
+
 OVERBEING_OF_MYTH = make_creature(
     name="Overbeing of Myth",
     power=0,
@@ -8008,7 +8058,8 @@ OVERBEING_OF_MYTH = make_creature(
     mana_cost="{G/U}{G/U}{G/U}{G/U}{G/U}",
     colors={Color.GREEN, Color.BLUE},
     subtypes={"Spirit", "Avatar"},
-    text="Overbeing of Myth's power and toughness are each equal to the number of cards in your hand. At the beginning of your draw step, draw an additional card."
+    text="Overbeing of Myth's power and toughness are each equal to the number of cards in your hand. At the beginning of your draw step, draw an additional card.",
+    setup_interceptors=overbeing_of_myth_setup
 )
 
 DIVINITY_OF_PRIDE = make_creature(
