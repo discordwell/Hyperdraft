@@ -195,7 +195,6 @@ SKIPPED_CARDS = {
     'Pollen Lullaby': 'instant/sorcery: damage-prevention replacement effect (structural)',
     'Primal Command': "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
     'Profane Command': "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
-    'Rime Chill': 'instant/sorcery: tap up to two + stun counters; cost-reduction-by-color (modal targets)',
     'Run Away Together': 'instant/sorcery: bounce two creatures controlled by DIFFERENT players (paired-target constraint)',
     'Spell Snare': 'instant/sorcery: counterspell: counters a spell on the stack (needs a spell on the stack to target)',
     'Spiral into Solitude': 'instant/sorcery: exile an attacking/blocking creature (combat-restricted target) + opponent makes a token',
@@ -220,7 +219,6 @@ SKIPPED_CARDS = {
     'Nettlevine Blight': 'PHASE B: aura grants the enchanted permanent an end-step "sacrifice then re-attach to a permanent you control" triggered ability — needs a granted self-moving aura trigger',
     'Overbeing of Myth': 'structural / activated / replacement effect not expressible via a canonical trigger',
     "Painter's Servant": 'static lock / name-or-color-choice replacement effect (structural)',
-    'Pitiless Fists': 'PHASE B: aura has no static; its only effect is a targeted ETB fight (enchanted creature fights a chosen opponent creature) — needs cast-time target choice',
     'Rimefire Torque': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Runed Halo': 'static lock / name-or-color-choice replacement effect (structural)',
     'Sensation Gorger': 'structural / activated / replacement effect not expressible via a canonical trigger',
@@ -3072,6 +3070,35 @@ def test_card_dawnhand_dissident():
         f"should Surveil 1, got {[(e.type.name, e.payload.get('amount')) for e in resolve]}")
 
 
+
+# === Phase A Batch D tests ===
+def test_card_pitiless_fists():
+    """Pitiless Fists: When this Aura enters, enchanted creature fights up to one target creature an opponent controls."""
+    game, p1, p2 = _new_game()
+    host = _spawn(game, p1, power=3, toughness=3, name='Enchanted')
+    _spawn(game, p2, power=2, toughness=2, name='Opp Creature')
+    log0 = len(game.state.event_log)
+    _enchant_host(game, p1, "Pitiless Fists", host)
+    new = {e.type.name for e in game.state.event_log[log0:]} - _PLUMBING
+    assert 'FIGHT' in new, f"ETB should make the enchanted creature fight, got {sorted(new)}"
+
+
+def test_card_rime_chill():
+    """Rime Chill: Tap up to two target creatures. Put a stun counter on each of them."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    # Two opponent creatures so the resolve hits the concrete (non-fallback) path.
+    c1 = _spawn(game, p2, power=1, toughness=1, name='Frozen 1')
+    c2 = _spawn(game, p2, power=1, toughness=1, name='Frozen 2')
+    spell = game.create_object(name='Rime Chill', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Rime Chill'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Rime Chill'].resolve([], game.state)
+    taps = [e for e in evs if e.type == EventType.TAP]
+    stuns = [e for e in evs if e.type == EventType.COUNTER_ADDED and e.payload.get('counter_type') == 'stun']
+    assert taps, f"should tap target creatures, got {[e.type.name for e in evs]}"
+    assert stuns, f"should put a stun counter on each, got {[(e.type.name, e.payload.get('counter_type')) for e in evs]}"
+
+
 # ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
@@ -3099,7 +3126,9 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_heritage_druid, test_card_pili_pala,
     # --- Phase A Batch C (reanimate / becomes-creature / surveil) ---
     test_card_reaping_willow, test_card_horde_of_notions, test_card_figure_of_destiny,
-    test_card_elvish_branchbender, test_card_dawnhand_dissident]
+    test_card_elvish_branchbender, test_card_dawnhand_dissident,
+    # --- Phase A Batch D (aura fight + instant tap/stun) ---
+    test_card_pitiless_fists, test_card_rime_chill]
 
 
 def _run():

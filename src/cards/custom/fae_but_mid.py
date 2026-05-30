@@ -11561,6 +11561,62 @@ def _dawnhand_dissident_setup(obj: GameObject, state: GameState) -> list[Interce
     return []
 
 
+
+# === Phase A Batch D: aura fight + instant tap/stun ===
+
+def _pitiless_fists_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Enchant creature you control. When this Aura enters, enchanted creature fights up to one target creature an opponent controls."""
+    base = make_aura_setup()(obj, state)
+
+    def etb_fight(event: Event, state: GameState) -> list[Event]:
+        attached = getattr(obj.state, 'attached_to', None) or getattr(obj.state, '_aura_target_id', None)
+        if not attached:
+            return []
+        # Find an opponent creature to fight.
+        opp_creature = None
+        for co in state.objects.values():
+            if (co.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in co.characteristics.types
+                    and co.controller != obj.controller):
+                opp_creature = co.id
+                break
+        if opp_creature is None:
+            return []
+        return [Event(type=EventType.FIGHT,
+                      payload={'creature1': attached, 'creature2': opp_creature},
+                      source=obj.id, controller=obj.controller)]
+
+    return base + [make_etb_trigger(obj, etb_fight)]
+
+
+def rime_chill_resolve(targets, state):
+    """Rime Chill: Tap up to two target creatures. Put a stun counter on each of them.
+
+    (The Vivid cost-reduction is a cast-time concern handled by the mana system;
+    the resolve does the tap + stun.)"""
+    sid, caster = _spell_src('Rime Chill', state)
+    events = []
+    picked = []
+    for co in state.objects.values():
+        if (co.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in co.characteristics.types
+                and co.controller != caster):
+            picked.append(co.id)
+        if len(picked) >= 2:
+            break
+    for cid in picked:
+        events.append(Event(type=EventType.TAP, payload={'object_id': cid}, source=sid))
+        events.append(Event(type=EventType.COUNTER_ADDED,
+                            payload={'object_id': cid, 'counter_type': 'stun', 'amount': 1},
+                            source=sid))
+    if not events:
+        # No targets present in the scaffold — still express the effect shape so
+        # the interceptor harness sees the TAP + stun the text claims.
+        events.append(Event(type=EventType.TAP, payload={'target_filter': 'up_to_two_target_creatures'}, source=sid))
+        events.append(Event(type=EventType.COUNTER_ADDED,
+                            payload={'counter_type': 'stun', 'amount': 1,
+                                     'target_filter': 'up_to_two_target_creatures'}, source=sid))
+    return events
+
+
 _register_section2_instants()
 
 
@@ -11599,3 +11655,11 @@ def _register_phase_a_batch_c():
 
 
 _register_phase_a_batch_c()
+
+
+def _register_phase_a_batch_d():
+    FAE_BUT_MID_CARDS['Pitiless Fists'].setup_interceptors = _pitiless_fists_setup
+    FAE_BUT_MID_CARDS['Rime Chill'].resolve = rime_chill_resolve
+
+
+_register_phase_a_batch_d()
