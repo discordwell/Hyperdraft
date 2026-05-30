@@ -330,6 +330,7 @@ from src.cards.interceptor_helpers import (
     make_equipment_setup,
     # Activated abilities (Phase 4) — used by the Phase A no-effect pass.
     make_activated_ability,
+    make_regenerate_ability,  # "{cost}: Regenerate this" → one-shot regen shield
     make_damage_ability, make_draw_ability, make_destroy_ability,
     make_token_creation_ability, make_pump_self_ability,
     make_life_gain_ability, make_loot_ability, make_sac_destroy_ability,
@@ -7948,6 +7949,23 @@ GHASTLORD_OF_FUGUE = make_creature(
     text="Ghastlord of Fugue can't be blocked. Whenever Ghastlord of Fugue deals combat damage to a player, that player reveals their hand. You choose a card from it. That player exiles that card."
 )
 
+def deity_of_scars_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Enters with two -1/-1 counters; {B/G}, Remove a -1/-1 counter: Regenerate."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        return [Event(
+            type=EventType.COUNTER_ADDED,
+            payload={'object_id': obj.id, 'counter_type': '-1/-1', 'amount': 2},
+            source=obj.id
+        )]
+
+    make_regenerate_ability(
+        obj,
+        cost="{B/G}, Remove a -1/-1 counter from Deity of Scars",
+        description="{B/G}, Remove a -1/-1 counter: Regenerate Deity of Scars",
+    )
+    return [make_etb_trigger(obj, etb_effect)]
+
+
 DEITY_OF_SCARS = make_creature(
     name="Deity of Scars",
     power=7,
@@ -7955,7 +7973,8 @@ DEITY_OF_SCARS = make_creature(
     mana_cost="{B/G}{B/G}{B/G}{B/G}{B/G}",
     colors={Color.BLACK, Color.GREEN},
     subtypes={"Spirit", "Avatar"},
-    text="Trample. Deity of Scars enters with two -1/-1 counters on it. {B/G}, Remove a -1/-1 counter from Deity of Scars: Regenerate Deity of Scars."
+    text="Trample. Deity of Scars enters with two -1/-1 counters on it. {B/G}, Remove a -1/-1 counter from Deity of Scars: Regenerate Deity of Scars.",
+    setup_interceptors=deity_of_scars_setup
 )
 
 # Godhead of Awe - Other creatures have base P/T 1/1

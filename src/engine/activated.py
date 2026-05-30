@@ -140,7 +140,10 @@ _MANA_SEQUENCE_RE = re.compile(
     re.IGNORECASE,
 )
 _COUNTER_REMOVE_RE = re.compile(
-    r"remove (?:an?|(\d+))\s+([\w\-]+)\s+counters?\s+from\s+(?:this|\w[\w\s]*)",
+    # Counter-type token allows '/' and '+' so '-1/-1' and '+1/+1' parse (not
+    # just word-counters like 'charge'/'time'); the engine stores these counter
+    # keys verbatim (obj.state.counters['-1/-1']).
+    r"remove (?:an?|(\d+))\s+([\w\-/+]+)\s+counters?\s+from\s+(?:this|\w[\w\s]*)",
     re.IGNORECASE,
 )
 

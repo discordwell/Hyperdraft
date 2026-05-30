@@ -166,7 +166,6 @@ SKIPPED_CARDS = {
     'Ajani, Outland Chaperone': 'planeswalker: loyalty-activated abilities (structural)',
     'Aurora Awakener': 'reveal-until-X dig (variable, library-state dependent; not a single content event)',
     'Champion of the Weird': "behold-a-Goblin cast cost (alt-cost choice the engine can't model) + 'Pay 1 life, Blight 2: target opponent blights 2' — there is no blight content-event the engine consumes (blight is parsed only as a cost), so the activated ability has no fireable effect (engine gap)",
-    'Deity of Scars': "activated '{B/G}, Remove a -1/-1 counter: Regenerate' — the engine has no REGENERATE event/keyword (no regeneration-shield mechanic), so the ability's effect is not expressible as a content event (engine gap)",
     'Demigod of Revenge': 'cast-time graveyard recursion (return all copies; resolves before ETB; structural)',
     'Earwig Squad': 'prowl-gated ETB (search+exile only when prowl cost paid; alt-cost dependent)',
     'Gathering Stone': 'choose-a-type cost-reducer / mana on ETB (structural; no content event)',
@@ -2763,6 +2762,42 @@ def test_card_fulminator_mage():
         f"should destroy the target land, got {[e.type.name for e in resolve]}")
 
 
+def test_card_deity_of_scars():
+    """Deity of Scars: Trample. Enters with two -1/-1 counters. {B/G}, Remove a
+    -1/-1 counter: Regenerate Deity of Scars.
+
+    Wires the new REGENERATE subsystem: activating the ability installs a one-
+    shot regeneration shield, so the next destroy is replaced (tap + clear
+    damage + leave combat) and the creature SURVIVES; a second destroy kills it.
+    """
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Deity of Scars", mana={'g': 1})
+    # ETB put two -1/-1 counters on it (needed to pay the Remove-a-counter cost).
+    assert obj.state.counters.get('-1/-1', 0) == 2, (
+        f"should enter with two -1/-1 counters, got {obj.state.counters}")
+
+    # Activate {B/G}, Remove a -1/-1 counter: Regenerate. The effect installs the
+    # shield (no resolve events); a counter is removed as part of the cost.
+    _activate(game, p1, obj)
+    assert obj.state.counters.get('-1/-1', 0) == 1, (
+        f"removing a -1/-1 counter is part of the cost, got {obj.state.counters}")
+
+    # The next destroy is regenerated: the creature stays on the battlefield.
+    game.emit(Event(type=EventType.OBJECT_DESTROYED,
+                    payload={'object_id': obj.id, 'reason': 'destroy'}))
+    assert obj.zone == ZoneType.BATTLEFIELD and obj.id in game.state.zones['battlefield'].objects, (
+        "regen shield should replace the destroy — Deity of Scars must survive")
+    assert obj.state.tapped, "regenerated creature must be tapped"
+    assert any(e.type == EventType.REGENERATE for e in game.state.event_log), (
+        "a REGENERATE marker should be logged")
+
+    # Shield was one-shot: a second destroy kills it.
+    game.emit(Event(type=EventType.OBJECT_DESTROYED,
+                    payload={'object_id': obj.id, 'reason': 'destroy'}))
+    assert obj.zone == ZoneType.GRAVEYARD, (
+        f"second destroy must kill (shield was one-shot), got zone {obj.zone}")
+
+
 # --- engine-native mana abilities (creatures/artifacts) --------------------
 
 def test_card_springleaf_drum():
@@ -3939,7 +3974,7 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_steam_vents, test_card_temple_garden, test_card_eclipsed_realms,
     test_card_evolving_wilds,
     test_card_soulbright_seeker, test_card_sting_slinger, test_card_moonglove_extract,
-    test_card_fulminator_mage, test_card_springleaf_drum, test_card_firdoch_core,
+    test_card_fulminator_mage, test_card_deity_of_scars, test_card_springleaf_drum, test_card_firdoch_core,
     # --- Re-exam batch: engine-native creature mana abilities ---
     test_card_great_forest_druid, test_card_flamebraider, test_card_lys_alana_dignitary,
     # --- Re-exam batch: creature activated abilities ---
