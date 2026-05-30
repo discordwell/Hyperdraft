@@ -547,5 +547,92 @@ def test_mnr_deck_includes_retrograde_erasure():
     assert "MNR Retrograde Erasure Suite" in {c.name for c in deck}
 
 
+# --------------------------------------------------------------------------- #
+# Wave A #3: SZB — six signature-bomb facilities (activated + modal)
+# --------------------------------------------------------------------------- #
+
+
+def _szb_anomaly(game, player, status="active"):
+    return _bf_obj(game, player, "SCP-FBN-2280: Eldrazi Conscription Pattern", status=status)
+
+
+def test_szb_public_spectacle_drops_opp_secrecy():
+    game, p1, p2 = _setup()
+    fac = _bf_obj(game, p1, "SZB Public Spectacle Suite")
+    sec0 = scp.site(game.state, p2.id)["secrecy"]
+    ok, msg, _e = scp.activate_ability(game, p1.id, fac.id, 0)
+    assert ok, msg
+    assert scp.site(game.state, p2.id)["secrecy"] == sec0 - 2
+
+
+def test_szb_induced_docility_modes():
+    game, p1, p2 = _setup()
+    fac = _bf_obj(game, p1, "SZB Induced Docility Protocol")
+    an = _szb_anomaly(game, p1)
+    scp.ensure_scp_state(game.state, p1.id)
+    game.state.scp_anomalies.setdefault(p1.id, []).append(an.id)
+    ok, _m, _e = scp.activate_ability(game, p1.id, fac.id, 0, mode=0)  # calm
+    assert ok and an.state.scp_mood == "docile"
+    fac2 = _bf_obj(game, p1, "SZB Induced Docility Protocol")
+    b0 = scp.site(game.state, p1.id)["briefing"]
+    ok2, _m2, _e2 = scp.activate_ability(game, p1.id, fac2.id, 0, mode=1)  # Brief 2
+    assert ok2 and scp.site(game.state, p1.id)["briefing"] == b0 + 2
+
+
+def test_szb_containment_singularity_archives_per_contained():
+    game, p1, p2 = _setup()
+    fac = _bf_obj(game, p1, "SZB Containment Singularity")
+    scp.ensure_scp_state(game.state, p1.id)
+    for _ in range(2):
+        c = _szb_anomaly(game, p1, status="contained")
+        game.state.scp_contained.setdefault(p1.id, []).append(c.id)
+    a0 = scp.site(game.state, p1.id)["archives"]
+    ok, _m, _e = scp.activate_ability(game, p1.id, fac.id, 0)
+    assert ok and scp.site(game.state, p1.id)["archives"] == a0 + 2
+
+
+def test_szb_perfect_audit_misfiles_and_archives():
+    game, p1, p2 = _setup()
+    fac = _bf_obj(game, p1, "SZB Perfect Audit Bureau")
+    pend = _bf_obj(game, p2, "Junior Researcher", status="pending")
+    a0 = scp.site(game.state, p1.id)["archives"]
+    pw0 = pend.state.scp_paperwork
+    ok, _m, _e = scp.activate_ability(game, p1.id, fac.id, 0)
+    assert ok
+    assert pend.state.scp_paperwork > pw0
+    assert scp.site(game.state, p1.id)["archives"] == a0 + 1
+
+
+def test_szb_ethical_discharge_pays_ethics():
+    game, p1, p2 = _setup()
+    fac = _bf_obj(game, p1, "SZB Ethical Discharge Reactor")
+    scp.site(game.state, p1.id)["ethics_debt"] = 2
+    a0 = scp.site(game.state, p1.id)["archives"]
+    s0 = scp.site(game.state, p2.id)["secrecy"]
+    ok, msg, _e = scp.activate_ability(game, p1.id, fac.id, 0)
+    assert ok, msg
+    assert scp.site(game.state, p1.id)["archives"] == a0 + 1
+    assert scp.site(game.state, p1.id)["ethics_debt"] == 0
+    assert scp.site(game.state, p2.id)["secrecy"] == s0 - 1
+
+
+def test_szb_shift_change_refresh_mode():
+    game, p1, p2 = _setup()
+    fac = _bf_obj(game, p1, "SZB Shift Change Suite")
+    staff = _play(game, p1, "Junior Researcher")
+    staff.state.scp_exhausted = True
+    ok, _m, _e = scp.activate_ability(game, p1.id, fac.id, 0, mode=0)
+    assert ok and not staff.state.scp_exhausted
+
+
+def test_szb_decks_25_with_signature_bombs():
+    from src.cards.scp.site_zero_broken_masquerade import SITE_ZERO_DECK_FACTORIES, _SIGNATURE_BOMBS
+    bombs = set(_SIGNATURE_BOMBS.values())
+    for factory in SITE_ZERO_DECK_FACTORIES.values():
+        deck = factory()
+        assert len(deck) == 25
+        assert len({c.name for c in deck} & bombs) == 1
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

@@ -22,6 +22,8 @@ from typing import Any
 
 from src.engine.types import CardDefinition, CardType, Event, EventType, GameObject, GameState, ZoneType
 from src.engine import scp
+from src.engine.scp_abilities import make_scp_activated_ability, SCPMode
+from src.engine.scp_costs import SCPCost, SCPValueHint
 
 
 EXPANSION = "Site Zero: Broken Masquerade"
@@ -784,7 +786,259 @@ def _build_cards() -> list[CardDefinition]:
     return cards
 
 
-SITE_ZERO_BROKEN_MASQUERADE_CARDS = _build_cards()
+# ---------------------------------------------------------------------------
+# Wave A #3 signature bombs (verb-redesign): one marquee activated/modal
+# facility per SZB archetype. Reuse this file's _active_anomalies /
+# _contained_anomalies / _pending_dossiers / _opponent helpers + engine effect
+# helpers; each ability carries a value_hint so the heuristic AI fires it.
+# Counterplay is self-limiting (cost) or in-pool — these are costed value/tempo
+# engines, not lock pieces.
+# ---------------------------------------------------------------------------
+
+
+# 1. broken_masquerade — Public Spectacle Suite
+def _public_spectacle_effect(obj, state):
+    game = getattr(state, "_game", None)
+    opp = _opponent(state, obj.controller)
+    events: list[Event] = []
+    if opp is not None:
+        os = scp.site(state, opp)
+        os["secrecy"] = os.get("secrecy", 0) - 2
+        events.append(_site_event(EventType.SCP_AUDIT, obj, reason="public_spectacle", target_player=opp, secrecy=os["secrecy"]))
+        if os["secrecy"] <= 6 and game is not None:
+            events.extend(scp.gain_archives(game, obj.controller, 1, source=obj.id))
+    return events
+
+
+def _public_spectacle_value(obj, state, _mode):
+    opp = _opponent(state, obj.controller)
+    if opp is None:
+        return 0.0
+    sec = int(scp.site(state, opp).get("secrecy", 99) or 99)
+    return 1.0 + max(0, 7 - sec) * 0.5  # higher as the opponent nears public panic
+
+
+_PUBLIC_SPECTACLE = _make_card(
+    "SZB Public Spectacle Suite", CardType.SCP_FACILITY,
+    archetype="broken_masquerade", keywords={"Overexpose"},
+    red_tape=2, clearance=1, subtypes={"Broadcast", "Site-Zero"},
+    text=("Exhaust: each opponent's secrecy -2; if they are at 6 or less secrecy, gain 1 archive. "
+          "The cameras were always the containment."),
+    rarity="mythic",
+)
+_PUBLIC_SPECTACLE.setup_interceptors = (lambda obj, state: (
+    make_scp_activated_ability(
+        obj, cost=SCPCost(exhaust_self=True),
+        description="Each opponent's secrecy -2; +1 archive if they are at 6 or less secrecy",
+        effect_fn=_public_spectacle_effect, value_hint=SCPValueHint(custom_value_fn=_public_spectacle_value),
+    ), [])[1])
+
+
+# 2. mnestic_quarantine — Induced Docility Protocol (modal)
+def _induced_docility_calm(obj, state):
+    n = 0
+    for anom in _active_anomalies(state, obj.controller):
+        anom.state.scp_mood = "docile"
+        n += 1
+    return [_site_event(EventType.SCP_MOOD_SHIFT, obj, reason="induced_docility", calmed=n)]
+
+
+def _induced_docility_brief(obj, state):
+    s = scp.site(state, obj.controller)
+    s["briefing"] = s.get("briefing", 0) + 2
+    return [_site_event(EventType.SCP_INCIDENT_RESOLVED, obj, reason="induced_docility_brief", briefing=s["briefing"])]
+
+
+def _docility_calm_value(obj, state, _mode):
+    return len(_active_anomalies(state, obj.controller)) * 1.0  # board protection
+
+
+_INDUCED_DOCILITY = _make_card(
+    "SZB Induced Docility Protocol", CardType.SCP_FACILITY,
+    archetype="mnestic_quarantine", keywords={"Quarantine"},
+    red_tape=2, clearance=1, subtypes={"Protocol", "Site-Zero"},
+    text=("Exhaust, choose one: set all your active anomalies to docile, OR Brief 2. "
+          "Calm is just another containment protocol."),
+    rarity="mythic",
+)
+_INDUCED_DOCILITY.setup_interceptors = (lambda obj, state: (
+    make_scp_activated_ability(
+        obj, cost=SCPCost(exhaust_self=True), description="Choose one — calm your anomalies, or Brief 2",
+        modes=[
+            SCPMode("Calm: set your active anomalies to docile", _induced_docility_calm,
+                    ("stabilize",), SCPValueHint(custom_value_fn=_docility_calm_value)),
+            SCPMode("Brief 2", _induced_docility_brief, ("value",), SCPValueHint(briefing=2)),
+        ],
+    ), [])[1])
+
+
+# 3. thaumiel_grid — Containment Singularity
+def _containment_singularity_effect(obj, state):
+    game = getattr(state, "_game", None)
+    contained = len(_contained_anomalies(state, obj.controller))
+    if contained < 2 or game is None:
+        return []
+    return scp.gain_archives(game, obj.controller, min(contained, 3), source=obj.id)
+
+
+def _containment_singularity_value(obj, state, _mode):
+    contained = len(_contained_anomalies(state, obj.controller))
+    return 0.0 if contained < 2 else min(contained, 3) * 2.0
+
+
+_CONTAINMENT_SINGULARITY = _make_card(
+    "SZB Containment Singularity", CardType.SCP_FACILITY,
+    archetype="thaumiel_grid", keywords={"Anchor"},
+    red_tape=2, clearance=1, subtypes={"Containment Site", "Site-Zero"},
+    text=("Exhaust: if you control 2 or more contained anomalies, gain 1 archive per contained anomaly (max 3). "
+          "Perfect containment is its own reward."),
+    rarity="mythic",
+)
+_CONTAINMENT_SINGULARITY.setup_interceptors = (lambda obj, state: (
+    make_scp_activated_ability(
+        obj, cost=SCPCost(exhaust_self=True),
+        description="If 2+ contained anomalies, gain 1 archive per contained (max 3)",
+        effect_fn=_containment_singularity_effect, value_hint=SCPValueHint(custom_value_fn=_containment_singularity_value),
+    ), [])[1])
+
+
+# 4. blackfile_bureau — Perfect Audit Bureau
+def _perfect_audit_effect(obj, state):
+    game = getattr(state, "_game", None)
+    opp = _opponent(state, obj.controller)
+    if game is None or opp is None:
+        return []
+    events: list[Event] = []
+    misfiled = 0
+    for dossier in _pending_dossiers(state, opp):
+        ok, _msg, ev = scp.misfile_dossier(game, obj.controller, dossier.id, amount=1, source=obj.id)
+        if ok:
+            events.extend(ev)
+            misfiled += 1
+    if misfiled > 0:
+        events.extend(scp.gain_archives(game, obj.controller, min(misfiled, 3), source=obj.id))
+    return events
+
+
+def _perfect_audit_value(obj, state, _mode):
+    opp = _opponent(state, obj.controller)
+    if opp is None:
+        return 0.0
+    return min(len(_pending_dossiers(state, opp)), 3) * 2.0
+
+
+_PERFECT_AUDIT = _make_card(
+    "SZB Perfect Audit Bureau", CardType.SCP_FACILITY,
+    archetype="blackfile_bureau", keywords={"Blackfile"},
+    red_tape=2, clearance=1, subtypes={"Bureaucracy", "Site-Zero"},
+    text=("Exhaust: add 1 paperwork to each opponent pending dossier; gain 1 archive per dossier audited (max 3). "
+          "Every file finds its error."),
+    rarity="mythic",
+)
+_PERFECT_AUDIT.setup_interceptors = (lambda obj, state: (
+    make_scp_activated_ability(
+        obj, cost=SCPCost(exhaust_self=True),
+        description="Misfile each opponent pending dossier; +1 archive per dossier (max 3)",
+        effect_fn=_perfect_audit_effect, value_hint=SCPValueHint(custom_value_fn=_perfect_audit_value),
+    ), [])[1])
+
+
+# 5. clean_hands — Ethical Discharge Reactor
+def _ethical_discharge_effect(obj, state):
+    game = getattr(state, "_game", None)
+    events: list[Event] = []
+    if game is not None:
+        events.extend(scp.gain_archives(game, obj.controller, 1, source=obj.id))
+    opp = _opponent(state, obj.controller)
+    if opp is not None:
+        os = scp.site(state, opp)
+        os["secrecy"] = os.get("secrecy", 0) - 1
+        events.append(_site_event(EventType.SCP_AUDIT, obj, reason="ethical_discharge", target_player=opp, secrecy=os["secrecy"]))
+    return events
+
+
+_ETHICAL_DISCHARGE = _make_card(
+    "SZB Ethical Discharge Reactor", CardType.SCP_FACILITY,
+    archetype="clean_hands", keywords={"Overexpose"},
+    red_tape=2, clearance=1, subtypes={"Ethics", "Site-Zero"},
+    text=("Pay 2 ethics: gain 1 archive and each opponent's secrecy -1. "
+          "The ledger is balanced by spending it."),
+    rarity="mythic",
+)
+_ETHICAL_DISCHARGE.setup_interceptors = (lambda obj, state: (
+    make_scp_activated_ability(
+        obj, cost=SCPCost(ethics=2),
+        description="Pay 2 ethics: gain 1 archive and each opponent's secrecy -1",
+        effect_fn=_ethical_discharge_effect, value_hint=SCPValueHint(archives=1, secrecy=-1),
+    ), [])[1])
+
+
+# 6. veil_rotation — Shift Change Suite (modal)
+def _shift_change_refresh(obj, state):
+    s = scp.site(state, obj.controller)
+    refreshed = 0
+    for pid in list(state.scp_personnel.get(obj.controller, [])):
+        person = state.objects.get(pid)
+        if person is not None and person.state.scp_exhausted:
+            person.state.scp_exhausted = False
+            refreshed += 1
+    s["assignments_used"] = max(0, s.get("assignments_used", 0) - 1)
+    return [_site_event(EventType.SCP_INCIDENT_RESOLVED, obj, reason="shift_change_refresh", refreshed=refreshed)]
+
+
+def _shift_change_refund(obj, state):
+    s = scp.site(state, obj.controller)
+    s["assignments_used"] = max(0, s.get("assignments_used", 0) - 2)
+    return [_site_event(EventType.SCP_INCIDENT_RESOLVED, obj, reason="shift_change_refund", used=s["assignments_used"])]
+
+
+def _shift_refresh_value(obj, state, _mode):
+    n = sum(1 for pid in state.scp_personnel.get(obj.controller, [])
+            if (p := state.objects.get(pid)) is not None and p.state.scp_exhausted)
+    return n * 1.0 + 0.6
+
+
+def _shift_refund_value(obj, state, _mode):
+    return int(scp.site(state, obj.controller).get("assignments_used", 0) or 0) * 0.8
+
+
+_SHIFT_CHANGE = _make_card(
+    "SZB Shift Change Suite", CardType.SCP_FACILITY,
+    archetype="veil_rotation", keywords={"Rotation"},
+    red_tape=2, clearance=1, subtypes={"Staff", "Site-Zero"},
+    text=("Exhaust, choose one: refresh all your exhausted staff and refund 1 assignment, OR refund 2 assignments. "
+          "The next shift never sleeps."),
+    rarity="mythic",
+)
+_SHIFT_CHANGE.setup_interceptors = (lambda obj, state: (
+    make_scp_activated_ability(
+        obj, cost=SCPCost(exhaust_self=True), description="Choose one — refresh staff + refund 1, or refund 2 assignments",
+        modes=[
+            SCPMode("Refresh all exhausted staff + refund 1 assignment", _shift_change_refresh,
+                    ("tempo",), SCPValueHint(custom_value_fn=_shift_refresh_value)),
+            SCPMode("Refund 2 assignments", _shift_change_refund, ("tempo",),
+                    SCPValueHint(custom_value_fn=_shift_refund_value)),
+        ],
+    ), [])[1])
+
+
+_SIGNATURE_BOMB_CARDS = [
+    _PUBLIC_SPECTACLE, _INDUCED_DOCILITY, _CONTAINMENT_SINGULARITY,
+    _PERFECT_AUDIT, _ETHICAL_DISCHARGE, _SHIFT_CHANGE,
+]
+
+# Maps each archetype to its guaranteed signature bomb (prepended in _deck).
+_SIGNATURE_BOMBS = {
+    "broken_masquerade": "SZB Public Spectacle Suite",
+    "mnestic_quarantine": "SZB Induced Docility Protocol",
+    "thaumiel_grid": "SZB Containment Singularity",
+    "blackfile_bureau": "SZB Perfect Audit Bureau",
+    "clean_hands": "SZB Ethical Discharge Reactor",
+    "veil_rotation": "SZB Shift Change Suite",
+}
+
+
+SITE_ZERO_BROKEN_MASQUERADE_CARDS = _build_cards() + _SIGNATURE_BOMB_CARDS
 SITE_ZERO_CARDS_BY_NAME = {card.name: card for card in SITE_ZERO_BROKEN_MASQUERADE_CARDS}
 
 
@@ -805,7 +1059,15 @@ def _deck(archetype: str, *, anomaly_count: int, procedure_count: int) -> list[C
     names: list[str] = []
     names.extend(_names(archetype, CardType.SCP_MANDATE)[:3])
     names.extend(_names(archetype, CardType.SCP_PERSONNEL)[:7])
-    names.extend(_names(archetype, CardType.SCP_FACILITY)[:4])
+    # Guarantee the archetype's signature bomb (a facility) is in the deck: the
+    # facility pick is alphabetical top-N, which could drop it. Prepend the bomb
+    # and take the other facilities [:3] so the deck keeps 4 facilities / 25 cards.
+    bomb = _SIGNATURE_BOMBS.get(archetype)
+    facility_slots = 4
+    if bomb is not None:
+        names.append(bomb)
+        facility_slots = 3
+    names.extend([n for n in _names(archetype, CardType.SCP_FACILITY) if n != bomb][:facility_slots])
     names.extend(_names(archetype, CardType.SCP_ANOMALY)[:anomaly_count])
     names.extend(_names(archetype, CardType.SCP_PROCEDURE)[:procedure_count])
     if len(names) < 25:

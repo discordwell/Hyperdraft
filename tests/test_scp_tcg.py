@@ -59,7 +59,9 @@ def test_scp_card_pool_has_distinct_types_and_starter_decks():
 def test_site_zero_expansion_has_mechanics_and_candidate_decks():
     site_zero = [card for card in SCP_CARDS.values() if getattr(card, "scp_expansion_code", None) == "SZB"]
 
-    assert len(site_zero) == 180
+    # 180 generated + 6 verb-redesign signature bombs (one facility per
+    # archetype, Wave A #3). Bump deliberately as the redesign adds marquee cards.
+    assert len(site_zero) == 186
     assert {
         "broken_masquerade",
         "mnestic_quarantine",
