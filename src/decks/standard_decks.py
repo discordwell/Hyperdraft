@@ -339,10 +339,65 @@ LORWYN_FAERIES = Deck(
 
 
 # =============================================================================
+# ============  FAE BUT MID (FBM) — pinnacle archetype decks  ==================
+# Custom fae-tribal set in src/cards/custom/fae_but_mid.py. These six decks
+# give the set its first designed metagame (previously only auto-greedy decks
+# existed, so most cards never got cast). One deck per tribal pillar; every
+# card name is a key in FAE_BUT_MID_CARDS. Strategy doc:
+# docs/strategy/fae_but_mid.md
+# =============================================================================
+
+# ---- 1. FAERIE TEMPO (UB) ----------------------------------------------------
+# Bitterblossom + flyers + flash counters. Spellstutter/Mistbind/Oona scale
+# with Faerie count; tap-down + countermagic protect a small evasive clock.
+FBM_FAERIE_TEMPO = Deck(
+    name="FBM Faerie Tempo",
+    archetype="Tempo",
+    colors=["U", "B"],
+    description="Dimir Faeries: Bitterblossom tokens, flash flyers, and "
+                "countermagic that scales with your Faerie count. Tempo out a "
+                "small evasive clock behind Spellstutter Sprite and Cryptic Command.",
+    mainboard=[
+        # Token / clock engines
+        DeckEntry("Bitterblossom", 3, "FBM"),
+        DeckEntry("Oona's Blackguard", 2, "FBM"),
+        # 1-2 drop flyers + flash counters
+        DeckEntry("Spellstutter Sprite", 4, "FBM"),
+        DeckEntry("Scion of Oona", 3, "FBM"),
+        DeckEntry("Unwelcome Sprite", 2, "FBM"),
+        DeckEntry("Wydwen, the Biting Gale", 2, "FBM"),
+        DeckEntry("Shimmercreep", 2, "FBM"),
+        # Disruptive bodies
+        DeckEntry("Glen Elendra Archmage", 2, "FBM"),
+        DeckEntry("Mistbind Clique", 3, "FBM"),
+        DeckEntry("Sower of Temptation", 2, "FBM"),
+        # Top-end
+        DeckEntry("Oona, Queen of the Fae", 2, "FBM"),
+        # Spells (removal / counters / card flow)
+        DeckEntry("Peppersmoke", 2, "FBM"),
+        DeckEntry("Spell Snare", 1, "FBM"),
+        DeckEntry("Moonshadow", 2, "FBM"),
+        DeckEntry("Lofty Dreams", 2, "FBM"),
+        DeckEntry("Cryptic Command", 2, "FBM"),
+        DeckEntry("Profane Command", 1, "FBM"),
+        # Lands (23)
+        DeckEntry("Island", 9, "FBM"),
+        DeckEntry("Swamp", 10, "FBM"),
+        DeckEntry("Evolving Wilds", 4, "FBM"),
+    ],
+    sideboard=[],
+    author="Deckbuilder",
+    source="Fae but Mid pinnacle decks",
+    game="mtg",
+)
+
+
+# =============================================================================
 # DECK REGISTRY
 # =============================================================================
 
 STANDARD_DECKS = {
+    "fbm_faerie_tempo": FBM_FAERIE_TEMPO,
     "mono_red_aggro": MONO_RED_AGGRO,
     "mono_green_ramp": MONO_GREEN_RAMP,
     "dimir_control": DIMIR_CONTROL,
