@@ -152,13 +152,7 @@ def _new_game():
 
 SKIPPED_CARDS = {
     "Rhys, the Evermore": "targeted ETB granting persist to a chosen creature (target-choice)",
-    'Burning Curiosity': 'instant/sorcery: exile top N + play-this-turn (impulse draw); needs a play-from-exile window',
-    'Dream Harvest': 'instant/sorcery: exile-until-mana threshold (structural)',
-    'End-Blaze Epiphany': 'instant/sorcery: X-damage + dies-this-turn delayed exile rider (variable X + delayed trigger)',
-    'Noggle the Mind': 'instant/sorcery: hand-shuffle + variable draw (structural)',
-    'Spiral into Solitude': 'instant/sorcery: exile an attacking/blocking creature (combat-restricted target) + opponent makes a token',
     # --- Section 2 structural skips (lands / activated / equipment / aura / replacement / PW) ---
-    'Aurora Awakener': 'reveal-until-X dig (variable, library-state dependent; not a single content event)',
     'Champion of the Weird': "behold-a-Goblin cast cost (alt-cost choice the engine can't model) + 'Pay 1 life, Blight 2: target opponent blights 2' — there is no blight content-event the engine consumes (blight is parsed only as a cost), so the activated ability has no fireable effect (engine gap)",
     'Demigod of Revenge': 'cast-time graveyard recursion (return all copies; resolves before ETB; structural)',
     'Earwig Squad': "prowl-gated ETB: the search+exile fires only 'if its prowl cost was paid'. Prowl is an alternative cost, and the engine cannot gate an effect on which cost was paid: the cost-payment path in priority.py sets NO per-cost-paid flag on the spell object, and the one precedent (was_bargained, interceptor_helpers.py) is itself a defined-but-never-auto-set flag awaiting a 'future cast-option extension'. Wiring needs non-additive engine work (out of scope).",
@@ -4380,6 +4374,108 @@ def test_card_gathering_stone():
         f"Gathering Stone: a non-chosen-type spell should be unchanged (got {eff2.generic})"
 
 
+def test_card_spiral_into_solitude():
+    """Spiral into Solitude: exile target attacking/blocking creature; its
+    controller makes a 1/1 Kithkin token. -> EXILE + CREATE_TOKEN."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    game.create_object(name='Spiral into Solitude', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Spiral into Solitude'].characteristics, card_def=None)
+    atk = _spawn(game, p2, subtypes={'Goblin'}, power=2, toughness=2, name='Atk')
+    atk.state.attacking = True
+    evs = FAE_BUT_MID_CARDS['Spiral into Solitude'].resolve([], game.state)
+    got = {e.type.name for e in evs}
+    assert 'EXILE' in got and 'CREATE_TOKEN' in got, \
+        f"Spiral into Solitude: expected EXILE + CREATE_TOKEN, got {sorted(got)}"
+    exile = next(e for e in evs if e.type.name == 'EXILE')
+    assert exile.payload.get('object_id') == atk.id, \
+        "Spiral into Solitude: should exile the attacking creature"
+
+
+def test_card_noggle_the_mind():
+    """Noggle the Mind: target player shuffles their hand into library, then
+    draws that many. -> DRAW equal to hand size shuffled."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    game.create_object(name='Noggle the Mind', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Noggle the Mind'].characteristics, card_def=None)
+    for i in range(3):
+        game.create_object(name=f'Hand{i}', owner_id=p1.id, zone=ZoneType.HAND,
+            characteristics=Characteristics(types={CardType.CREATURE}), card_def=None)
+    evs = FAE_BUT_MID_CARDS['Noggle the Mind'].resolve([], game.state)
+    got = {e.type.name for e in evs}
+    assert 'DRAW' in got, f"Noggle the Mind: expected DRAW, got {sorted(got)}"
+    draw = next(e for e in evs if e.type.name == 'DRAW')
+    assert draw.payload.get('amount') == 3, \
+        f"Noggle the Mind: should draw equal to the 3 cards shuffled (got {draw.payload.get('amount')})"
+
+
+def test_card_dream_harvest():
+    """Dream Harvest: each opponent exiles from the top of their library until
+    total MV >= 5. -> EXILE (stops once threshold reached)."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    game.create_object(name='Dream Harvest', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Dream Harvest'].characteristics, card_def=None)
+    for i in range(4):  # 4 cards at MV 2 -> exile 3 (2+2+2=6 >= 5)
+        game.create_object(name=f'Lib{i}', owner_id=p2.id, zone=ZoneType.LIBRARY,
+            characteristics=Characteristics(types={CardType.CREATURE}, mana_cost='{2}'), card_def=None)
+    evs = FAE_BUT_MID_CARDS['Dream Harvest'].resolve([], game.state)
+    got = {e.type.name for e in evs}
+    assert 'EXILE' in got, f"Dream Harvest: expected EXILE, got {sorted(got)}"
+    n_exile = sum(1 for e in evs if e.type.name == 'EXILE')
+    assert n_exile == 3, \
+        f"Dream Harvest: should exile until MV>=5 (3 of the {{2}} cards), got {n_exile}"
+
+
+def test_card_burning_curiosity():
+    """Burning Curiosity: exile the top two cards of your library. -> EXILE x2."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    game.create_object(name='Burning Curiosity', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Burning Curiosity'].characteristics, card_def=None)
+    for i in range(5):
+        game.create_object(name=f'Lib{i}', owner_id=p1.id, zone=ZoneType.LIBRARY,
+            characteristics=Characteristics(types={CardType.CREATURE}, mana_cost='{1}'), card_def=None)
+    evs = FAE_BUT_MID_CARDS['Burning Curiosity'].resolve([], game.state)
+    got = {e.type.name for e in evs}
+    assert 'EXILE' in got, f"Burning Curiosity: expected EXILE, got {sorted(got)}"
+    assert sum(1 for e in evs if e.type.name == 'EXILE') == 2, \
+        "Burning Curiosity: should exile the top two cards"
+
+
+def test_card_end_blaze_epiphany():
+    """End-Blaze Epiphany: deals X damage to target creature (+ dies-this-turn
+    delayed exile rider). -> DAMAGE of amount X to the creature."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    spell = game.create_object(name='End-Blaze Epiphany', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['End-Blaze Epiphany'].characteristics, card_def=None)
+    spell.state.x_value = 4
+    victim = _spawn(game, p2, power=2, toughness=2, name='Victim')
+    evs = FAE_BUT_MID_CARDS['End-Blaze Epiphany'].resolve([], game.state)
+    got = {e.type.name for e in evs}
+    assert 'DAMAGE' in got, f"End-Blaze Epiphany: expected DAMAGE, got {sorted(got)}"
+    dmg = next(e for e in evs if e.type.name == 'DAMAGE')
+    assert dmg.payload.get('amount') == 4 and dmg.payload.get('target') == victim.id, \
+        f"End-Blaze Epiphany: should deal X(=4) damage to the target creature (got {dmg.payload})"
+
+
+def test_card_aurora_awakener():
+    """Aurora Awakener: Vivid ETB digs the top of your library until X permanent
+    cards (X = colors among your permanents) and puts them in hand. -> LOOK_AT_TOP
+    with the computed X (here a green creature on board => X==1)."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Aurora Awakener")
+    got = _content_events(game)
+    assert any(t in got for t in ['LOOK_AT_TOP', 'LOOK_TOP_CARDS']), \
+        f"Aurora Awakener: expected a library-dig LOOK_AT_TOP, got {sorted(got)}"
+    look = next(e for e in game.state.event_log if e.type.name == 'LOOK_AT_TOP')
+    # Aurora itself is green, so at least one color -> X >= 1.
+    assert look.payload.get('put_in_hand', 0) >= 1, \
+        "Aurora Awakener: should put at least one permanent (X>=1) into hand"
+
+
 # ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
@@ -4453,7 +4549,10 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_chitinous_graspling, test_card_gangly_stompling,
     test_card_retched_wretch, test_card_retched_wretch_no_counter_stays_dead,
     test_card_rimefire_torque, test_card_rimefire_torque_wrong_type_no_charge,
-    test_card_gathering_stone]
+    test_card_gathering_stone,
+    test_card_spiral_into_solitude, test_card_noggle_the_mind,
+    test_card_dream_harvest, test_card_burning_curiosity,
+    test_card_end_blaze_epiphany, test_card_aurora_awakener]
 
 
 def _run():

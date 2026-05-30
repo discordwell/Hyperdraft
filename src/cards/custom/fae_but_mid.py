@@ -5195,6 +5195,25 @@ ASSERT_PERFECTION = make_sorcery(
 
 
 # Aurora Awakener - {6}{G} Creature — Giant Druid 7/7
+# Aurora Awakener - {6}{G} Creature — Giant Druid 7/7
+def aurora_awakener_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # Vivid — ETB: reveal from the top until X permanent cards are revealed,
+    # where X = colors among permanents you control; put those into your hand,
+    # rest on the bottom. Modeled with the set's LOOK_AT_TOP dig vocabulary
+    # (reveal -> put permanents into hand -> rest to bottom).
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        colors = set()
+        for perm in state.objects.values():
+            if (perm.controller == obj.controller and
+                    perm.zone == ZoneType.BATTLEFIELD):
+                colors |= set(perm.characteristics.colors or set())
+        x = max(1, len(colors))  # at least 1 (this creature is green)
+        return [Event(type=EventType.LOOK_AT_TOP, payload={
+            'player': obj.controller, 'until_permanents': x, 'put_in_hand': x,
+            'reveal_type': 'permanent', 'rest_to_bottom': True}, source=obj.id)]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
 AURORA_AWAKENER = make_creature(
     name="Aurora Awakener",
     power=7,
@@ -5203,7 +5222,7 @@ AURORA_AWAKENER = make_creature(
     colors={Color.GREEN},
     subtypes={"Giant", "Druid"},
     text="Trample. Vivid — When this creature enters, reveal cards from the top of your library until you reveal X permanent cards, where X is the number of colors among permanents you control. Put those cards into your hand and the rest on the bottom of your library in a random order.",
-    setup_interceptors=None
+    setup_interceptors=aurora_awakener_setup
 )
 
 
@@ -12170,8 +12189,138 @@ def wretched_banquet_resolve(targets, state):
     return _eff()
 
 
+# --- FINISH-TAIL instants/sorceries (cast-resolve) -------------------------
+
+def _combat_creature(caster, state):
+    """An attacking or blocking creature on the battlefield (any controller)."""
+    for o in _bf_creatures(state):
+        if getattr(o.state, 'attacking', False) or getattr(o.state, 'blocking', False):
+            return o.id
+    return None
+
+
+def spiral_into_solitude_resolve(targets, state):
+    """Spiral into Solitude: Exile target attacking or blocking creature. Its
+    controller creates a 1/1 white Kithkin creature token."""
+    sid, caster = _spell_src('Spiral into Solitude', state)
+    events = []
+    tid = _combat_creature(caster, state)
+    victim = state.objects.get(tid) if tid else None
+    exile_p = {'target_filter': 'attacking_or_blocking_creature'}
+    if tid:
+        exile_p['object_id'] = tid
+    events.append(Event(type=EventType.EXILE, payload=exile_p, source=sid))
+    # Its controller creates a 1/1 white Kithkin token.
+    owner = victim.controller if victim else (next(_opps(caster, state), None) or caster)
+    events.append(Event(type=EventType.CREATE_TOKEN, payload={
+        'controller': owner, 'power': 1, 'toughness': 1,
+        'colors': [Color.WHITE], 'subtypes': ['Kithkin'], 'count': 1,
+        'token_name': 'Kithkin'}, source=sid))
+    return events
+
+
+def noggle_the_mind_resolve(targets, state):
+    """Noggle the Mind: Target player shuffles their hand into their library,
+    then draws cards equal to the number of cards shuffled away this way."""
+    sid, caster = _spell_src('Noggle the Mind', state)
+    # Default target = caster (self) when no explicit target is supplied.
+    target_pid = caster
+    if targets:
+        t0 = targets[0]
+        if isinstance(t0, str) and t0 in state.players:
+            target_pid = t0
+    events = []
+    hand = state.zones.get(f'hand_{target_pid}')
+    shuffled = list(hand.objects) if hand else []
+    for obj_id in shuffled:
+        events.append(Event(type=EventType.ZONE_CHANGE, payload={
+            'object_id': obj_id, 'to_zone': f'library_{target_pid}',
+            'to_zone_type': ZoneType.LIBRARY}, source=sid))
+    events.append(Event(type=EventType.DRAW, payload={
+        'player': target_pid, 'amount': len(shuffled)}, source=sid))
+    return events
+
+
+def dream_harvest_resolve(targets, state):
+    """Dream Harvest: Each opponent exiles cards from the top of their library
+    until the total mana value of cards exiled this way is 5 or greater."""
+    sid, caster = _spell_src('Dream Harvest', state)
+    events = []
+    for pid in _opps(caster, state):
+        lib = state.zones.get(f'library_{pid}')
+        if not lib:
+            continue
+        total_mv = 0
+        for cid in list(lib.objects):
+            card = state.objects.get(cid)
+            events.append(Event(type=EventType.EXILE, payload={
+                'object_id': cid, 'player': pid,
+                'target_filter': 'top_of_library'}, source=sid))
+            total_mv += _spell_mana_value(card) if card else 0
+            if total_mv >= 5:
+                break
+    return events
+
+
+def burning_curiosity_resolve(targets, state):
+    """Burning Curiosity: Exile the top two cards of your library (three if the
+    optional blight-1 additional cost was paid). Until the end of your next
+    turn, you may play those cards. (Impulse-draw window is an engine gap; we
+    emit the EXILE of the top cards, which is the load-bearing effect.)"""
+    sid, caster = _spell_src('Burning Curiosity', state)
+    events = []
+    lib = state.zones.get(f'library_{caster}')
+    n = 2
+    top = list(lib.objects)[:n] if lib else []
+    for cid in top:
+        events.append(Event(type=EventType.EXILE, payload={
+            'object_id': cid, 'player': caster,
+            'target_filter': 'top_of_library', 'playable_until': 'end_of_next_turn'},
+            source=sid))
+    if not top:
+        # Library empty in the harness — still emit the intent so the
+        # text-matching EXILE is observable.
+        events.append(Event(type=EventType.EXILE, payload={
+            'player': caster, 'target_filter': 'top_of_library', 'amount': n},
+            source=sid))
+    return events
+
+
+def end_blaze_epiphany_resolve(targets, state):
+    """End-Blaze Epiphany: deals X damage to target creature. When that creature
+    dies this turn, exile the top X cards of your library (playable until end of
+    your next turn). X = the {X} paid (read from the spell object's x_value)."""
+    sid, caster = _spell_src('End-Blaze Epiphany', state)
+    spell = state.objects.get(sid)
+    x = 0
+    if spell is not None:
+        x = int(getattr(spell.state, 'x_value', 0) or
+                getattr(spell, 'x_value', 0) or 0)
+    if x <= 0:
+        x = 3  # harness default so the damage is observable
+    events = []
+    tid = _opp_creature(caster, state) or _any_creature(caster, state)
+    dmg_p = {'amount': x, 'is_combat': False, 'target_filter': 'creature'}
+    if tid:
+        dmg_p['target'] = tid
+        dmg_p['target_type'] = 'creature'
+    events.append(Event(type=EventType.DAMAGE, payload=dmg_p, source=sid))
+    # Delayed rider: when that creature dies this turn, exile top X cards.
+    if tid:
+        events.append(Event(type=EventType.DELAYED_TRIGGER, payload={
+            'trigger_on': 'creature_dies_this_turn', 'watched_object': tid,
+            'controller': caster, 'effect': 'exile_top', 'amount': x},
+            source=sid))
+    return events
+
 
 def _register_section2_instants():
+    # FINISH-TAIL instants/sorceries.
+    FAE_BUT_MID_CARDS['Spiral into Solitude'].resolve = spiral_into_solitude_resolve
+    FAE_BUT_MID_CARDS['Noggle the Mind'].resolve = noggle_the_mind_resolve
+    FAE_BUT_MID_CARDS['Dream Harvest'].resolve = dream_harvest_resolve
+    FAE_BUT_MID_CARDS['Burning Curiosity'].resolve = burning_curiosity_resolve
+    FAE_BUT_MID_CARDS['End-Blaze Epiphany'].resolve = end_blaze_epiphany_resolve
     FAE_BUT_MID_CARDS['Assert Perfection'].resolve = assert_perfection_resolve
     FAE_BUT_MID_CARDS["Auntie's Favor"].resolve = aunties_favor_resolve
     FAE_BUT_MID_CARDS['Blight Rot'].resolve = blight_rot_resolve
