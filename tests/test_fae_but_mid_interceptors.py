@@ -164,7 +164,7 @@ SKIPPED_CARDS = {
     'Aurora Awakener': 'reveal-until-X dig (variable, library-state dependent; not a single content event)',
     'Champion of the Weird': "behold-a-Goblin cast cost (alt-cost choice the engine can't model) + 'Pay 1 life, Blight 2: target opponent blights 2' — there is no blight content-event the engine consumes (blight is parsed only as a cost), so the activated ability has no fireable effect (engine gap)",
     'Demigod of Revenge': 'cast-time graveyard recursion (return all copies; resolves before ETB; structural)',
-    'Earwig Squad': 'prowl-gated ETB (search+exile only when prowl cost paid; alt-cost dependent)',
+    'Earwig Squad': "prowl-gated ETB: the search+exile fires only 'if its prowl cost was paid'. Prowl is an alternative cost, and the engine cannot gate an effect on which cost was paid: the cost-payment path in priority.py sets NO per-cost-paid flag on the spell object, and the one precedent (was_bargained, interceptor_helpers.py) is itself a defined-but-never-auto-set flag awaiting a 'future cast-option extension'. Wiring needs non-additive engine work (out of scope).",
     'Gathering Stone': 'choose-a-type cost-reducer / mana on ETB (structural; no content event)',
     'Kinbinding': 'dynamic lord +X/+X where X = creatures entered under your control this turn — no per-turn-entry-count helper/precedent exists',
     'Mirrormind Crown': "equipment token-creation replacement (first tokens each turn become copies of equipped creature) — no replacement hook that rewrites OBJECT_CREATED/CREATE_TOKEN into copy tokens (engine gap)",
