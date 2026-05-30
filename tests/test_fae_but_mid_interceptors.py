@@ -157,7 +157,6 @@ SKIPPED_CARDS = {
     "Surly Farrier": "activated tap pump ability (structural)",
     "Flame-Chain Mauler": "activated pump ability (structural)",
     "Bre of Clan Stoutarm": "activated tap ability (structural)",
-    "Figure of Fable": "modal activated animate abilities (structural)",
     "Gristle Glutton": "activated tap/blight ability (structural)",
     "Morcant's Eyes": "aura static (enchant creature) needs an attached creature",
     "Champion of the Path": "grants a triggered ability to OTHER creatures (static; setup returns [])",
@@ -167,33 +166,19 @@ SKIPPED_CARDS = {
     "Gangly Stompling": "keyword-only (Changeling/Trample); setup returns [] — vanilla-equivalent",
     "Treefolk-bough Spear": "equipment dynamic-P/T static needs an attached creature",
     "The Aurora Cycle": "Saga — chapter abilities are lore-counter driven (structural)",
-    "Glamermite": "modal ETB (choose tap OR untap target) — needs mode selection",
     "Rhys, the Evermore": "targeted ETB granting persist to a chosen creature (target-choice)",
     "Raiding Schemes": "static 'each noncreature spell has conspire' grant — firing needs conspire cost paid (creatures tapped)",
     "Retched Wretch": "reanimation: only effect is a ZONE_CHANGE back to the battlefield (plumbing-only; no content event)",
     "Garruk Wildspeaker": "planeswalker: loyalty-activated abilities (structural; no canonical trigger to fire)",
-    "Ashling's Command": "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
-    'Austere Command': "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
-    "Brigid's Command": "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
     'Burning Curiosity': 'instant/sorcery: exile top N + play-this-turn (impulse draw); needs a play-from-exile window',
-    'Cryptic Command': 'instant/sorcery: counterspell: counters a spell on the stack (needs a spell on the stack to target)',
     'Dream Harvest': 'instant/sorcery: exile-until-mana threshold (structural)',
     'End-Blaze Epiphany': 'instant/sorcery: X-damage + dies-this-turn delayed exile rider (variable X + delayed trigger)',
-    'Giantfall': "instant/sorcery: modal 'choose one': needs mode selection",
     'Gilt-Leaf Ambush': 'instant/sorcery: clash mechanic: outcome-dependent secondary effect (structural)',
     'Goatnap': 'instant/sorcery: gain-control effect: not expressible as a single content event',
-    "Grub's Command": "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
-    'Incendiary Command': "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
-    'Keep Out': "instant/sorcery: modal 'choose one': needs mode selection",
     'Lash Out': 'instant/sorcery: clash mechanic: outcome-dependent secondary effect (structural)',
     'Noggle the Mind': 'instant/sorcery: hand-shuffle + variable draw (structural)',
     'Pollen Lullaby': 'instant/sorcery: damage-prevention replacement effect (structural)',
-    'Primal Command': "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
-    'Profane Command': "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
-    'Run Away Together': 'instant/sorcery: bounce two creatures controlled by DIFFERENT players (paired-target constraint)',
     'Spiral into Solitude': 'instant/sorcery: exile an attacking/blocking creature (combat-restricted target) + opponent makes a token',
-    "Sygg's Command": "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
-    "Trystan's Command": "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
     # --- Section 2 structural skips (lands / activated / equipment / aura / replacement / PW) ---
     'Ajani, Outland Chaperone': 'planeswalker: loyalty-activated abilities (structural)',
     'Aurora Awakener': 'reveal-until-X dig (variable, library-state dependent; not a single content event)',
@@ -3277,6 +3262,229 @@ def test_card_glen_elendra_guardian():
 
 
 # ---------------------------------------------------------------------------
+# Section 4: modal "choose one/two" spells (Foundations make_modal_resolve).
+# Each test pushes the spell to the stack, resolves it (-> modal_with_callback
+# PendingChoice), submits the chosen mode indices, then auto-answers any
+# chained per-mode target choices, and asserts the chosen modes' TEXT-matching
+# events fired. (Mirrors tests/test_modal_modespec.py.)
+# ---------------------------------------------------------------------------
+
+def _drive_modal(game, p1, card_name, modes_pick):
+    """Resolve a modal spell, pick modes, drain chained target choices.
+    Returns the aggregated list[Event] across mode-select + target picks."""
+    spell = game.create_object(
+        name=card_name, owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS[card_name].characteristics, card_def=None)
+    all_evs = []
+    FAE_BUT_MID_CARDS[card_name].resolve([], game.state)
+    pc = game.state.pending_choice
+    assert pc is not None and pc.choice_type == "modal_with_callback", \
+        f"{card_name}: expected a modal_with_callback choice, got {pc and pc.choice_type}"
+    ok, _err, evs = game.submit_choice(pc.id, p1.id, modes_pick)
+    assert ok, f"{card_name}: mode submit failed: {_err}"
+    all_evs += evs or []
+    guard = 0
+    while game.state.pending_choice is not None and guard < 12:
+        guard += 1
+        pc2 = game.state.pending_choice
+        opts = pc2.options or []
+        if not opts:
+            game.state.pending_choice = None
+            break
+        first = opts[0]
+        oid = first['id'] if isinstance(first, dict) else first
+        ok2, _e2, evs2 = game.submit_choice(pc2.id, p1.id, [oid])
+        all_evs += evs2 or []
+    return all_evs
+
+
+def _evtypes(evs):
+    return {e.type.name for e in evs}
+
+
+def test_card_cryptic_command():
+    """Cryptic Command (choose two): counter target spell + draw a card."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _push_spell(game, p2, 'Victim')  # victim spell to counter
+    evs = _drive_modal(game, p1, 'Cryptic Command', [0, 3])
+    got = _evtypes(evs)
+    assert 'COUNTER_SPELL' in got and 'DRAW' in got, \
+        f"Cryptic Command counter+draw should fire, got {sorted(got)}"
+
+
+def test_card_ashlings_command():
+    """Ashling's Command (choose two): draw two + deal 3 to each creature."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p2, name='Foe1')
+    _spawn(game, p2, name='Foe2')
+    evs = _drive_modal(game, p1, "Ashling's Command", [1, 2])
+    got = _evtypes(evs)
+    assert 'DRAW' in got and 'DAMAGE' in got, \
+        f"Ashling's Command draw+damage should fire, got {sorted(got)}"
+
+
+def test_card_brigids_command():
+    """Brigid's Command (choose two): make a Kithkin token + pump+trample."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p1, subtypes={'Kithkin'}, name='MyKithkin')
+    evs = _drive_modal(game, p1, "Brigid's Command", [1, 2])
+    got = _evtypes(evs)
+    assert 'CREATE_TOKEN' in got and 'PT_MODIFICATION' in got, \
+        f"Brigid's Command token+pump should fire, got {sorted(got)}"
+
+
+def test_card_grubs_command():
+    """Grub's Command (choose two): each player sacs + make Goblin tokens."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p1, name='G1')
+    _spawn(game, p2, name='G2')
+    evs = _drive_modal(game, p1, "Grub's Command", [1, 3])
+    got = _evtypes(evs)
+    assert 'DESTROY' in got and 'CREATE_TOKEN' in got, \
+        f"Grub's Command sac+tokens should fire, got {sorted(got)}"
+
+
+def test_card_syggs_command():
+    """Sygg's Command (choose two): draw + gain life."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p1, subtypes={'Merfolk'}, name='MyMerfolk')
+    evs = _drive_modal(game, p1, "Sygg's Command", [2, 3])
+    got = _evtypes(evs)
+    assert 'DRAW' in got and 'LIFE_CHANGE' in got, \
+        f"Sygg's Command draw+life should fire, got {sorted(got)}"
+
+
+def test_card_trystans_command():
+    """Trystan's Command (choose two): each opponent sacs + gain life."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p1, subtypes={'Elf'}, name='MyElf')
+    _spawn(game, p2, name='Foe')
+    evs = _drive_modal(game, p1, "Trystan's Command", [1, 2])
+    got = _evtypes(evs)
+    assert 'DESTROY' in got and 'LIFE_CHANGE' in got, \
+        f"Trystan's Command sac+life should fire, got {sorted(got)}"
+
+
+def test_card_austere_command():
+    """Austere Command (choose two): destroy all artifacts + creatures MV<=3."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    # an artifact and a low-MV creature so both destroy modes have targets
+    art = game.create_object(
+        name='Art', owner_id=p2.id, zone=ZoneType.HAND,
+        characteristics=Characteristics(types={CardType.ARTIFACT}, mana_cost='{2}'),
+        card_def=None)
+    game.emit(Event(type=EventType.ZONE_CHANGE, payload={
+        'object_id': art.id, 'from_zone': f'hand_{p2.id}', 'to_zone': 'battlefield',
+        'to_zone_type': ZoneType.BATTLEFIELD}))
+    _spawn(game, p2, name='Crea')
+    evs = _drive_modal(game, p1, 'Austere Command', [0, 2])
+    got = _evtypes(evs)
+    assert 'DESTROY' in got, \
+        f"Austere Command destroy-all should fire, got {sorted(got)}"
+
+
+def test_card_primal_command():
+    """Primal Command (choose two): gain 7 life + tutor a creature."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    evs = _drive_modal(game, p1, 'Primal Command', [0, 2])
+    got = _evtypes(evs)
+    assert 'LIFE_CHANGE' in got and 'SEARCH_LIBRARY' in got, \
+        f"Primal Command life+tutor should fire, got {sorted(got)}"
+
+
+def test_card_profane_command():
+    """Profane Command (choose two): target player loses X + creature -X/-X."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p2, name='Foe')
+    evs = _drive_modal(game, p1, 'Profane Command', [0, 2])
+    got = _evtypes(evs)
+    assert 'LIFE_CHANGE' in got and 'PT_MODIFICATION' in got, \
+        f"Profane Command life-loss+minus should fire, got {sorted(got)}"
+
+
+def test_card_incendiary_command():
+    """Incendiary Command (choose two): 4 dmg to player + 2 dmg to each creature."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p2, name='Foe')
+    evs = _drive_modal(game, p1, 'Incendiary Command', [0, 1])
+    got = _evtypes(evs)
+    dmg = [e for e in evs if e.type == EventType.DAMAGE]
+    assert 'DAMAGE' in got and len(dmg) >= 2, \
+        f"Incendiary Command double-damage should fire, got {[e.type.name for e in evs]}"
+
+
+def test_card_giantfall():
+    """Giantfall (choose one): your creature deals damage equal to its power."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p1, power=3, name='Mine')
+    _spawn(game, p2, name='Theirs')
+    evs = _drive_modal(game, p1, 'Giantfall', [0])
+    got = _evtypes(evs)
+    assert 'DAMAGE' in got, f"Giantfall fight-damage should fire, got {sorted(got)}"
+
+
+def test_card_keep_out():
+    """Keep Out (choose one): 4 damage to target tapped creature."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p2, tapped=True, name='TappedFoe')
+    evs = _drive_modal(game, p1, 'Keep Out', [0])
+    got = _evtypes(evs)
+    assert 'DAMAGE' in got, f"Keep Out damage should fire, got {sorted(got)}"
+
+
+def test_card_run_away_together():
+    """Run Away Together: bounce two creatures controlled by different players."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p1, name='Mine')
+    _spawn(game, p2, name='Theirs')
+    spell = game.create_object(name='Run Away Together', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Run Away Together'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Run Away Together'].resolve([], game.state)
+    rth = [e for e in evs if e.type == EventType.RETURN_TO_HAND]
+    assert len(rth) == 2, \
+        f"Run Away Together should bounce two creatures, got {[e.type.name for e in evs]}"
+
+
+def test_card_glamermite():
+    """Glamermite: ETB choose one — tap (default) target creature."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p2, name='Foe')
+    create_creature_on_battlefield(game, p1, 'Glamermite')
+    got = {e.type.name for e in game.state.event_log}
+    assert 'TAP' in got, f"Glamermite ETB tap/untap should fire, got {sorted(got)}"
+
+
+def test_card_figure_of_fable():
+    """Figure of Fable: activated 'becomes a Kithkin Scout 2/3' ability really
+    changes its power/toughness (becomes_creature)."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, 'Figure of Fable')
+    abils = getattr(obj.state, 'activated_abilities', None) or []
+    assert len(abils) == 2, f"Figure of Fable should register 2 abilities, got {len(abils)}"
+    ab = abils[0]
+    effect_fn = ab['effect_fn'] if isinstance(ab, dict) else ab.effect_fn
+    for e in (effect_fn(obj, game.state, []) or []):
+        game.emit(e)
+    assert get_power(obj, game.state) == 2 and get_toughness(obj, game.state) == 3, \
+        (f"Figure of Fable scout animate should set 2/3, got "
+         f"{get_power(obj, game.state)}/{get_toughness(obj, game.state)}")
+
+
+# ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
 _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_card_adept_watershaper, test_card_brigid_clachan_s_heart, test_card_burdened_stoneback, test_card_champion_of_the_clachan, test_card_clachan_festival, test_card_curious_colossus, test_card_eirdu_carrier_of_dawn, test_card_encumbered_reejerey, test_card_flock_impostor, test_card_gallant_fowlknight, test_card_reluctant_dounguard, test_card_kinsbaile_aspirant, test_card_kinscaer_sentry, test_card_kithkeeper, test_card_liminal_hold, test_card_meanders_guide, test_card_moonlit_lamenter, test_card_shore_lurker, test_card_slumbering_walker, test_card_sun_dappled_celebrant, test_card_thoughtweft_imbuer, test_card_tributary_vaulter, test_card_wanderbrine_preacher, test_card_wanderbrine_trapper, test_card_formidable_speaker, test_card_luminollusk, test_card_lys_alana_informant, test_card_moon_vigil_adherents, test_card_mutable_explorer, test_card_pummeler_for_hire, test_card_selfless_safewright, test_card_bristlebane_battler, test_card_bristlebane_outrider, test_card_champions_of_the_perfect, test_card_chomping_changeling, test_card_crossroads_watcher, test_card_dundoolin_weaver, test_card_prismabasher, test_card_mistmeadow_council, test_card_sapling_nursery, test_card_trystan_callous_cultivator, test_card_virulent_emissary, test_card_wildvine_pummeler, test_card_aquitect_s_defenses, test_card_blossombind, test_card_champions_of_the_shoal, test_card_flitterwing_nuisance, test_card_gravelgill_scoundrel, test_card_illusion_spinners, test_card_disruptor_of_currents, test_card_glamer_gifter, test_card_pestered_wellguard, test_card_rimekin_recluse, test_card_kulrath_mystic, test_card_loch_mare, test_card_omni_changeling, test_card_shinestriker, test_card_silvergill_mentor, test_card_silvergill_peddler, test_card_stratosoarer, test_card_tanufel_rimespeaker, test_card_wanderwine_distracter, test_card_bile_vial_boggart, test_card_bitterbloom_bearer, test_card_blighted_blackthorn, test_card_boggart_mischief, test_card_boggart_prankster, test_card_creakwood_safewright, test_card_dawnhand_eulogist, test_card_dream_seizer, test_card_gnarlbark_elm, test_card_graveshifter, test_card_deceit, test_card_gloom_ripper, test_card_grub_storied_matriarch, test_card_ashling_rekindled, test_card_boldwyr_aggressor, test_card_boneclub_berserker, test_card_brambleback_brute, test_card_elder_auntie, test_card_enraged_flamecaster, test_card_explosive_prodigy, test_card_flamekin_gildweaver, test_card_abigale_eloquent_first_year, test_card_boggart_cursecrafter, test_card_chaos_spewer, test_card_deepchannel_duelist, test_card_deepway_navigator, test_card_eclipsed_boggart, test_card_eclipsed_elf, test_card_eclipsed_flamekin, test_card_eclipsed_kithkin, test_card_eclipsed_merrow, test_card_feisty_spikeling, test_card_flaring_cinder, test_card_glister_bairn, test_card_foraging_wickermaw, test_card_stalactite_dagger, test_card_imperious_perfect, test_card_timber_protector, test_card_oona_queen_of_the_fae, test_card_wydwen_the_biting_gale, test_card_wort_boggart_auntie, test_card_gaddock_teeg, test_card_godhead_of_awe, test_card_oblivion_ring, test_card_preeminent_captain, test_card_merrow_commerce, test_card_surgespanner, test_card_silvergill_adept, test_card_mulldrifter, test_card_caterwauling_boggart, test_card_knucklebone_witch, test_card_wort_the_raidmother, test_card_jagged_scar_archers, test_card_wistful_selkie, test_card_gwyllion_hedge_mage, test_card_selkie_hedge_mage, test_card_ashling_the_extinguisher, test_card_reaper_king, test_card_wicker_warcrawler, test_card_aurora_of_five, test_card_faewild_convocation, test_card_augury_adept, test_card_bitterblossom, test_card_chronicle_of_victory, test_card_cloudgoat_ranger, test_card_cold_eyed_selkie, test_card_creakwood_liege, test_card_dawn_blessed_pennant, test_card_elvish_harbinger, test_card_emptiness, test_card_gutsplitter_gang, test_card_heirloom_auntie, test_card_hexing_squelcher, test_card_hovel_hurler, test_card_kinsbaile_borderguard, test_card_kirol_attentive_first_year, test_card_kitchen_finks, test_card_kulrath_zealot, test_card_lavaleaper, test_card_lluwen_imperfect_naturalist, test_card_masked_admirers, test_card_merrow_skyswimmer, test_card_mischievous_sneakling, test_card_moonglove_extractor, test_card_moonshadow, test_card_mudbutton_cursetosser, test_card_murderous_redcap, test_card_nath_of_the_gilt_leaf, test_card_nightmare_sower, test_card_noggle_robber, test_card_oonas_blackguard, test_card_prismatic_undercurrents, test_card_pucas_eye, test_card_ranger_of_eos, test_card_sanar_innovative_first_year, test_card_shadow_urchin, test_card_shimmercreep, test_card_shriekmaw, test_card_sizzling_changeling, test_card_smoldering_spinebacks, test_card_sourbread_auntie, test_card_spinerock_tyrant, test_card_squawkroaster, test_card_taster_of_wares, test_card_thundercloud_shaman, test_card_treefolk_harbinger, test_card_twinflame_travelers, test_card_vibrance, test_card_wary_farmer, test_card_wistfulness, test_card_wolf_skull_shaman, test_card_balefire_liege, test_card_cinder_pyromancer, test_card_deathbringer_liege, test_card_deus_of_calamity, test_card_high_perfect_morcant, test_card_tam_mindful_first_year, test_card_incandescent_soulstoke, test_card_mindwrack_liege, test_card_murkfiend_liege, test_card_ashenmoor_liege, test_card_morcants_loyalist, test_card_voracious_tome_skimmer, test_card_sygg_river_cutthroat, test_card_reveillark, test_card_ghastlord_of_fugue, test_card_assert_perfection, test_card_aunties_favor, test_card_blight_rot, test_card_bloodline_bidding, test_card_blossoming_defense, test_card_bogslithers_embrace, test_card_boulder_dash, test_card_catharsis, test_card_cinder_strike, test_card_crib_swap, test_card_darkness_descends, test_card_death_denied, test_card_dose_of_dawnglow, test_card_feed_the_flames, test_card_fiery_justice, test_card_firespout, test_card_fodder_launch, test_card_harmonized_crescendo, test_card_hunting_triad, test_card_impolite_entrance, test_card_lasting_tarfire, test_card_lofty_dreams, test_card_makeshift_mannequin, test_card_manamorphose, test_card_midnight_tilling, test_card_mirrorform, test_card_morningtides_light, test_card_peppersmoke, test_card_perfect_intimidation, test_card_personify, test_card_ponder, test_card_protective_response, test_card_pyrrhic_strike, test_card_reckless_ransacking, test_card_requiting_hex, test_card_riverguards_reflexes, test_card_sear, test_card_soul_immolation, test_card_spectral_procession, test_card_spry_and_mighty, test_card_sunderflock, test_card_swat_away, test_card_tarfire, test_card_tend_the_sprigs, test_card_thirst_for_identity, test_card_thoughtweft_charge, test_card_thoughtweft_gambit, test_card_tweeze, test_card_unbury, test_card_unexpected_assistance, test_card_unforgiving_aim, test_card_unmake, test_card_wanderwine_farewell, test_card_winnowing, test_card_wretched_banquet,
@@ -3311,7 +3519,16 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_faerie_trickery_skips_faerie, test_card_spell_snare,
     test_card_spell_snare_mv_gate, test_card_wild_unraveling,
     test_card_glen_elendras_answer, test_card_spellstutter_sprite,
-    test_card_unwelcome_sprite, test_card_glen_elendra_guardian]
+    test_card_unwelcome_sprite, test_card_glen_elendra_guardian,
+    # --- Section 4: modal "choose one/two" spells (make_modal_resolve) ---
+    test_card_cryptic_command, test_card_ashlings_command,
+    test_card_brigids_command, test_card_grubs_command,
+    test_card_syggs_command, test_card_trystans_command,
+    test_card_austere_command, test_card_primal_command,
+    test_card_profane_command, test_card_incendiary_command,
+    test_card_giantfall, test_card_keep_out,
+    test_card_run_away_together, test_card_glamermite,
+    test_card_figure_of_fable]
 
 
 def _run():
