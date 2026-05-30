@@ -150,14 +150,6 @@ SKIPPED_CARDS = {
     "Goldmeadow Nomad": "graveyard-activated ability (structural; no battlefield interceptor)",
     "Evershrike's Gift": "aura static + death trigger needs an attached creature",
     "Timid Shieldbearer": "activated ability (can-attack grant); no triggered interceptor",
-    "Great Forest Druid": "mana ability (structural)",
-    "Lys Alana Dignitary": "conditional mana ability (structural)",
-    "Flamebraider": "mana ability (structural)",
-    "Safewright Cavalry": "activated pump ability (structural)",
-    "Surly Farrier": "activated tap pump ability (structural)",
-    "Flame-Chain Mauler": "activated pump ability (structural)",
-    "Bre of Clan Stoutarm": "activated tap ability (structural)",
-    "Gristle Glutton": "activated tap/blight ability (structural)",
     "Morcant's Eyes": "aura static (enchant creature) needs an attached creature",
     "Champion of the Path": "grants a triggered ability to OTHER creatures (static; setup returns [])",
     "Chitinous Graspling": "keyword-only (Changeling/Reach); setup returns [] — vanilla-equivalent",
@@ -2799,6 +2791,88 @@ def test_card_firdoch_core():
     _assert_land_produces(game, p1, "Firdoch Core", ["C"])
 
 
+# === Re-exam batch: engine-native creature mana abilities ===
+# These are "{T}: Add ..." lines the priority engine auto-parses; they need no
+# setup function. (Originally skipped before the mana-ability path was wired.)
+
+def test_card_great_forest_druid():
+    """Great Forest Druid: {T}: Add one mana of any color. (any-color -> colorless in current engine)."""
+    game, p1, p2 = _new_game()
+    _assert_creature_mana_produces(game, p1, "Great Forest Druid", ["C"])
+
+
+def test_card_flamebraider():
+    """Flamebraider: {T}: Add two mana in any combination of colors. ... (any-color -> colorless)."""
+    game, p1, p2 = _new_game()
+    _assert_creature_mana_produces(game, p1, "Flamebraider", ["C"])
+
+
+def test_card_lys_alana_dignitary():
+    """Lys Alana Dignitary: ... {T}: Add {G}{G}. ..."""
+    game, p1, p2 = _new_game()
+    _assert_creature_mana_produces(game, p1, "Lys Alana Dignitary", ["G"])
+
+
+# === Re-exam batch: creature activated abilities (false structural skips) ===
+
+def test_card_surly_farrier():
+    """Surly Farrier: {T}: Target creature you control gets +1/+1 and gains vigilance until end of turn."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Surly Farrier")
+    ally = _spawn(game, p1, power=2, toughness=2, name='Pump Target')
+    cost, resolve = _activate(game, p1, obj, targets=[_target_obj(ally)])
+    assert EventType.TAP in [e.type for e in cost], "ability should tap the source"
+    assert any(e.type == EventType.PT_MODIFICATION and e.payload.get('power_mod') == 1
+               for e in resolve), f"should pump +1/+1, got {[e.type.name for e in resolve]}"
+    assert any(e.type == EventType.GRANT_KEYWORD and e.payload.get('keyword') == 'vigilance'
+               for e in resolve), f"should grant vigilance, got {[e.type.name for e in resolve]}"
+
+
+def test_card_safewright_cavalry():
+    """Safewright Cavalry: ... {5}: Target Elf you control gets +2/+2 until end of turn."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Safewright Cavalry", mana={'generic': 5})
+    elf = _spawn(game, p1, subtypes=['Elf'], power=2, toughness=2, name='Elf Target')
+    _, resolve = _activate(game, p1, obj, targets=[_target_obj(elf)])
+    assert any(e.type == EventType.PT_MODIFICATION and e.payload.get('power_mod') == 2
+               and e.payload.get('toughness_mod') == 2 for e in resolve), (
+        f"should pump +2/+2, got {[e.type.name for e in resolve]}")
+
+
+def test_card_flame_chain_mauler():
+    """Flame-Chain Mauler: {1}{R}: This creature gets +1/+0 and gains menace until end of turn."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Flame-Chain Mauler", mana={'generic': 1, 'r': 1})
+    _, resolve = _activate(game, p1, obj)
+    assert any(e.type == EventType.PT_MODIFICATION and e.payload.get('power_mod') == 1
+               for e in resolve), f"should pump +1/+0, got {[e.type.name for e in resolve]}"
+    assert any(e.type == EventType.GRANT_KEYWORD and e.payload.get('keyword') == 'menace'
+               for e in resolve), f"should grant menace, got {[e.type.name for e in resolve]}"
+
+
+def test_card_bre_of_clan_stoutarm():
+    """Bre of Clan Stoutarm: {1}{W}, {T}: Another target creature you control gains flying and lifelink until end of turn."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Bre of Clan Stoutarm", mana={'generic': 1, 'w': 1})
+    ally = _spawn(game, p1, power=2, toughness=2, name='Buff Target')
+    cost, resolve = _activate(game, p1, obj, targets=[_target_obj(ally)])
+    assert EventType.TAP in [e.type for e in cost], "ability should tap the source"
+    kws = {e.payload.get('keyword') for e in resolve if e.type == EventType.GRANT_KEYWORD}
+    assert 'flying' in kws and 'lifelink' in kws, (
+        f"should grant flying + lifelink, got {sorted(k for k in kws if k)}")
+
+
+def test_card_gristle_glutton():
+    """Gristle Glutton: {T}, Blight 1: Discard a card. If you do, draw a card."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Gristle Glutton")
+    cost, resolve = _activate(game, p1, obj)
+    assert EventType.TAP in [e.type for e in cost], "ability should tap the source"
+    assert any(e.type == EventType.DISCARD for e in resolve), (
+        f"should discard a card, got {[e.type.name for e in resolve]}")
+    assert any(e.type == EventType.DRAW for e in resolve), (
+        f"should then draw a card, got {[e.type.name for e in resolve]}")
+
 
 # === Phase A Batch A tests ===
 def test_card_heap_doll():
@@ -3689,6 +3763,11 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_evolving_wilds,
     test_card_soulbright_seeker, test_card_sting_slinger, test_card_moonglove_extract,
     test_card_fulminator_mage, test_card_springleaf_drum, test_card_firdoch_core,
+    # --- Re-exam batch: engine-native creature mana abilities ---
+    test_card_great_forest_druid, test_card_flamebraider, test_card_lys_alana_dignitary,
+    # --- Re-exam batch: creature activated abilities ---
+    test_card_surly_farrier, test_card_safewright_cavalry, test_card_flame_chain_mauler,
+    test_card_bre_of_clan_stoutarm, test_card_gristle_glutton,
     # --- Phase A Batch A (activated / mana) ---
     test_card_heap_doll, test_card_scarblade_elite, test_card_scarblade_scout,
     test_card_rhys_the_redeemed, test_card_twilight_diviner, test_card_brion_stoutarm,

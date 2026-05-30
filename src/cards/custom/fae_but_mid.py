@@ -1525,7 +1525,19 @@ PUMMELER_FOR_HIRE = make_creature(
 # This creature can't be blocked by more than one creature.
 
 def safewright_cavalry_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Blocking restriction is a static ability, activated ability handled separately
+    """This creature can't be blocked by more than one creature (static; menace-inverse —
+    not yet expressible). {5}: Target Elf you control gets +2/+2 until end of turn."""
+    def _effect(o, st, targets):
+        if not targets:
+            return []
+        t = targets[0]
+        tid = getattr(t, "object_id", None) or getattr(t, "id", None) or t
+        return [Event(type=EventType.PT_MODIFICATION,
+                      payload={'object_id': tid, 'power_mod': 2, 'toughness_mod': 2,
+                               'duration': 'end_of_turn'}, source=o.id, controller=o.controller)]
+    make_activated_ability(obj, "{5}", _effect,
+                           description="Target Elf you control gets +2/+2 until end of turn",
+                           targets_required=1, target_kind="creature")
     return []
 
 
@@ -1595,7 +1607,24 @@ SELFLESS_SAFEWRIGHT = make_creature(
 # =============================================================================
 # {1}{G} Creature — Kithkin Citizen 2/2
 def surly_farrier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Activated tap ability - handled by activated ability system
+    """{T}: Target creature you control gets +1/+1 and gains vigilance until end of turn.
+    Activate only as a sorcery."""
+    def _effect(o, st, targets):
+        if not targets:
+            return []
+        t = targets[0]
+        tid = getattr(t, "object_id", None) or getattr(t, "id", None) or t
+        return [
+            Event(type=EventType.PT_MODIFICATION,
+                  payload={'object_id': tid, 'power_mod': 1, 'toughness_mod': 1,
+                           'duration': 'end_of_turn'}, source=o.id, controller=o.controller),
+            Event(type=EventType.GRANT_KEYWORD,
+                  payload={'object_id': tid, 'keyword': 'vigilance', 'duration': 'end_of_turn'},
+                  source=o.id, controller=o.controller),
+        ]
+    make_activated_ability(obj, "{T}", _effect,
+                           description="Target creature you control gets +1/+1 and gains vigilance until end of turn",
+                           targets_required=1, target_kind="creature", sorcery_speed=True)
     return []
 
 
@@ -2545,7 +2574,10 @@ FEED_THE_FLAMES = make_instant(
 
 # Flame-Chain Mauler - {1}{R} Creature — Elemental Warrior 2/2
 def flame_chain_mauler_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Activated ability - handled by activated ability system
+    """{1}{R}: This creature gets +1/+0 and gains menace until end of turn."""
+    make_pump_self_ability(obj, "{1}{R}", power_mod=1, toughness_mod=0,
+                           grant_keyword="menace",
+                           description="This creature gets +1/+0 and gains menace until end of turn")
     return []
 
 
@@ -2674,7 +2706,16 @@ GOLIATH_DAYDREAMER = make_creature(
 
 # Gristle Glutton - {1}{R} Creature — Goblin Scout 1/3
 def gristle_glutton_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Activated tap ability - handled by activated ability system
+    """{T}, Blight 1: Discard a card. If you do, draw a card. (Blight is paid as part of the cost text.)"""
+    def _effect(o, st, targets):
+        return [
+            Event(type=EventType.DISCARD,
+                  payload={'player': o.controller, 'count': 1}, source=o.id, controller=o.controller),
+            Event(type=EventType.DRAW,
+                  payload={'player': o.controller, 'count': 1}, source=o.id, controller=o.controller),
+        ]
+    make_activated_ability(obj, "{T}, Blight 1", _effect,
+                           description="Discard a card. If you do, draw a card.")
     return []
 
 
@@ -2774,7 +2815,23 @@ BOGGART_CURSECRAFTER = make_creature(
 
 # Bre of Clan Stoutarm - {2}{R}{W} Legendary Creature — Giant Warrior 4/4
 def bre_of_clan_stoutarm_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Activated tap ability - handled by activated ability system
+    """{1}{W}, {T}: Another target creature you control gains flying and lifelink until end of turn."""
+    def _effect(o, st, targets):
+        if not targets:
+            return []
+        t = targets[0]
+        tid = getattr(t, "object_id", None) or getattr(t, "id", None) or t
+        return [
+            Event(type=EventType.GRANT_KEYWORD,
+                  payload={'object_id': tid, 'keyword': 'flying', 'duration': 'end_of_turn'},
+                  source=o.id, controller=o.controller),
+            Event(type=EventType.GRANT_KEYWORD,
+                  payload={'object_id': tid, 'keyword': 'lifelink', 'duration': 'end_of_turn'},
+                  source=o.id, controller=o.controller),
+        ]
+    make_activated_ability(obj, "{1}{W}, {T}", _effect,
+                           description="Another target creature you control gains flying and lifelink until end of turn",
+                           targets_required=1, target_kind="creature")
     return []
 
 
