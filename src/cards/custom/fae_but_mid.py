@@ -1302,7 +1302,47 @@ KEEP_OUT = make_instant(
 # Creatures you control get +X/+X, where X is the number of creatures
 # that entered the battlefield under your control this turn.
 
-# This needs turn-tracking - complex implementation
+def kinbinding_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "Creatures you control get +X/+X, where X is the number of creatures that
+    # entered the battlefield under your control this turn."
+    # Additive turn-tracking: a turn-scoped counter in state.turn_data (cleared
+    # each turn by TurnManager) is bumped on every creature ETB under our
+    # control; the dynamic boost reads it at query time.
+    from src.cards.interceptor_helpers import (
+        make_dynamic_pt_boost as _make_dynamic_pt_boost,
+        creatures_you_control as _creatures_you_control,
+    )
+
+    def _key(st: GameState) -> str:
+        return f"kinbinding_etb_{getattr(st, 'turn_number', 0)}_{obj.controller}"
+
+    # Counter interceptor: bump on each creature entering under our control.
+    def _creature_etb_filter(event: Event, state: GameState) -> bool:
+        if event.type != EventType.ZONE_CHANGE:
+            return False
+        if event.payload.get('to_zone_type') != ZoneType.BATTLEFIELD:
+            return False
+        entering = state.objects.get(event.payload.get('object_id'))
+        return bool(entering and entering.controller == obj.controller and
+                    CardType.CREATURE in entering.characteristics.types)
+
+    def _bump_handler(event: Event, state: GameState) -> InterceptorResult:
+        k = _key(state)
+        state.turn_data[k] = int(state.turn_data.get(k, 0)) + 1
+        return InterceptorResult(action=InterceptorAction.PASS)
+
+    counter_interceptor = Interceptor(
+        id=new_id(), source=obj.id, controller=obj.controller,
+        priority=InterceptorPriority.REACT, filter=_creature_etb_filter,
+        handler=_bump_handler, duration='while_on_battlefield')
+
+    def _mod(source, target, st):
+        x = int(st.turn_data.get(_key(st), 0))
+        return (x, x)
+
+    interceptors = [counter_interceptor]
+    interceptors.extend(_make_dynamic_pt_boost(obj, _mod, _creatures_you_control(obj)))
+    return interceptors
 
 
 KINBINDING = make_enchantment(
@@ -1310,7 +1350,7 @@ KINBINDING = make_enchantment(
     mana_cost="{3}{W}{W}",
     colors={Color.WHITE},
     text="Creatures you control get +X/+X, where X is the number of creatures that entered the battlefield under your control this turn.",
-    setup_interceptors=None  # Would need turn-based tracking
+    setup_interceptors=kinbinding_setup
 )
 
 

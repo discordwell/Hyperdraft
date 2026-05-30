@@ -154,7 +154,6 @@ SKIPPED_CARDS = {
     # --- Section 2 structural skips (lands / activated / equipment / aura / replacement / PW) ---
     'Champion of the Weird': "behold-a-Goblin cast cost (alt-cost choice the engine can't model) + 'Pay 1 life, Blight 2: target opponent blights 2' — there is no blight content-event the engine consumes (blight is parsed only as a cost), so the activated ability has no fireable effect (engine gap)",
     'Earwig Squad': "prowl-gated ETB: the search+exile fires only 'if its prowl cost was paid'. Prowl is an alternative cost, and the engine cannot gate an effect on which cost was paid: the cost-payment path in priority.py sets NO per-cost-paid flag on the spell object, and the one precedent (was_bargained, interceptor_helpers.py) is itself a defined-but-never-auto-set flag awaiting a 'future cast-option extension'. Wiring needs non-additive engine work (out of scope).",
-    'Kinbinding': 'dynamic lord +X/+X where X = creatures entered under your control this turn — no per-turn-entry-count helper/precedent exists',
     'Mirrormind Crown': "equipment token-creation replacement (first tokens each turn become copies of equipped creature) — no replacement hook that rewrites OBJECT_CREATED/CREATE_TOKEN into copy tokens (engine gap)",
     'Nettlevine Blight': 'PHASE B: aura grants the enchanted permanent an end-step "sacrifice then re-attach to a permanent you control" triggered ability — needs a granted self-moving aura trigger',
     "Painter's Servant": 'static lock / name-or-color-choice replacement effect (structural)',
@@ -4514,6 +4513,23 @@ def test_card_rhys_the_evermore():
         f"Rhys, the Evermore: a persisting creature should return on death, in {ally.zone}"
 
 
+def test_card_kinbinding():
+    """Kinbinding: creatures you control get +X/+X where X = creatures that
+    entered under your control this turn. Enter Kinbinding then two creatures;
+    each gets +2/+2 (X==2). Static -> assert get_power/get_toughness delta."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    game.state.turn_number = 1
+    create_creature_on_battlefield(game, p1, "Kinbinding")
+    c1 = _spawn(game, p1, power=2, toughness=2, name='Enterer1')
+    c2 = _spawn(game, p1, power=3, toughness=3, name='Enterer2')
+    # Two creatures entered this turn -> X == 2.
+    assert get_power(c1, game.state) == 2 + 2, \
+        f"Kinbinding: creature should get +2/+2 (X=2), power {get_power(c1, game.state)}"
+    assert get_toughness(c2, game.state) == 3 + 2, \
+        f"Kinbinding: creature should get +2/+2 (X=2), toughness {get_toughness(c2, game.state)}"
+
+
 # ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
@@ -4591,7 +4607,8 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_spiral_into_solitude, test_card_noggle_the_mind,
     test_card_dream_harvest, test_card_burning_curiosity,
     test_card_end_blaze_epiphany, test_card_aurora_awakener,
-    test_card_demigod_of_revenge, test_card_rhys_the_evermore]
+    test_card_demigod_of_revenge, test_card_rhys_the_evermore,
+    test_card_kinbinding]
 
 
 def _run():
