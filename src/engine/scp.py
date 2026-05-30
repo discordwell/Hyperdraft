@@ -783,7 +783,16 @@ def run_test(game, player_id: str, anomaly_id: str, staff_ids: list[str], *, eme
     )))
     if success:
         anomaly.state.scp_researched += 1
-        events.extend(gain_archives(game, player_id, 1, source=anomaly.id))
+        if bool(getattr(anomaly.card_def, "scp_wurm_devourer", False)):
+            # Wurm Devourer: a successful test SATES the beast. Swap the normal
+            # curiosity-tick / archive gain for taming — apply_wurm_devourer
+            # reverses the curiosity tick, suppresses hazard, and bumps the
+            # wurms_tamed alt-win counter. This wiring was documented on the
+            # _wurm_devourer tagger but never connected, so the entire Wurm
+            # taming engine was dead (researching a wurm just banked archives).
+            events.extend(apply_wurm_devourer(game, anomaly))
+        else:
+            events.extend(gain_archives(game, player_id, 1, source=anomaly.id))
         hook = getattr(anomaly.card_def, "scp_on_test", None)
         if callable(hook):
             for event in hook(anomaly, state) or []:

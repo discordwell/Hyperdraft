@@ -626,6 +626,35 @@ def test_wurm_apex_pacification_bomb_tames_highest_wurm():
     assert int(scp.site(game.state, p1.id)["wurms_tamed"]) == tamed0 + 1, "wurms_tamed not bumped"
 
 
+def test_wurm_research_test_tames_via_engine():
+    """The Wurm taming substrate: a successful research test on a Wurm Devourer
+    MUST tame it (bump wurms_tamed + reduce hazard). apply_wurm_devourer had ZERO
+    callers — run_test just banked archives — so the whole archetype was dead."""
+    game, p1, p2 = _setup()
+    wd = next(c for c in SCP_CARDS.values()
+              if getattr(c, "scp_wurm_devourer", False)
+              and int(getattr(c, "scp_hazard", 0) or 0) >= 3)
+    an = game.create_object(name=wd.name, owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+                            characteristics=wd.characteristics, card_def=wd)
+    an.controller = p1.id
+    an.state.scp_status = "active"
+    scp.ensure_scp_state(game.state, p1.id)
+    game.state.scp_anomalies.setdefault(p1.id, []).append(an.id)
+    rcd = scp.make_scp_card("Megafauna Vet", CardType.SCP_PERSONNEL, text="", skills={"research": 9})
+    r = game.create_object(name=rcd.name, owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+                           characteristics=rcd.characteristics, card_def=rcd)
+    r.controller = p1.id
+    r.state.scp_status = "active"
+    game.state.scp_personnel.setdefault(p1.id, []).append(r.id)
+    haz0 = scp._effective_hazard(an)
+
+    ok, msg, _ev = scp.run_test(game, p1.id, an.id, [r.id])
+    assert ok, msg
+    assert int(scp.site(game.state, p1.id)["wurms_tamed"]) == 1, \
+        "research test did not tame the wurm (apply_wurm_devourer was never wired)"
+    assert scp._effective_hazard(an) < haz0, "taming did not reduce the wurm's hazard"
+
+
 # --------------------------------------------------------------------------- #
 # Wave A #2: MNR — Retrograde Erasure modal bomb + Mnestic Wake migration
 # --------------------------------------------------------------------------- #
