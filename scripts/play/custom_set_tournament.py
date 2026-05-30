@@ -1181,9 +1181,19 @@ def run_deck_tournament(
     hard_timeout_s: float = 8.0,
     ai_pair: Optional[tuple] = None,
     verbose: bool = True,
+    per_turn_timeout_s: float = 1.5,
+    wall_deadline_s: float = 7.0,
 ) -> dict[str, Any]:
     """
     Round-robin tournament over arbitrary `Deck` objects.
+
+    Three independent per-game caps (all must be generous to let slow but
+    legitimate games resolve): ``hard_timeout_s`` (SIGALRM backstop for true
+    hangs), ``wall_deadline_s`` (perf_counter wall cap — the usual *binding*
+    cap, must be < hard_timeout_s to take effect), and ``per_turn_timeout_s``
+    (single-turn cap). The 7s/1.5s defaults were tuned for the loop-era engine;
+    post-loop-fix, raise them (e.g. 60/8 with hard_timeout 90) or non-aggro
+    decks get truncated into "timeout" no-contests.
 
     Parallels `run_tournament_sequential` (single process, SIGALRM-bounded
     per game). The dict input maps an opaque label -> Deck. The JSON output
@@ -1259,6 +1269,8 @@ def run_deck_tournament(
                     decks_resolved[p1], decks_resolved[p2],
                     ai1, ai2, p1, p2,
                     max_turns=max_turns,
+                    per_turn_timeout_s=per_turn_timeout_s,
+                    wall_deadline_s=wall_deadline_s,
                 )
             )
             results.append(result.__dict__)

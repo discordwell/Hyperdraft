@@ -202,7 +202,20 @@ def main(argv: Optional[list[str]] = None) -> int:
         "--hard-timeout",
         type=float,
         default=8.0,
-        help="SIGALRM hard wall cap per game (seconds)",
+        help="SIGALRM hard backstop per game (seconds) — for true hangs only",
+    )
+    parser.add_argument(
+        "--wall-deadline",
+        type=float,
+        default=7.0,
+        help="perf_counter wall cap per game (seconds) — the usual BINDING cap; "
+             "must be < --hard-timeout. Raise (e.g. 60) so slow decks resolve.",
+    )
+    parser.add_argument(
+        "--per-turn-timeout",
+        type=float,
+        default=1.5,
+        help="single-turn cap (seconds). Raise (e.g. 8) for big-board decks.",
     )
     parser.add_argument(
         "--ai",
@@ -253,6 +266,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         hard_timeout_s=args.hard_timeout,
         ai_pair=args.ai,
         verbose=not args.quiet,
+        per_turn_timeout_s=args.per_turn_timeout,
+        wall_deadline_s=args.wall_deadline,
     )
 
     agg = aggregate(results)

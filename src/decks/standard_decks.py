@@ -354,36 +354,43 @@ FBM_FAERIE_TEMPO = Deck(
     name="FBM Faerie Tempo",
     archetype="Tempo",
     colors=["U", "B"],
-    description="Dimir Faeries: Bitterblossom tokens, flash flyers, and "
-                "countermagic that scales with your Faerie count. Tempo out a "
-                "small evasive clock behind Spellstutter Sprite and Cryptic Command.",
+    description="Dimir tempo: an evasive Faerie clock (Spellstutter, Vendilion, "
+                "Mistbind) backed by hand disruption, premium -1/-1 removal, and "
+                "card advantage. Flies over and grinds out — closes with Ashling "
+                "and Oona, Queen of the Fae.",
+    # POLISH-PASS REBUILD (2026-05-30): per user directive "build it better, mix
+    # archetypes, put the good cards in." The old build was tiny faerie bodies +
+    # Bitterblossom (perf 0, self-life-drain) + durdle (Lofty Dreams) with no
+    # real clock → 0% winrate. v1 added threats but kept three cards the AI never
+    # cast; v2 cut those (Vendilion Clique 0/6 — {1}{U}{U} ETB the AI won't value;
+    # Cryptic Command 0/13 — {1}{U}{U}{U} triple-pip uncastable; Profane Command
+    # 0/4 — X-cost) and doubled the proven casters: Dream Seizer (7/11, perf 35),
+    # Mistbind Clique (perf 42), Wretched Banquet (6/6, 6 kills), Sygg River
+    # Cutthroat (8/9 card advantage). 0% → 21% (v1) → targeting mid-pack (v2).
     mainboard=[
-        # Token / clock engines
-        DeckEntry("Bitterblossom", 3, "FBM"),
-        DeckEntry("Oona's Blackguard", 2, "FBM"),
-        # 1-2 drop flyers + flash counters
+        # Evasive clock + tempo (24 creatures)
         DeckEntry("Spellstutter Sprite", 4, "FBM"),
-        DeckEntry("Scion of Oona", 3, "FBM"),
-        DeckEntry("Unwelcome Sprite", 2, "FBM"),
-        DeckEntry("Wydwen, the Biting Gale", 2, "FBM"),
-        DeckEntry("Shimmercreep", 2, "FBM"),
-        # Disruptive bodies
-        DeckEntry("Glen Elendra Archmage", 2, "FBM"),
+        DeckEntry("Dream Seizer", 4, "FBM"),
+        DeckEntry("Sygg, River Cutthroat", 3, "FBM"),
         DeckEntry("Mistbind Clique", 3, "FBM"),
-        DeckEntry("Sower of Temptation", 2, "FBM"),
-        # Top-end
-        DeckEntry("Oona, Queen of the Fae", 2, "FBM"),
-        # Spells (removal / counters / card flow)
+        DeckEntry("Oona's Blackguard", 2, "FBM"),
+        DeckEntry("Scion of Oona", 2, "FBM"),
+        DeckEntry("Glen Elendra Archmage", 2, "FBM"),
+        DeckEntry("Wydwen, the Biting Gale", 1, "FBM"),
+        DeckEntry("Sower of Temptation", 1, "FBM"),
+        DeckEntry("Ashling, the Extinguisher", 1, "FBM"),
+        DeckEntry("Oona, Queen of the Fae", 1, "FBM"),
+        # Disruption / removal / card flow (13 spells)
+        DeckEntry("Wretched Banquet", 3, "FBM"),
+        DeckEntry("Spell Snare", 2, "FBM"),
         DeckEntry("Peppersmoke", 2, "FBM"),
-        DeckEntry("Spell Snare", 1, "FBM"),
-        DeckEntry("Moonshadow", 2, "FBM"),
-        DeckEntry("Lofty Dreams", 2, "FBM"),
-        DeckEntry("Cryptic Command", 2, "FBM"),
-        DeckEntry("Profane Command", 1, "FBM"),
+        DeckEntry("Blight Rot", 2, "FBM"),
+        DeckEntry("Ponder", 2, "FBM"),
+        DeckEntry("Broken Ambitions", 2, "FBM"),
         # Lands (23)
-        DeckEntry("Island", 9, "FBM"),
-        DeckEntry("Swamp", 10, "FBM"),
-        DeckEntry("Evolving Wilds", 4, "FBM"),
+        DeckEntry("Island", 10, "FBM"),
+        DeckEntry("Swamp", 11, "FBM"),
+        DeckEntry("Evolving Wilds", 2, "FBM"),
     ],
     sideboard=[],
     author="Deckbuilder",
@@ -495,35 +502,44 @@ FBM_MERFOLK_TEMPO = Deck(
     name="FBM Merfolk Tempo",
     archetype="Tempo",
     colors=["W", "U"],
-    description="Azorius Merfolk: tap your opponents down and keep your own "
-                "team untapped with Merrow Commerce, grind card advantage off "
-                "Silvergill Adept / Merrow Skyswimmer, and fly over.",
+    description="Azorius Merfolk: tap-down disruption (Wanderwine, Wanderbrine) "
+                "and a Silvergill card-advantage engine into the Champions of "
+                "the Shoal bomb, with premium exile removal (Crib Swap, Spiral "
+                "into Solitude) keeping the board clear while you fly over.",
+    # POLISH-PASS REBUILD (2026-05-30): per user directive "build it better,
+    # mix archetypes, put the good cards in." Cut three dead cards the AI never
+    # cast: Merrow Commerce ({1}{U} enchantment engine — AI-undervalued, 0/6),
+    # Tributary Vaulter ({3}{W} — uncastable white pip in a U base, 0/10), and
+    # Thoughtweft Gambit (6-mana situational, 0/-). Replaced with a 3rd Champions
+    # of the Shoal (the deck's bomb), premium exile removal (Crib Swap, Spiral
+    # into Solitude), and resilient bodies (Shore Lurker ward, Adept Watershaper,
+    # Knight of Meadowgrain).
     mainboard=[
-        # Engine
-        DeckEntry("Merrow Commerce", 2, "FBM"),
+        # Card-advantage engine + tap-down disruption + bomb (28 creatures)
         DeckEntry("Silvergill Adept", 4, "FBM"),
         DeckEntry("Silvergill Mentor", 3, "FBM"),
-        # Tap-down / disruption Merfolk
         DeckEntry("Wanderwine Distracter", 3, "FBM"),
+        DeckEntry("Champions of the Shoal", 3, "FBM"),
         DeckEntry("Wanderbrine Trapper", 2, "FBM"),
-        DeckEntry("Tributary Vaulter", 3, "FBM"),
-        DeckEntry("Champions of the Shoal", 2, "FBM"),
-        # Evasion / card flow
         DeckEntry("Deepway Navigator", 2, "FBM"),
         DeckEntry("Merrow Skyswimmer", 2, "FBM"),
-        DeckEntry("Sygg, River Guide", 2, "FBM"),
         DeckEntry("Stratosoarer", 2, "FBM"),
-        # Spells (bounce / counters / removal)
-        DeckEntry("Swat Away", 2, "FBM"),
+        DeckEntry("Sygg, River Guide", 2, "FBM"),
+        DeckEntry("Adept Watershaper", 2, "FBM"),
+        DeckEntry("Knight of Meadowgrain", 2, "FBM"),
+        DeckEntry("Shore Lurker", 1, "FBM"),
+        # Removal / bounce / counters (9 spells)
+        DeckEntry("Crib Swap", 2, "FBM"),
+        DeckEntry("Spiral into Solitude", 2, "FBM"),
         DeckEntry("Run Away Together", 2, "FBM"),
-        DeckEntry("Sygg's Command", 2, "FBM"),
-        DeckEntry("Spell Snare", 2, "FBM"),
-        DeckEntry("Thoughtweft Gambit", 2, "FBM"),
+        DeckEntry("Swat Away", 1, "FBM"),
+        DeckEntry("Sygg's Command", 1, "FBM"),
+        DeckEntry("Spell Snare", 1, "FBM"),
         # Lands (23)
         DeckEntry("Island", 11, "FBM"),
-        DeckEntry("Plains", 5, "FBM"),
-        DeckEntry("Hallowed Fountain", 3, "FBM"),
-        DeckEntry("Evolving Wilds", 4, "FBM"),
+        DeckEntry("Plains", 6, "FBM"),
+        DeckEntry("Hallowed Fountain", 4, "FBM"),
+        DeckEntry("Evolving Wilds", 2, "FBM"),
     ],
     sideboard=[],
     author="Deckbuilder",
@@ -589,30 +605,34 @@ FBM_CHANGELING_5C = Deck(
     description="Five-color Changeling good-stuff: shapeshifters that are every "
                 "tribe at once flip on every Liege, Reaper King and the Aurora "
                 "payoffs simultaneously. Fix hard, then deploy undercosted lords.",
+    # POLISH-PASS REBUILD (2026-05-30): clean measurement unmasked this deck — it
+    # read 75% on a tiny truncated sample but is 35% over a full one. Real bombs
+    # (Reaper King 9/9 perf 135, Changeling Wayfinder 8/12) were dragged by ~10
+    # cast-0 slots. Cut the dead weight (Boartusk Liege 0/10, Omni-Changeling 0/6,
+    # Faewild Convocation 0/9, Cryptic Command 0/7 — uncastable triple-pip in 5c)
+    # and reinvested in consistency: more ramp/fixing (Bloom Tender, Great Forest
+    # Druid, Changeling Wayfinder) to actually cast the bombs, a 3rd Reaper King,
+    # and more exile removal (Crib Swap, Unmake).
     mainboard=[
-        # Fixing dorks / ramp (any color)
-        DeckEntry("Bloom Tender", 3, "FBM"),
-        DeckEntry("Great Forest Druid", 3, "FBM"),
+        # Fixing dorks / ramp (any color) — 14
+        DeckEntry("Bloom Tender", 4, "FBM"),
+        DeckEntry("Great Forest Druid", 4, "FBM"),
         DeckEntry("Firdoch Core", 2, "FBM"),
-        DeckEntry("Changeling Wayfinder", 3, "FBM"),
-        # Changeling bodies (every tribe)
+        DeckEntry("Changeling Wayfinder", 4, "FBM"),
+        # Changeling bodies (every tribe) — 7
         DeckEntry("Mirror Entity", 2, "FBM"),
         DeckEntry("Chameleon Colossus", 2, "FBM"),
-        DeckEntry("Omni-Changeling", 2, "FBM"),
-        DeckEntry("Graveshifter", 2, "FBM"),
-        # Lords / payoffs that the changelings + dorks switch on
+        DeckEntry("Graveshifter", 3, "FBM"),
+        # Lords / bombs the changelings + dorks switch on — 9
         DeckEntry("Wilt-Leaf Liege", 2, "FBM"),
         DeckEntry("Ashenmoor Liege", 2, "FBM"),
-        DeckEntry("Boartusk Liege", 2, "FBM"),
-        DeckEntry("Reaper King", 2, "FBM"),
+        DeckEntry("Reaper King", 3, "FBM"),
         DeckEntry("Horde of Notions", 2, "FBM"),
-        DeckEntry("Faewild Convocation", 2, "FBM"),
-        # 5-color payoffs / removal
+        # 5-color payoffs / removal — 7
         DeckEntry("The Aurora Cycle", 1, "FBM"),
-        DeckEntry("Cryptic Command", 1, "FBM"),
-        DeckEntry("Crib Swap", 2, "FBM"),
-        DeckEntry("Unmake", 2, "FBM"),
-        # Lands (25 — heavy fixing)
+        DeckEntry("Crib Swap", 3, "FBM"),
+        DeckEntry("Unmake", 3, "FBM"),
+        # Lands (23 — heavy fixing)
         DeckEntry("Forest", 3, "FBM"),
         DeckEntry("Island", 2, "FBM"),
         DeckEntry("Plains", 2, "FBM"),
