@@ -548,6 +548,44 @@ def reset_staff(game, player_id: str) -> None:
             setattr(staff.state, "scp_assigns_this_turn", 0)
 
 
+def reset_turn_abilities(game, player_id: str) -> None:
+    """Start-of-turn reset for activated-ability gating on the active player's
+    permanents.
+
+    Two things re-arm here that ``reset_staff`` does NOT handle:
+
+      * **Facility exhaustion.** ``reset_staff`` un-exhausts only ``scp_personnel``;
+        facilities (the home of most activated-ability "suites") pay ``exhaust_self``
+        costs via the same ``scp_exhausted`` flag but are never reset, so without
+        this an exhaust-cost facility bomb is silently *once per game*.
+      * **``once_per_turn`` counters.** ``SCPActivatedAbility.activations_this_turn``
+        is incremented on every activation but ``reset_turn()`` had no caller, so a
+        ``once_per_turn`` ability (e.g. Apollyon Convergence Array) degraded to
+        once per game.
+
+    Resets at the start of the controller's turn (same timing as ``reset_staff``).
+    """
+    from src.engine.scp_abilities import is_scp_ability
+
+    state = game.state
+    ensure_scp_state(state, player_id)
+    for is_facility, zone in (
+        (True, state.scp_facilities),
+        (False, state.scp_personnel),
+        (False, state.scp_anomalies),
+        (False, state.scp_mandates),
+    ):
+        for obj_id in list(zone.get(player_id, [])):
+            obj = state.objects.get(obj_id)
+            if not obj or obj.zone != ZoneType.BATTLEFIELD:
+                continue
+            if is_facility:
+                obj.state.scp_exhausted = False
+            for ability in getattr(obj.state, "activated_abilities", None) or []:
+                if is_scp_ability(ability):
+                    ability.reset_turn()
+
+
 def _fire_on_assign(
     state: GameState,
     player_id: str,
@@ -1511,6 +1549,11 @@ def activate_ability(
         return False, "Object not found", []
     if obj.controller != player_id:
         return False, "Not your object", []
+    # Defense in depth: the legal-action surface only enumerates battlefield
+    # permanents, but a directly-submitted (stale or crafted) action could target
+    # an object that has left play while still carrying registered abilities.
+    if obj.zone != ZoneType.BATTLEFIELD:
+        return False, "Object not on battlefield", []
     abilities = getattr(obj.state, "activated_abilities", None) or []
     if ability_index < 0 or ability_index >= len(abilities):
         return False, "No such ability", []
@@ -1525,7 +1568,13 @@ def activate_ability(
     if ability.precondition_fn and not ability.precondition_fn(obj, state):
         return False, "Ability precondition not met", []
 
-    ok, why = can_pay_scp_cost(obj, state, ability.cost)
+    try:
+        ok, why = can_pay_scp_cost(obj, state, ability.cost)
+    except NotImplementedError as exc:
+        # discard / sacrifice cost grammar is a Phase-2 placeholder that raises.
+        # Treat an unimplemented cost as simply unpayable rather than letting it
+        # crash the dispatch path (the serializer already defends the same way).
+        return False, f"Unpayable cost: {exc}", []
     if not ok:
         return False, why, []
 
@@ -1580,7 +1629,8 @@ def activate_ability(
             events.extend(game.emit(event))
 
     ability.activations_this_turn += 1
-    ability.used_this_game = True
+    if ability.once_per_game:
+        ability.used_this_game = True
 
     events.extend(check_scp_victory(game, source=obj.id))
     events.extend(check_scp_loss(game))

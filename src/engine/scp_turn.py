@@ -46,7 +46,11 @@ class SCPTurnManager(TurnManager):
         self.turn_state.step = Step.UNTAP
 
         scp.ensure_scp_state(self.state, active)
-        scp.reset_staff(getattr(self.state, "_game", None), active) if getattr(self.state, "_game", None) else None
+        if getattr(self.state, "_game", None):
+            scp.reset_staff(self.state._game, active)
+            # Un-exhaust facilities + clear once_per_turn ability counters so
+            # exhaust-cost / once_per_turn activated abilities re-arm each turn.
+            scp.reset_turn_abilities(self.state._game, active)
         # FBN: reset per-turn markers (Spark Containment one-shot guard etc.).
         # Safe to call even when no FBN cards are in play — operates on
         # state.scp_sites slots that ``ensure_scp_state`` always seeds.

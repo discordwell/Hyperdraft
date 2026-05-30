@@ -218,7 +218,12 @@ def legal_scp_actions(game, player_id: str) -> list[dict[str, Any]]:
                 continue
             if ability.precondition_fn and not ability.precondition_fn(obj, game.state):
                 continue
-            ok, _why = can_pay_scp_cost(obj, game.state, ability.cost)
+            try:
+                ok, _why = can_pay_scp_cost(obj, game.state, ability.cost)
+            except NotImplementedError:
+                # Phase-2 placeholder cost grammar (discard / sacrifice) raises;
+                # treat as unpayable so enumerating legal actions never crashes.
+                continue
             if not ok:
                 continue
             cost_label = describe_scp_cost(ability.cost)

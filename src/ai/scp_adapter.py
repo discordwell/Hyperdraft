@@ -141,6 +141,11 @@ class SCPAIAdapter:
                 raise ValueError(f"Unknown SCP pilot name: {difficulty!r}. Supported pilots: {supported}")
         self.difficulty = validate_scp_difficulty(difficulty)
         self.pilot = validate_scp_pilot(pilot or "balanced")
+        # Minimum (gain - cost) for the AI to fire an activated/modal ability.
+        # A real, tunable attribute (was previously only a getattr default that
+        # was never set, so it silently hard-coded 0.5). Per-preset overrides can
+        # set this; /ultra-loop pilots tune it.
+        self._ability_fire_threshold = 0.5
 
     @property
     def _breach_danger(self) -> int:
@@ -441,7 +446,14 @@ class SCPAIAdapter:
         if cost.archives:
             c += cost.archives * 2.0
         if cost.exhaust_self:
-            c += 0.5
+            # Opportunity cost of exhausting = what this object could otherwise do
+            # this turn. Personnel forgo a task assignment (real cost); facilities,
+            # anomalies and mandates have no assignment role, so exhausting one to
+            # fire its single ability costs almost nothing. The flat 0.5 here was
+            # the bug that made pure-upside facility "bombs" (gain ~1.0) sit below
+            # the fire threshold and never activate.
+            is_personnel = obj is not None and obj.id in state.scp_personnel.get(player_id, [])
+            c += 0.5 if is_personnel else 0.1
         return c
 
     def _consider_activated_abilities(self, player_id, state, game) -> list:
@@ -485,6 +497,23 @@ class SCPAIAdapter:
                         if a_ok:
                             events.extend(a_ev)
         return events
+
+    def _carries_signature_bomb(self, obj) -> bool:
+        """True if ``obj`` carries a registered SCP activated/modal ability with a
+        non-trivial value_hint — i.e. a "bomb". setup_interceptors registers the
+        ability in every zone (incl. hand), so this is readable before the card is
+        played. score() uses it to deploy these standing engines preferentially:
+        a bomb is a deck's payoff, not generic rank-2 facility filler, and a 1-of
+        otherwise loses every deploy race and never reaches the battlefield."""
+        from src.engine.scp_abilities import is_scp_ability
+        for ab in (getattr(obj.state, "activated_abilities", None) or []):
+            if not is_scp_ability(ab):
+                continue
+            hints = [ab.value_hint] if ab.value_hint is not None else []
+            hints += [m.value_hint for m in (ab.modes or []) if m.value_hint is not None]
+            if any(not h.is_trivial() for h in hints):
+                return True
+        return False
 
     async def take_turn(self, player_id: str, state: GameState, game) -> list:
         events = []
@@ -644,6 +673,12 @@ class SCPAIAdapter:
                 )
                 if stabilizer and (site["breach"] >= 4 or site["secrecy"] <= 6):
                     rank = -1
+                elif self._carries_signature_bomb(obj):
+                    # Signature bombs are the deck's payoff engine, not generic
+                    # rank-2 facility filler. Deploy them early (just behind
+                    # emergency breach control) so they're online; with the
+                    # turn-reset fix they then fire every turn conditions hold.
+                    rank = 0
                 elif alt_win_secrecy_pump:
                     rank = 0
                 elif alt_win_recovery:

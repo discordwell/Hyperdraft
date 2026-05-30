@@ -962,6 +962,19 @@ def _ethical_discharge_effect(obj, state):
     return events
 
 
+def _ethical_discharge_value(obj, state, _mode):
+    # +1 archive (always good) plus a -1 attack on the OPPONENT's secrecy
+    # (pushes them toward the public-panic loss, worth more as they near it).
+    # A scalar ``secrecy=-1`` hint would be mis-read by the estimator as a hit to
+    # OUR OWN secrecy and scored as a self-penalty — see _public_spectacle_value.
+    v = 1.0 * 2.0  # 1 archive, matching the estimator's archives weight
+    opp = _opponent(state, obj.controller)
+    if opp is not None:
+        sec = int(scp.site(state, opp).get("secrecy", 99) or 99)
+        v += 0.5 + max(0, 7 - sec) * 0.5  # the secrecy attack, escalating near panic
+    return v
+
+
 _ETHICAL_DISCHARGE = _make_card(
     "SZB Ethical Discharge Reactor", CardType.SCP_FACILITY,
     archetype="clean_hands", keywords={"Overexpose"},
@@ -973,7 +986,7 @@ _ETHICAL_DISCHARGE = _make_card(
 _ETHICAL_DISCHARGE.setup_interceptors = _bomb_setup(
         cost=SCPCost(ethics=2),
         description="Pay 2 ethics: gain 1 archive and each opponent's secrecy -1",
-        effect_fn=_ethical_discharge_effect, value_hint=SCPValueHint(archives=1, secrecy=-1),
+        effect_fn=_ethical_discharge_effect, value_hint=SCPValueHint(custom_value_fn=_ethical_discharge_value),
 )
 
 

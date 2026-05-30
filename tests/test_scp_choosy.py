@@ -176,6 +176,119 @@ def test_once_per_turn_gating():
     assert _activate_actions(game, p1.id) == [], "spent ability still offered"
 
 
+def test_exhaust_and_once_per_turn_rearm_next_turn():
+    """Regression for the missing turn-reset (Bug ②).
+
+    ``SCPActivatedAbility.reset_turn()`` had no caller and ``reset_staff``
+    never un-exhausted facilities, so an ``exhaust_self`` / ``once_per_turn``
+    facility ability was silently *once per game* (Apollyon's once_per_turn was
+    a lie). ``SCPTurnManager.run_turn`` must now re-arm both at turn start.
+    """
+    game, p1, p2 = _setup()
+    game.turn_manager.set_turn_order([p1.id, p2.id])
+
+    cd = scp.make_scp_card("Reset Test Reactor", CardType.SCP_FACILITY, text="")
+    fac = game.create_object(
+        name=cd.name, owner_id=p1.id, zone=ZoneType.BATTLEFIELD,
+        characteristics=cd.characteristics, card_def=cd,
+    )
+    fac.controller = p1.id
+    fac.state.scp_status = "active"
+    game.state.scp_facilities.setdefault(p1.id, []).append(fac.id)
+    make_scp_activated_ability(
+        fac, cost=SCPCost(exhaust_self=True), description="tick",
+        once_per_turn=True, effect_fn=lambda o, s: [],
+        value_hint=SCPValueHint(briefing=1),
+    )
+
+    ok, msg, _ = scp.activate_ability(game, p1.id, fac.id, 0)
+    assert ok, msg
+    assert fac.state.scp_exhausted, "exhaust_self cost did not exhaust the facility"
+    ability = fac.state.activated_abilities[0]
+    assert ability.activations_this_turn == 1
+    ok2, _m2, _e2 = scp.activate_ability(game, p1.id, fac.id, 0)
+    assert not ok2, "fired twice in one turn (exhaust + once_per_turn both spent)"
+
+    # Full round back to p1 — the start-of-turn reset must re-arm the facility.
+    asyncio.run(game.turn_manager.run_turn(p2.id))
+    asyncio.run(game.turn_manager.run_turn(p1.id))
+
+    assert not fac.state.scp_exhausted, "facility still exhausted next turn (reset not wired into run_turn)"
+    assert ability.activations_this_turn == 0, "once_per_turn counter not reset across turns"
+    ok3, msg3, _ = scp.activate_ability(game, p1.id, fac.id, 0)
+    assert ok3, f"exhaust/once_per_turn ability did not re-arm next turn: {msg3}"
+
+
+def test_ai_fires_bomb_in_real_turn_end_to_end():
+    """End-to-end firing gate (the new standing guard).
+
+    The meta-bug that let the calibration gap ship green was that EVERY AI test
+    called ``_consider_activated_abilities`` directly with hand-placed state — so
+    a silent regression to never-firing stayed green. This drives a real AI turn
+    through ``SCPTurnManager.run_turn`` and asserts the bomb actually fires.
+    """
+    from src.ai.scp_adapter import SCPAIAdapter
+    game, p1, p2 = _setup()
+    game.state._game = game
+    game.turn_manager.set_turn_order([p1.id, p2.id])
+    game.turn_manager.set_ai_player(p1.id)
+    game.turn_manager.set_ai_handler(SCPAIAdapter(difficulty="balanced"))
+    fac = _bf_obj(game, p1, "SZB Public Spectacle Suite")  # fires at default opp secrecy
+    game.state.scp_facilities.setdefault(p1.id, []).append(fac.id)
+
+    events = asyncio.run(game.turn_manager.run_turn(p1.id))
+    assert any(e.type == EventType.SCP_ABILITY_ACTIVATED for e in events), \
+        "AI did not fire the bomb during a real turn (never-firing regression)"
+    assert scp.site(game.state, p2.id)["secrecy"] < 10, "bomb fired but its effect did not resolve"
+
+
+def test_activate_off_battlefield_rejected():
+    """Defense in depth: an ability on a card not on the battlefield (a stale or
+    crafted action) must be rejected, not resolved off-board."""
+    game, p1, p2 = _setup()
+    cd = scp.make_scp_card("Bench Reactor", CardType.SCP_FACILITY, text="")
+    obj = game.create_object(
+        name=cd.name, owner_id=p1.id, zone=ZoneType.HAND,
+        characteristics=cd.characteristics, card_def=cd,
+    )
+    obj.controller = p1.id
+    make_scp_activated_ability(
+        obj, cost=SCPCost(), description="x",
+        effect_fn=lambda o, s: [], value_hint=SCPValueHint(briefing=1),
+    )
+    ok, msg, _ = scp.activate_ability(game, p1.id, obj.id, 0)
+    assert not ok and "battlefield" in msg.lower(), msg
+
+
+def test_unimplemented_cost_is_unpayable_not_crash():
+    """SCPCost.discard / sacrifice are Phase-2 placeholders that raise
+    NotImplementedError; legal-action enumeration AND dispatch must treat them
+    as unpayable rather than crash the turn loop."""
+    game, p1, p2 = _setup()
+    obj = _battlefield_personnel(game, p1)
+    make_scp_activated_ability(
+        obj, cost=SCPCost(discard=1), description="placeholder discard cost",
+        effect_fn=lambda o, s: [], value_hint=SCPValueHint(briefing=1),
+    )
+    legal_scp_actions(game, p1.id)  # must not raise
+    ok, msg, _ = scp.activate_ability(game, p1.id, obj.id, 0)
+    assert not ok and "Unpayable" in msg, msg
+
+
+def test_ethical_discharge_fires_with_low_own_secrecy():
+    """Sign-inversion regression: the -1 attack on the OPPONENT's secrecy must
+    not be scored as a hit to our OWN secrecy, which made the AI refuse to fire
+    Ethical Discharge exactly when our secrecy was low (its strongest moment)."""
+    game, p1, p2 = _setup()
+    scp.site(game.state, p1.id)["secrecy"] = 3       # ours low — old bug = self-penalty
+    scp.site(game.state, p1.id)["ethics_debt"] = 4   # enough to pay the 2-ethics cost
+    fac = _bf_obj(game, p1, "SZB Ethical Discharge Reactor")
+    game.state.scp_facilities.setdefault(p1.id, []).append(fac.id)
+    fired = _adapter()._consider_activated_abilities(p1.id, game.state, game)
+    assert any(e.type == EventType.SCP_ABILITY_ACTIVATED for e in fired), \
+        "AI refused to fire Ethical Discharge with low own-secrecy (sign-inversion bug)"
+
+
 # --------------------------------------------------------------------------- #
 # AI uses the ability (the crux — choosy cards must not be dead in tournaments)
 # --------------------------------------------------------------------------- #
