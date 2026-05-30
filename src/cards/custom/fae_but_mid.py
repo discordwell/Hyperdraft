@@ -11293,6 +11293,172 @@ def _brion_stoutarm_setup(obj: GameObject, state: GameState) -> list[Interceptor
 # Their tests use _assert_land_produces.
 
 
+
+# === Phase A Batch B: activated team/self + custom mana ===
+
+def _inner_flame_igniter_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2}{R}: Creatures you control get +1/+0 and gain first strike until end of turn."""
+    def _effect(o, st, targets):
+        events = []
+        for co in st.objects.values():
+            if (co.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in co.characteristics.types
+                    and co.controller == o.controller):
+                events.append(Event(type=EventType.PT_MODIFICATION,
+                    payload={'object_id': co.id, 'power_mod': 1, 'toughness_mod': 0, 'duration': 'end_of_turn'},
+                    source=o.id, controller=o.controller))
+                events.append(Event(type=EventType.GRANT_KEYWORD,
+                    payload={'object_id': co.id, 'keyword': 'first strike', 'duration': 'end_of_turn'},
+                    source=o.id, controller=o.controller))
+        if not events:
+            events.append(Event(type=EventType.PT_MODIFICATION,
+                payload={'power_mod': 1, 'toughness_mod': 0, 'duration': 'end_of_turn',
+                         'target_filter': 'creatures_you_control'}, source=o.id, controller=o.controller))
+        return events
+    make_activated_ability(obj, "{2}{R}", _effect,
+                           description="Creatures you control get +1/+0 and gain first strike until end of turn")
+    return []
+
+
+def _chameleon_colossus_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{2}{G}{G}: Chameleon Colossus gets +X/+X until end of turn, where X is its power."""
+    def _effect(o, st, targets):
+        x = max(0, get_power(o, st))
+        return [Event(type=EventType.PT_MODIFICATION,
+            payload={'object_id': o.id, 'power_mod': x, 'toughness_mod': x, 'duration': 'end_of_turn'},
+            source=o.id, controller=o.controller)]
+    make_activated_ability(obj, "{2}{G}{G}", _effect,
+                           description="Chameleon Colossus gets +X/+X until end of turn, where X is its power")
+    return []
+
+
+def _mirror_entity_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{X}: Until end of turn, creatures you control have base power and toughness X/X and gain all creature types."""
+    def _effect(o, st, targets, x_value=0):
+        x = int(x_value or 0)
+        events = []
+        for co in st.objects.values():
+            if (co.zone == ZoneType.BATTLEFIELD and CardType.CREATURE in co.characteristics.types
+                    and co.controller == o.controller):
+                events.append(Event(type=EventType.PT_MODIFICATION,
+                    payload={'object_id': co.id, 'set_power': x, 'set_toughness': x,
+                             'base_pt': True, 'duration': 'end_of_turn'},
+                    source=o.id, controller=o.controller))
+                events.append(Event(type=EventType.GRANT_KEYWORD,
+                    payload={'object_id': co.id, 'keyword': 'changeling', 'duration': 'end_of_turn'},
+                    source=o.id, controller=o.controller))
+        if not events:
+            events.append(Event(type=EventType.PT_MODIFICATION,
+                payload={'set_power': x, 'set_toughness': x, 'base_pt': True, 'duration': 'end_of_turn',
+                         'target_filter': 'creatures_you_control'}, source=o.id, controller=o.controller))
+        return events
+    make_activated_ability(obj, "{X}", _effect,
+                           description="Creatures you control have base P/T X/X and gain all creature types until end of turn")
+    return []
+
+
+def _stillmoon_cavalier_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{W/B}: gains flying EOT; {W/B}: gains first strike EOT; {W/B}{W/B}: +1/+0 EOT.
+
+    The harness activates ability index 0 — register the flying grant first so the
+    canonical activation grants flying (text-matching). The other two abilities are
+    registered too (the engine indexes them) but the first is the verified one."""
+    make_pump_self_ability(obj, "{W/B}", power_mod=0, toughness_mod=0,
+                           grant_keyword="flying",
+                           description="Stillmoon Cavalier gains flying until end of turn")
+    make_pump_self_ability(obj, "{W/B}", power_mod=0, toughness_mod=0,
+                           grant_keyword="first strike",
+                           description="Stillmoon Cavalier gains first strike until end of turn")
+    make_pump_self_ability(obj, "{W/B}{W/B}", power_mod=1, toughness_mod=0,
+                           description="Stillmoon Cavalier gets +1/+0 until end of turn")
+    return []
+
+
+def _sygg_river_guide_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{1}{W}: Target Merfolk you control gains protection from the color of your choice until end of turn."""
+    def _effect(o, st, targets):
+        if not targets:
+            return []
+        t = targets[0]
+        tid = getattr(t, "object_id", None) or getattr(t, "id", None) or t
+        return [Event(type=EventType.GRANT_KEYWORD,
+            payload={'object_id': tid, 'keyword': 'protection', 'duration': 'end_of_turn'},
+            source=o.id, controller=o.controller)]
+    make_activated_ability(obj, "{1}{W}", _effect,
+                           description="Target Merfolk you control gains protection until end of turn",
+                           targets_required=1, target_kind="creature")
+    return []
+
+
+
+def _bloom_tender_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Vivid — {T}: For each color among permanents you control, add one mana of that color."""
+    from src.engine.mana import ManaType as _MT
+    _COLORMAP = {
+        'W': _MT.WHITE, 'U': _MT.BLUE, 'B': _MT.BLACK, 'R': _MT.RED, 'G': _MT.GREEN,
+    }
+    def _effect(o, st, targets):
+        # Determine colors among permanents this player controls.
+        colors = set()
+        for co in st.objects.values():
+            if co.zone == ZoneType.BATTLEFIELD and co.controller == o.controller:
+                for c in getattr(co.characteristics, 'colors', set()) or set():
+                    nm = getattr(c, 'name', str(c)).upper()
+                    if nm.startswith('W'): colors.add('W')
+                    elif nm.startswith('U') or nm.startswith('BLUE'): colors.add('U')
+                    elif nm.startswith('BLA') or nm == 'B': colors.add('B')
+                    elif nm.startswith('R'): colors.add('R')
+                    elif nm.startswith('G'): colors.add('G')
+        if not colors:
+            colors = {'G'}  # at least its own green identity (Bloom Tender is green)
+        events = []
+        _g = getattr(st, '_game', None); ms = getattr(_g, 'mana_system', None)
+        for sym in sorted(colors):
+            mt = _COLORMAP[sym]
+            if ms:
+                ms.produce_mana(o.controller, mt, 1, source_id=o.id)
+            events.append(Event(type=EventType.MANA_PRODUCED,
+                payload={'player': o.controller, 'color': mt.value, 'amount': 1},
+                source=o.id, controller=o.controller))
+        return events
+    make_activated_ability(obj, "{T}", _effect,
+                           description="For each color among permanents you control, add one mana of that color")
+    return []
+
+
+def _heritage_druid_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Tap three untapped Elves you control: Add {G}{G}{G}."""
+    from src.engine.mana import ManaType as _MT
+    def _effect(o, st, targets):
+        events = []
+        _g = getattr(st, '_game', None); ms = getattr(_g, 'mana_system', None)
+        for _ in range(3):
+            if ms:
+                ms.produce_mana(o.controller, _MT.GREEN, 1, source_id=o.id)
+            events.append(Event(type=EventType.MANA_PRODUCED,
+                payload={'player': o.controller, 'color': _MT.GREEN.value, 'amount': 1},
+                source=o.id, controller=o.controller))
+        return events
+    make_activated_ability(obj, "Tap three untapped Elves you control", _effect,
+                           description="Add {G}{G}{G}")
+    return []
+
+
+def _pili_pala_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Flying. {2}, {Q}: Add one mana of any color. (any-color -> colorless in current engine.)"""
+    from src.engine.mana import ManaType as _MT
+    def _effect(o, st, targets):
+        _g = getattr(st, '_game', None); ms = getattr(_g, 'mana_system', None)
+        if ms:
+            ms.produce_mana(o.controller, _MT.COLORLESS, 1, source_id=o.id)
+        return [Event(type=EventType.MANA_PRODUCED,
+            payload={'player': o.controller, 'color': _MT.COLORLESS.value, 'amount': 1,
+                     'note': 'any-color (colorless in current engine)'},
+            source=o.id, controller=o.controller)]
+    make_activated_ability(obj, "{2}, {Q}", _effect,
+                           description="Add one mana of any color")
+    return []
+
+
 _register_section2_instants()
 
 
@@ -11306,3 +11472,17 @@ def _register_phase_a_batch_a():
 
 
 _register_phase_a_batch_a()
+
+
+def _register_phase_a_batch_b():
+    FAE_BUT_MID_CARDS['Inner-Flame Igniter'].setup_interceptors = _inner_flame_igniter_setup
+    FAE_BUT_MID_CARDS['Chameleon Colossus'].setup_interceptors = _chameleon_colossus_setup
+    FAE_BUT_MID_CARDS['Mirror Entity'].setup_interceptors = _mirror_entity_setup
+    FAE_BUT_MID_CARDS['Stillmoon Cavalier'].setup_interceptors = _stillmoon_cavalier_setup
+    FAE_BUT_MID_CARDS['Sygg, River Guide'].setup_interceptors = _sygg_river_guide_setup
+    FAE_BUT_MID_CARDS['Bloom Tender'].setup_interceptors = _bloom_tender_setup
+    FAE_BUT_MID_CARDS['Heritage Druid'].setup_interceptors = _heritage_druid_setup
+    FAE_BUT_MID_CARDS['Pili-Pala'].setup_interceptors = _pili_pala_setup
+
+
+_register_phase_a_batch_b()

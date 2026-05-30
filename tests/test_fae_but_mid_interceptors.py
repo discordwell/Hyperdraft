@@ -174,7 +174,6 @@ SKIPPED_CARDS = {
     "Raiding Schemes": "static 'each noncreature spell has conspire' grant — firing needs conspire cost paid (creatures tapped)",
     "Retched Wretch": "reanimation: only effect is a ZONE_CHANGE back to the battlefield (plumbing-only; no content event)",
     "Garruk Wildspeaker": "planeswalker: loyalty-activated abilities (structural; no canonical trigger to fire)",
-    "Inner-Flame Igniter": "activated team-pump ability ({2}{R}: ...); no triggered/static interceptor to fire",
     "Ashling's Command": "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
     'Austere Command': "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
     "Brigid's Command": "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
@@ -206,8 +205,6 @@ SKIPPED_CARDS = {
     # --- Section 2 structural skips (lands / activated / equipment / aura / replacement / PW) ---
     'Ajani, Outland Chaperone': 'planeswalker: loyalty-activated abilities (structural)',
     'Aurora Awakener': 'reveal-until-X dig (variable, library-state dependent; not a single content event)',
-    'Bloom Tender': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Chameleon Colossus': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Champion of the Weird': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Collective Inferno': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Dawnhand Dissident': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
@@ -218,10 +215,8 @@ SKIPPED_CARDS = {
     'Figure of Destiny': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Gathering Stone': 'choose-a-type cost-reducer / mana on ETB (structural; no content event)',
     'Glen Elendra Archmage': 'activated sacrifice ability (structural; no triggered/static interceptor)',
-    'Heritage Druid': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Horde of Notions': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Maralen, Fae Ascendant': 'static lock / name-or-color-choice replacement effect (structural)',
-    'Mirror Entity': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Mirrormind Crown': 'equipment: grants statics/abilities to the held creature (needs an attached host)',
     'Mistbind Clique': 'champion mechanic (exile-on-ETB + return-on-leave; structural)',
     'Mornsong Aria': 'static lock / name-or-color-choice replacement effect (structural)',
@@ -229,7 +224,6 @@ SKIPPED_CARDS = {
     'Nettlevine Blight': 'PHASE B: aura grants the enchanted permanent an end-step "sacrifice then re-attach to a permanent you control" triggered ability — needs a granted self-moving aura trigger',
     'Overbeing of Myth': 'structural / activated / replacement effect not expressible via a canonical trigger',
     "Painter's Servant": 'static lock / name-or-color-choice replacement effect (structural)',
-    'Pili-Pala': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Pitiless Fists': 'PHASE B: aura has no static; its only effect is a targeted ETB fight (enchanted creature fights a chosen opponent creature) — needs cast-time target choice',
     'Reaping Willow': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Rimefire Torque': 'structural / activated / replacement effect not expressible via a canonical trigger',
@@ -238,8 +232,6 @@ SKIPPED_CARDS = {
     'Shimmerwilds Growth': 'PHASE B: aura grants the enchanted LAND a "{T}: Add any color" mana ability — mana abilities are text-parsed by the priority engine, not registerable via the granted-ability API',
     'Sower of Temptation': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Spellstutter Sprite': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Stillmoon Cavalier': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Sygg, River Guide': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
     'Tattermunge Maniac': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Vendilion Clique': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Vexing Shusher': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
@@ -2926,6 +2918,97 @@ def test_card_stoic_grove_guide():
     _assert_creature_mana_produces(game, p1, "Stoic Grove-Guide", ["C"])
 
 
+
+# === Phase A Batch B tests ===
+def test_card_inner_flame_igniter():
+    """Inner-Flame Igniter: {2}{R}: Creatures you control get +1/+0 and gain first strike until end of turn."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Inner-Flame Igniter", mana={'generic': 2, 'r': 1})
+    ally = _spawn(game, p1, power=2, toughness=2, name='Ally')
+    cost, resolve = _activate(game, p1, obj)
+    got = {e.type.name for e in resolve}
+    assert 'PT_MODIFICATION' in got and 'GRANT_KEYWORD' in got, (
+        f"team +1/+0 and first strike; got {sorted(got)}")
+    assert any(e.type == EventType.PT_MODIFICATION and e.payload.get('object_id') == ally.id
+               for e in resolve), "the ally should be pumped"
+
+
+def test_card_chameleon_colossus():
+    """Chameleon Colossus: {2}{G}{G}: gets +X/+X until end of turn, where X is its power (4)."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Chameleon Colossus", mana={'generic': 2, 'g': 2})
+    cost, resolve = _activate(game, p1, obj)
+    pumps = [e for e in resolve if e.type == EventType.PT_MODIFICATION
+             and e.payload.get('object_id') == obj.id]
+    assert pumps and pumps[0].payload.get('power_mod') == 4, (
+        f"should pump +4/+4 (X = its power 4), got {[(e.type.name, e.payload.get('power_mod')) for e in resolve]}")
+
+
+def test_card_mirror_entity():
+    """Mirror Entity: {X}: creatures you control have base P/T X/X and gain all creature types until end of turn."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Mirror Entity", mana={'generic': 3})
+    ally = _spawn(game, p1, power=1, toughness=1, name='Ally')
+    cost, resolve = _activate(game, p1, obj, x_value=3)
+    sets = [e for e in resolve if e.type == EventType.PT_MODIFICATION
+            and e.payload.get('set_power') == 3]
+    grants = [e for e in resolve if e.type == EventType.GRANT_KEYWORD
+              and e.payload.get('keyword') == 'changeling']
+    assert sets and grants, (
+        f"should set base P/T to 3/3 and grant changeling; got {[(e.type.name, e.payload) for e in resolve]}")
+
+
+def test_card_stillmoon_cavalier():
+    """Stillmoon Cavalier: {W/B}: gains flying until end of turn (first ability)."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Stillmoon Cavalier", mana={'w': 1})
+    cost, resolve = _activate(game, p1, obj)
+    grants = [e for e in resolve if e.type == EventType.GRANT_KEYWORD
+              and e.payload.get('keyword') == 'flying']
+    assert grants, f"should grant flying, got {[(e.type.name, e.payload.get('keyword')) for e in resolve]}"
+
+
+def test_card_sygg_river_guide():
+    """Sygg, River Guide: {1}{W}: Target Merfolk you control gains protection from the color of your choice until end of turn."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Sygg, River Guide", mana={'generic': 1, 'w': 1})
+    merf = _spawn(game, p1, subtypes=['Merfolk'], name='Merf')
+    cost, resolve = _activate(game, p1, obj, targets=[_target_obj(merf)])
+    grants = [e for e in resolve if e.type == EventType.GRANT_KEYWORD
+              and e.payload.get('keyword') == 'protection' and e.payload.get('object_id') == merf.id]
+    assert grants, f"target Merfolk should gain protection, got {[(e.type.name, e.payload.get('keyword')) for e in resolve]}"
+
+
+def test_card_bloom_tender():
+    """Bloom Tender: {T}: For each color among permanents you control, add one mana of that color."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Bloom Tender")
+    _spawn(game, p1, colors=[Color.WHITE], name='White Thing')
+    cost, resolve = _activate(game, p1, obj)
+    produced = {e.payload.get('color') for e in resolve if e.type == EventType.MANA_PRODUCED}
+    # Bloom Tender is green; the white permanent adds white -> at least {G, W}.
+    assert 'G' in produced and 'W' in produced, (
+        f"should add one mana per color among permanents (>= G and W), got {sorted(produced)}")
+
+
+def test_card_heritage_druid():
+    """Heritage Druid: Tap three untapped Elves you control: Add {G}{G}{G}."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Heritage Druid")
+    cost, resolve = _activate(game, p1, obj)
+    greens = [e for e in resolve if e.type == EventType.MANA_PRODUCED and e.payload.get('color') == 'G']
+    assert len(greens) == 3, f"should add GGG (3 green), got {[(e.type.name, e.payload.get('color')) for e in resolve]}"
+
+
+def test_card_pili_pala():
+    """Pili-Pala: {2}, {Q}: Add one mana of any color (colorless in current engine)."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Pili-Pala", mana={'generic': 2})
+    cost, resolve = _activate(game, p1, obj)
+    produced = {e.payload.get('color') for e in resolve if e.type == EventType.MANA_PRODUCED}
+    assert produced, f"should add one mana, got {[(e.type.name, e.payload) for e in resolve]}"
+
+
 # ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
@@ -2946,7 +3029,11 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     # --- Phase A Batch A (activated / mana) ---
     test_card_heap_doll, test_card_scarblade_elite, test_card_scarblade_scout,
     test_card_rhys_the_redeemed, test_card_twilight_diviner, test_card_brion_stoutarm,
-    test_card_devoted_druid, test_card_stoic_grove_guide]
+    test_card_devoted_druid, test_card_stoic_grove_guide,
+    # --- Phase A Batch B (activated team/self + custom mana) ---
+    test_card_inner_flame_igniter, test_card_chameleon_colossus, test_card_mirror_entity,
+    test_card_stillmoon_cavalier, test_card_sygg_river_guide, test_card_bloom_tender,
+    test_card_heritage_druid, test_card_pili_pala]
 
 
 def _run():
