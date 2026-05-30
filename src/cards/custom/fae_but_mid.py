@@ -8997,12 +8997,75 @@ DEATH_DENIED = make_instant(
     text="Return X target creature cards from your graveyard to your hand."
 )
 
+# Nettlevine Blight - {4}{B}{B} Aura
+def _nettlevine_endstep_filter(event: Event, state: GameState, target_id: str) -> bool:
+    # "At the beginning of YOUR end step" — your = enchanted permanent's controller.
+    if event.type != EventType.PHASE_START:
+        return False
+    if (event.payload.get('phase') or event.payload.get('step')) != 'end_step':
+        return False
+    target = state.objects.get(target_id)
+    if not target:
+        return False
+    active = event.payload.get('active_player') or getattr(state, 'active_player', None)
+    return active == target.controller
+
+
+def _nettlevine_endstep_effect(target_obj: GameObject, event: Event, state: GameState) -> list[Event]:
+    # Sacrifice a creature or land you control; if you do, re-attach the aura
+    # to a permanent you control.
+    controller = target_obj.controller
+    # Find the Nettlevine Blight aura attached to this permanent.
+    aura_id = None
+    for aid in list(getattr(target_obj.state, 'attachments', []) or []):
+        a = state.objects.get(aid)
+        if a and getattr(a, 'name', None) == "Nettlevine Blight":
+            aura_id = aid
+            break
+    # Pick a sacrifice: a creature or land you control (prefer something other
+    # than the currently-enchanted permanent).
+    victim_id = None
+    for o in state.objects.values():
+        if (o.controller == controller and o.zone == ZoneType.BATTLEFIELD and
+                (CardType.CREATURE in o.characteristics.types or
+                 CardType.LAND in o.characteristics.types)):
+            victim_id = o.id
+            if o.id != target_obj.id:
+                break
+    events: list[Event] = []
+    if victim_id is None:
+        return events
+    events.append(Event(type=EventType.OBJECT_DESTROYED, payload={
+        'object_id': victim_id, 'sacrifice': True}, source=(aura_id or target_obj.id)))
+    # If you do, attach the aura to a permanent you control.
+    if aura_id is not None:
+        new_host = None
+        for o in state.objects.values():
+            if (o.controller == controller and o.zone == ZoneType.BATTLEFIELD and
+                    o.id != victim_id and o.id != aura_id and
+                    (CardType.CREATURE in o.characteristics.types or
+                     CardType.LAND in o.characteristics.types)):
+                new_host = o.id
+                break
+        target = new_host or target_obj.id
+        events.append(Event(type=EventType.ATTACH, payload={
+            'object_id': aura_id, 'target_id': target}, source=aura_id))
+    return events
+
+
 NETTLEVINE_BLIGHT = make_enchantment(
     name="Nettlevine Blight",
     mana_cost="{4}{B}{B}",
     colors={Color.BLACK},
     subtypes={"Aura"},
-    text="Enchant creature or land. Enchanted permanent has \"At the beginning of your end step, sacrifice a creature or land. If you do, attach Nettlevine Blight to a permanent you control.\""
+    text="Enchant creature or land. Enchanted permanent has \"At the beginning of your end step, sacrifice a creature or land. If you do, attach Nettlevine Blight to a permanent you control.\"",
+    setup_interceptors=make_aura_setup(
+        granted_triggered_abilities={
+            "event_filter": _nettlevine_endstep_filter,
+            "effect_fn": _nettlevine_endstep_effect,
+            "description": "Your end step → sacrifice a creature or land, then re-attach Nettlevine Blight",
+        },
+    ),
 )
 
 # Red Cards

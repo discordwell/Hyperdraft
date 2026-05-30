@@ -155,7 +155,6 @@ SKIPPED_CARDS = {
     'Champion of the Weird': "behold-a-Goblin cast cost (alt-cost choice the engine can't model) + 'Pay 1 life, Blight 2: target opponent blights 2' — there is no blight content-event the engine consumes (blight is parsed only as a cost), so the activated ability has no fireable effect (engine gap)",
     'Earwig Squad': "prowl-gated ETB: the search+exile fires only 'if its prowl cost was paid'. Prowl is an alternative cost, and the engine cannot gate an effect on which cost was paid: the cost-payment path in priority.py sets NO per-cost-paid flag on the spell object, and the one precedent (was_bargained, interceptor_helpers.py) is itself a defined-but-never-auto-set flag awaiting a 'future cast-option extension'. Wiring needs non-additive engine work (out of scope).",
     'Mirrormind Crown': "equipment token-creation replacement (first tokens each turn become copies of equipped creature) — no replacement hook that rewrites OBJECT_CREATED/CREATE_TOKEN into copy tokens (engine gap)",
-    'Nettlevine Blight': 'PHASE B: aura grants the enchanted permanent an end-step "sacrifice then re-attach to a permanent you control" triggered ability — needs a granted self-moving aura trigger',
     "Painter's Servant": 'static lock / name-or-color-choice replacement effect (structural)',
     'Runed Halo': "grants the PLAYER 'protection from a chosen card name'. targeting.py protection only covers color/type/everything ON OBJECTS via has_ability; there is no name-based protection, no GRANT_PROTECTION event, and _player_can_be_targeted is a hard-coded `return True` stub (players aren't GameObjects). Wiring needs engine work, which is out of scope for card-wiring.",
     'Shimmerwilds Growth': 'PHASE B: aura grants the enchanted LAND a "{T}: Add any color" mana ability — mana abilities are text-parsed by the priority engine, not registerable via the granted-ability API',
@@ -4530,6 +4529,27 @@ def test_card_kinbinding():
         f"Kinbinding: creature should get +2/+2 (X=2), toughness {get_toughness(c2, game.state)}"
 
 
+def test_card_nettlevine_blight():
+    """Nettlevine Blight: enchanted permanent has 'At the beginning of your end
+    step, sacrifice a creature or land. If you do, attach Nettlevine Blight to a
+    permanent you control.' Enchant a host, attach, then fire end step ->
+    OBJECT_DESTROYED (sacrifice) + ATTACH (re-attach)."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    host = _spawn(game, p1, power=2, toughness=2, name='Blighted Host')
+    _spawn(game, p1, types={CardType.LAND}, name='Sac Land')  # something to sacrifice
+    aura = _enchant_host(game, p1, "Nettlevine Blight", host)
+    _attach(game, aura, host)  # ATTACH installs the granted triggered ability
+    log0 = len(game.state.event_log)
+    game.emit(Event(type=EventType.PHASE_START,
+                    payload={'phase': 'end_step', 'active_player': p1.id}, source=p1.id))
+    new = {e.type.name for e in game.state.event_log[log0:]}
+    assert 'OBJECT_DESTROYED' in new, \
+        f"Nettlevine Blight: your end step should sacrifice a creature/land, got {sorted(new - _PLUMBING)}"
+    assert 'ATTACH' in new, \
+        f"Nettlevine Blight: after sacrificing, it should re-attach, got {sorted(new - _PLUMBING)}"
+
+
 # ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
@@ -4608,7 +4628,7 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_dream_harvest, test_card_burning_curiosity,
     test_card_end_blaze_epiphany, test_card_aurora_awakener,
     test_card_demigod_of_revenge, test_card_rhys_the_evermore,
-    test_card_kinbinding]
+    test_card_kinbinding, test_card_nettlevine_blight]
 
 
 def _run():
