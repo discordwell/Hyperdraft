@@ -187,7 +187,6 @@ SKIPPED_CARDS = {
     'Kinbinding': 'dynamic lord +X/+X where X = creatures entered under your control this turn — no per-turn-entry-count helper/precedent exists',
     'Mirrormind Crown': 'equipment: grants statics/abilities to the held creature (needs an attached host)',
     'Mistbind Clique': 'champion mechanic (exile-on-ETB + return-on-leave; structural)',
-    'Mornsong Aria': 'static lock / name-or-color-choice replacement effect (structural)',
     'Nettle Sentinel': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Nettlevine Blight': 'PHASE B: aura grants the enchanted permanent an end-step "sacrifice then re-attach to a permanent you control" triggered ability — needs a granted self-moving aura trigger',
     'Overbeing of Myth': 'structural / activated / replacement effect not expressible via a canonical trigger',
