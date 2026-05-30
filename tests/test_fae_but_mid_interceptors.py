@@ -148,7 +148,6 @@ def _new_game():
 
 SKIPPED_CARDS = {
     "Timid Shieldbearer": "activated 'can attack as though it didn't have defender' — combat._can_attack hard-checks the defender keyword with no override marker/event (engine gap, mirrors EOE/Tarkir/Avatar printings)",
-    "Champion of the Path": "grants a triggered ability to OTHER creatures (static; setup returns [])",
     "Chitinous Graspling": "keyword-only (Changeling/Reach); setup returns [] — vanilla-equivalent",
     "Gangly Stompling": "keyword-only (Changeling/Trample); setup returns [] — vanilla-equivalent",
     "The Aurora Cycle": "Saga — chapter abilities are lore-counter driven (structural)",
@@ -167,7 +166,7 @@ SKIPPED_CARDS = {
     'Ajani, Outland Chaperone': 'planeswalker: loyalty-activated abilities (structural)',
     'Aurora Awakener': 'reveal-until-X dig (variable, library-state dependent; not a single content event)',
     'Champion of the Weird': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Deity of Scars': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
+    'Deity of Scars': "activated '{B/G}, Remove a -1/-1 counter: Regenerate' — the engine has no REGENERATE event/keyword (no regeneration-shield mechanic), so the ability's effect is not expressible as a content event (engine gap)",
     'Demigod of Revenge': 'cast-time graveyard recursion (return all copies; resolves before ETB; structural)',
     'Earwig Squad': 'prowl-gated ETB (search+exile only when prowl cost paid; alt-cost dependent)',
     'Gathering Stone': 'choose-a-type cost-reducer / mana on ETB (structural; no content event)',
@@ -2962,6 +2961,29 @@ def test_card_treefolk_bough_spear():
         f"{get_power(host, game.state)}/{get_toughness(host, game.state)}")
 
 
+def test_card_champion_of_the_path():
+    """Champion of the Path: Other Elementals you control have 'Whenever this creature
+    deals combat damage to a player, it deals damage equal to its power to up to one
+    target creature that player controls.'"""
+    game, p1, p2 = _new_game()
+    create_creature_on_battlefield(game, p1, "Champion of the Path")
+    elem = _spawn(game, p1, subtypes=['Elemental'], power=3, toughness=3,
+                  colors=[Color.RED], name='Other Elemental')
+    enemy = _spawn(game, p2, power=2, toughness=4, name='Enemy Creature')
+    log0 = len(game.state.event_log)
+    # The granted Elemental deals combat damage to a player.
+    game.emit(Event(type=EventType.DAMAGE,
+                    payload={'source': elem.id, 'target': p2.id, 'amount': 3, 'is_combat': True},
+                    source=elem.id))
+    extra = [e for e in game.state.event_log[log0:]
+             if e.type == EventType.DAMAGE and e.payload.get('source') == elem.id
+             and e.payload.get('target') == enemy.id and e.payload.get('amount') == 3]
+    assert extra, (
+        "the granted Elemental's combat damage to a player should deal damage equal to "
+        "its power to a creature that player controls; got "
+        f"{[(e.type.name, e.payload.get('target'), e.payload.get('amount')) for e in game.state.event_log[log0:] if e.type == EventType.DAMAGE]}")
+
+
 # === Phase A Batch A tests ===
 def test_card_heap_doll():
     """Heap Doll: Sacrifice Heap Doll: Exile target card from a graveyard."""
@@ -3859,6 +3881,8 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_glen_elendra_archmage, test_card_goldmeadow_nomad,
     # --- Re-exam batch: auras / equipment ---
     test_card_morcants_eyes, test_card_evershrikes_gift, test_card_treefolk_bough_spear,
+    # --- Re-exam batch: static lord-grant of a triggered ability ---
+    test_card_champion_of_the_path,
     # --- Phase A Batch A (activated / mana) ---
     test_card_heap_doll, test_card_scarblade_elite, test_card_scarblade_scout,
     test_card_rhys_the_redeemed, test_card_twilight_diviner, test_card_brion_stoutarm,

@@ -5642,13 +5642,50 @@ UNBURY = make_sorcery(
 
 # Champion of the Path - {3}{R} Creature — Elemental Sorcerer 7/3
 def champion_of_path_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    def affects_elementals(target: GameObject, state: GameState) -> bool:
-        return (target.controller == obj.controller and
-                target.id != obj.id and
-                "Elemental" in target.characteristics.subtypes and
-                target.zone == ZoneType.BATTLEFIELD)
-    # Grant other Elementals "damage equal to power" - simplified as +0/+0
-    return []
+    """Other Elementals you control have 'Whenever this creature deals combat damage
+    to a player, it deals damage equal to its power to up to one target creature that
+    player controls.'
+
+    Implemented as a single REACT on the Champion that watches combat damage dealt to
+    a player by any OTHER Elemental you control, and emits a DAMAGE event from that
+    Elemental (its power) to a creature the damaged player controls. (The behold/exile
+    additional cost and the leaves-battlefield return rider are separate riders.)"""
+    from src.cards.interceptor_helpers import make_damage_trigger
+
+    def filter_fn(event: Event, st: GameState, source: GameObject) -> bool:
+        if event.type != EventType.DAMAGE or not event.payload.get('is_combat', False):
+            return False
+        if event.payload.get('target') not in st.players:
+            return False
+        dealer = st.objects.get(event.payload.get('source'))
+        return (dealer is not None and dealer.id != source.id
+                and dealer.controller == source.controller
+                and dealer.zone == ZoneType.BATTLEFIELD
+                and "Elemental" in (dealer.characteristics.subtypes or set()))
+
+    def effect(event: Event, st: GameState) -> list[Event]:
+        damaged_player = event.payload.get('target')
+        dealer = st.objects.get(event.payload.get('source'))
+        if dealer is None:
+            return []
+        amount = max(0, get_power(dealer, st))
+        if amount <= 0:
+            return []
+        victim = None
+        for o in _battlefield_creatures(st):
+            if o.controller == damaged_player:
+                victim = o.id
+                break
+        payload = {'amount': amount, 'source': dealer.id, 'is_combat': False}
+        if victim is not None:
+            payload['target'] = victim
+        else:
+            payload['target_filter'] = 'creature_that_player_controls'
+            payload['controlled_by'] = damaged_player
+        return [Event(type=EventType.DAMAGE, payload=payload, source=dealer.id,
+                      controller=dealer.controller)]
+
+    return [make_damage_trigger(obj, effect, combat_only=True, filter_fn=filter_fn)]
 
 
 CHAMPION_OF_THE_PATH = make_creature(
