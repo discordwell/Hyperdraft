@@ -2952,8 +2952,9 @@ CHAOS_SPEWER = make_creature(
 
 # Chitinous Graspling - {3}{G/U} Creature — Shapeshifter 3/4
 def chitinous_graspling_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Changeling. Reach. (No triggered abilities - keywords handled separately)
-    return []
+    # Changeling. Reach. (keyword-only — grant both keywords to itself statically)
+    return [make_keyword_grant(obj, ["changeling", "reach"],
+                               lambda t, s, _id=obj.id: t.id == _id)]
 
 
 CHITINOUS_GRASPLING = make_creature(
@@ -3254,8 +3255,9 @@ FLARING_CINDER = make_creature(
 
 # Gangly Stompling - {2}{R/G} Creature — Shapeshifter 4/2
 def gangly_stompling_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Changeling. Trample. (No triggered abilities - keywords handled separately)
-    return []
+    # Changeling. Trample. (keyword-only — grant both keywords to itself statically)
+    return [make_keyword_grant(obj, ["changeling", "trample"],
+                               lambda t, s, _id=obj.id: t.id == _id)]
 
 
 GANGLY_STOMPLING = make_creature(

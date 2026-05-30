@@ -151,8 +151,6 @@ def _new_game():
 
 
 SKIPPED_CARDS = {
-    "Chitinous Graspling": "keyword-only (Changeling/Reach); setup returns [] — vanilla-equivalent",
-    "Gangly Stompling": "keyword-only (Changeling/Trample); setup returns [] — vanilla-equivalent",
     "Rhys, the Evermore": "targeted ETB granting persist to a chosen creature (target-choice)",
     "Retched Wretch": "reanimation: only effect is a ZONE_CHANGE back to the battlefield (plumbing-only; no content event)",
     'Burning Curiosity': 'instant/sorcery: exile top N + play-this-turn (impulse draw); needs a play-from-exile window',
@@ -4274,6 +4272,29 @@ def test_card_the_aurora_cycle():
     _assert_emits(game, ['CREATE_TOKEN', 'OBJECT_CREATED'], "The Aurora Cycle")
 
 
+# ===========================================================================
+# FINISH-TAIL batch: the last feasible cards (keyword-only vanilla, reanimation,
+# combat-exile, hand-shuffle, choose-a-type, ability-granting auras,
+# target-persist, dynamic count, library-dig, variable-X, recursion).
+# Each fires the card's OWN canonical trigger and asserts a TEXT-MATCHING effect.
+# ===========================================================================
+
+def test_card_chitinous_graspling():
+    """Chitinous Graspling: Changeling. Reach. (keyword-only vanilla)"""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Chitinous Graspling")
+    assert has_ability(obj, "changeling", game.state), "should have changeling"
+    assert has_ability(obj, "reach", game.state), "should have reach"
+
+
+def test_card_gangly_stompling():
+    """Gangly Stompling: Changeling. Trample. (keyword-only vanilla)"""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Gangly Stompling")
+    assert has_ability(obj, "changeling", game.state), "should have changeling"
+    assert has_ability(obj, "trample", game.state), "should have trample"
+
+
 # ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
@@ -4342,7 +4363,9 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_raiding_schemes,
     # --- Section 6: framework-wired (planeswalker / saga / gain-control) ---
     test_card_ajani_outland_chaperone, test_card_garruk_wildspeaker,
-    test_card_goatnap, test_card_the_aurora_cycle]
+    test_card_goatnap, test_card_the_aurora_cycle,
+    # --- FINISH-TAIL batch (last feasible cards) ---
+    test_card_chitinous_graspling, test_card_gangly_stompling]
 
 
 def _run():
