@@ -3223,13 +3223,96 @@ GANGLY_STOMPLING = make_creature(
 # =============================================================================
 
 # Ajani, Outland Chaperone - {1}{W}{W} Legendary Planeswalker — Ajani
+# Wired via the planeswalker loyalty framework (src/engine/planeswalker.py).
+def ajani_outland_chaperone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import (
+        make_planeswalker_setup,
+        make_loyalty_ability,
+    )
+
+    setup = make_planeswalker_setup(obj, starting_loyalty=3)
+
+    # +1: Create a 1/1 white Cat creature token.
+    def plus1_token(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': o.controller,
+                'token': {
+                    'name': 'Cat',
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Cat'},
+                    'colors': {Color.WHITE},
+                    'power': 1, 'toughness': 1,
+                },
+            },
+            source=o.id, controller=o.controller,
+        )]
+
+    make_loyalty_ability(
+        obj, cost=+1, effect_fn=plus1_token, ability_id="+1",
+        description="+1: Create a 1/1 white Cat creature token.",
+    )
+
+    # +1: Ajani deals damage to target tapped creature equal to the number of
+    # creatures you control.
+    def plus1_damage(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        target = None
+        if targets:
+            t = targets[0]
+            target = getattr(t, "object_id", None) or t
+        if not target:
+            target = find_opponent_creature(o, st, tapped=True)
+        if not target:
+            return []
+        n = sum(1 for c in _battlefield_creatures(st) if c.controller == o.controller)
+        return [Event(
+            type=EventType.DAMAGE,
+            payload={'source': o.id, 'target': target, 'amount': n,
+                     'target_type': 'creature'},
+            source=o.id, controller=o.controller,
+        )]
+
+    make_loyalty_ability(
+        obj, cost=+1, effect_fn=plus1_damage, ability_id="+1b",
+        targets_required=1, target_kind="creature",
+        description="+1: Ajani deals damage to target tapped creature equal to "
+                    "the number of creatures you control.",
+    )
+
+    # -6: Search your library for any number of permanent cards with mana value
+    # 3 or less, put them onto the battlefield, then shuffle.
+    def minus6_search(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [Event(
+            type=EventType.SEARCH_LIBRARY,
+            payload={
+                'player': o.controller,
+                'card_type': 'permanent',
+                'max_mana_value': 3,
+                'count': 'any',
+                'destination': 'battlefield',
+            },
+            source=o.id, controller=o.controller,
+        )]
+
+    make_loyalty_ability(
+        obj, cost=-6, effect_fn=minus6_search, ability_id="-6",
+        description="-6: Search your library for any number of permanent cards "
+                    "with mana value 3 or less, put them onto the battlefield, "
+                    "then shuffle.",
+    )
+
+    return setup
+
+
 AJANI_OUTLAND_CHAPERONE = make_planeswalker(
     name="Ajani, Outland Chaperone",
     mana_cost="{1}{W}{W}",
     colors={Color.WHITE},
     subtypes={"Ajani"},
     text="+1: Create a 1/1 white Cat creature token. +1: Ajani deals damage to target tapped creature equal to the number of creatures you control. -6: Search your library for any number of permanent cards with mana value 3 or less, put them onto the battlefield, then shuffle.",
-    loyalty=3
+    loyalty=3,
+    setup_interceptors=ajani_outland_chaperone_setup,
 )
 
 
@@ -8628,13 +8711,99 @@ SENSATION_GORGER = make_creature(
 )
 
 # Green Cards
+# Wired via the planeswalker loyalty framework (src/engine/planeswalker.py).
+def garruk_wildspeaker_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    from src.cards.interceptor_helpers import (
+        make_planeswalker_setup,
+        make_loyalty_ability,
+    )
+
+    setup = make_planeswalker_setup(obj, starting_loyalty=3)
+
+    # +1: Untap two target lands.
+    def plus1_untap(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        land_ids = []
+        if targets:
+            for t in targets[:2]:
+                tid = getattr(t, "object_id", None) or t
+                if tid:
+                    land_ids.append(tid)
+        if not land_ids:
+            for cand in st.objects.values():
+                if (cand.zone == ZoneType.BATTLEFIELD and
+                        CardType.LAND in cand.characteristics.types and
+                        cand.controller == o.controller and cand.state.tapped):
+                    land_ids.append(cand.id)
+                    if len(land_ids) >= 2:
+                        break
+        return [Event(type=EventType.UNTAP,
+                      payload={'object_id': lid},
+                      source=o.id, controller=o.controller)
+                for lid in land_ids]
+
+    make_loyalty_ability(
+        obj, cost=+1, effect_fn=plus1_untap, ability_id="+1",
+        targets_required=2, target_kind="land",
+        description="+1: Untap two target lands.",
+    )
+
+    # -1: Create a 3/3 green Beast creature token.
+    def minus1_beast(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        return [Event(
+            type=EventType.CREATE_TOKEN,
+            payload={
+                'controller': o.controller,
+                'token': {
+                    'name': 'Beast',
+                    'types': {CardType.CREATURE},
+                    'subtypes': {'Beast'},
+                    'colors': {Color.GREEN},
+                    'power': 3, 'toughness': 3,
+                },
+            },
+            source=o.id, controller=o.controller,
+        )]
+
+    make_loyalty_ability(
+        obj, cost=-1, effect_fn=minus1_beast, ability_id="-1",
+        description="-1: Create a 3/3 green Beast creature token.",
+    )
+
+    # -4: Creatures you control get +3/+3 and gain trample until end of turn.
+    def minus4_overrun(o: GameObject, st: GameState, targets: list) -> list[Event]:
+        events: list[Event] = []
+        for c in _battlefield_creatures(st):
+            if c.controller != o.controller:
+                continue
+            events.append(Event(
+                type=EventType.PT_MODIFICATION,
+                payload={'object_id': c.id, 'power_mod': 3, 'toughness_mod': 3,
+                         'duration': 'end_of_turn'},
+                source=o.id, controller=o.controller))
+            events.append(Event(
+                type=EventType.GRANT_KEYWORD,
+                payload={'object_id': c.id, 'keyword': 'trample',
+                         'duration': 'end_of_turn'},
+                source=o.id, controller=o.controller))
+        return events
+
+    make_loyalty_ability(
+        obj, cost=-4, effect_fn=minus4_overrun, ability_id="-4",
+        description="-4: Creatures you control get +3/+3 and gain trample "
+                    "until end of turn.",
+    )
+
+    return setup
+
+
 GARRUK_WILDSPEAKER = make_planeswalker(
     name="Garruk Wildspeaker",
     mana_cost="{2}{G}{G}",
     colors={Color.GREEN},
     subtypes={"Garruk"},
     text="+1: Untap two target lands. -1: Create a 3/3 green Beast creature token. -4: Creatures you control get +3/+3 and gain trample until end of turn.",
-    loyalty=3
+    loyalty=3,
+    setup_interceptors=garruk_wildspeaker_setup,
 )
 
 # REVISED (rebalance): {1}{G}{G} -> {G}{G}. Power = # Elves; without playing on
@@ -11063,6 +11232,39 @@ def crib_swap_resolve(targets, state):
     return _eff()
 
 
+def goatnap_resolve(targets, state):
+    """Goatnap: Gain control of target creature until end of turn. Untap that
+    creature. It gains haste until end of turn. If that creature is a Goat, it
+    also gets +3/+0 until end of turn.
+
+    Mirrors the GAIN_CONTROL pattern used by Sower of Temptation in this file,
+    plus the untap + haste rider (cf. the threaten_creature Threaten template)."""
+    sid, caster = _spell_src('Goatnap', state)
+    def _eff():
+        events = []
+        _tid = _opp_creature(caster, state)
+        if not _tid:
+            return events
+        events.append(Event(type=EventType.GAIN_CONTROL,
+                            payload={'object_id': _tid, 'new_controller': caster,
+                                     'duration': 'end_of_turn', 'source': sid},
+                            source=sid, controller=caster))
+        events.append(Event(type=EventType.UNTAP,
+                            payload={'object_id': _tid}, source=sid, controller=caster))
+        events.append(Event(type=EventType.GRANT_KEYWORD,
+                            payload={'object_id': _tid, 'keyword': 'haste',
+                                     'duration': 'end_of_turn'},
+                            source=sid, controller=caster))
+        _t = state.objects.get(_tid)
+        if _t is not None and 'Goat' in _t.characteristics.subtypes:
+            events.append(Event(type=EventType.PT_MODIFICATION,
+                                payload={'object_id': _tid, 'power_mod': 3,
+                                         'toughness_mod': 0, 'duration': 'end_of_turn'},
+                                source=sid, controller=caster))
+        return events
+    return _eff()
+
+
 def darkness_descends_resolve(targets, state):
     """Darkness Descends: Put two -1/-1 counters on each creature."""
     sid, caster = _spell_src('Darkness Descends', state)
@@ -11666,6 +11868,7 @@ def _register_section2_instants():
     FAE_BUT_MID_CARDS['Catharsis'].resolve = catharsis_resolve
     FAE_BUT_MID_CARDS['Cinder Strike'].resolve = cinder_strike_resolve
     FAE_BUT_MID_CARDS['Crib Swap'].resolve = crib_swap_resolve
+    FAE_BUT_MID_CARDS['Goatnap'].resolve = goatnap_resolve
     FAE_BUT_MID_CARDS['Darkness Descends'].resolve = darkness_descends_resolve
     FAE_BUT_MID_CARDS['Death Denied'].resolve = death_denied_resolve
     FAE_BUT_MID_CARDS['Dose of Dawnglow'].resolve = dose_of_dawnglow_resolve
