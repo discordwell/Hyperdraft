@@ -157,7 +157,6 @@ SKIPPED_CARDS = {
     'Mirrormind Crown': "equipment token-creation replacement (first tokens each turn become copies of equipped creature) — no replacement hook that rewrites OBJECT_CREATED/CREATE_TOKEN into copy tokens (engine gap)",
     "Painter's Servant": 'static lock / name-or-color-choice replacement effect (structural)',
     'Runed Halo': "grants the PLAYER 'protection from a chosen card name'. targeting.py protection only covers color/type/everything ON OBJECTS via has_ability; there is no name-based protection, no GRANT_PROTECTION event, and _player_can_be_targeted is a hard-coded `return True` stub (players aren't GameObjects). Wiring needs engine work, which is out of scope for card-wiring.",
-    'Shimmerwilds Growth': 'PHASE B: aura grants the enchanted LAND a "{T}: Add any color" mana ability — mana abilities are text-parsed by the priority engine, not registerable via the granted-ability API',
     'Vendilion Clique': "ETB 'look at target player's hand, you MAY choose a nonland card, put it on the bottom, they draw' — the effect is entirely contingent on inspecting the hand and choosing a specific card (a player decision the harness can't deterministically drive); only the trailing draw is a plain event (engine gap for the hand-choice-to-bottom interaction)",
     'Vinebred Brawler': "'as an additional cost you MAY blight 2. If you do, enters with a +1/+1 counter' — the ETB counter is contingent on an optional alt-cost the engine can't know was paid at resolve time; no deterministic content event (engine gap)",
 }
@@ -4550,6 +4549,23 @@ def test_card_nettlevine_blight():
         f"Nettlevine Blight: after sacrificing, it should re-attach, got {sorted(new - _PLUMBING)}"
 
 
+def test_card_shimmerwilds_growth():
+    """Shimmerwilds Growth: enchanted land has '{T}: Add one mana of any color.'
+    Enchant a land, attach (installs the granted mana ability on the land), then
+    activate it -> TAP cost + MANA_ADDED on resolution."""
+    game, p1, p2 = _new_game()
+    _own_main(game, p1)
+    land = _spawn(game, p1, types={CardType.LAND}, name='Enchanted Land')
+    land.state.summoning_sickness = False
+    aura = _enchant_host(game, p1, "Shimmerwilds Growth", land)
+    _attach(game, aura, land)  # ATTACH installs the granted activated ability
+    cost_evts, resolve_evts = _activate(game, p1, land)
+    assert EventType.TAP in [e.type for e in cost_evts], \
+        f"Shimmerwilds Growth: the granted {{T}} ability should tap the land, got {[e.type.name for e in cost_evts]}"
+    assert any(e.type in (EventType.MANA_ADDED, EventType.ADD_MANA) for e in resolve_evts), \
+        f"Shimmerwilds Growth: the granted ability should add mana, got {[e.type.name for e in resolve_evts]}"
+
+
 # ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
@@ -4628,7 +4644,8 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_dream_harvest, test_card_burning_curiosity,
     test_card_end_blaze_epiphany, test_card_aurora_awakener,
     test_card_demigod_of_revenge, test_card_rhys_the_evermore,
-    test_card_kinbinding, test_card_nettlevine_blight]
+    test_card_kinbinding, test_card_nettlevine_blight,
+    test_card_shimmerwilds_growth]
 
 
 def _run():

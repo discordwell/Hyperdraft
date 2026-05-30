@@ -5412,13 +5412,28 @@ SAPLING_NURSERY = make_enchantment(
 
 
 # Shimmerwilds Growth - {G} Enchantment — Aura
+def _shimmerwilds_add_mana(target_obj: GameObject, state: GameState, targets) -> list[Event]:
+    # "{T}: Add one mana of any color." (any-color modeled as the
+    # engine's colorless placeholder + an any_color marker, mirroring the
+    # Great Forest Druid mana-ability convention.)
+    return [Event(type=EventType.MANA_ADDED, payload={
+        'player': target_obj.controller, 'mana': {'C': 1}, 'any_color': True},
+        source=target_obj.id, controller=target_obj.controller)]
+
+
 SHIMMERWILDS_GROWTH = make_enchantment(
     name="Shimmerwilds Growth",
     mana_cost="{G}",
     colors={Color.GREEN},
     subtypes={"Aura"},
     text="Enchant land. Enchanted land has '{T}: Add one mana of any color.'",
-    setup_interceptors=None
+    setup_interceptors=make_aura_setup(
+        granted_activated_abilities={
+            "cost": "{T}", "effect_fn": _shimmerwilds_add_mana,
+            "description": "Add one mana of any color",
+            "is_mana_ability": True,
+        },
+    ),
 )
 
 
