@@ -392,12 +392,258 @@ FBM_FAERIE_TEMPO = Deck(
 )
 
 
+# ---- 2. ELF RAMP / TRIBAL (GW) ----------------------------------------------
+# Mana dorks -> Imperious Perfect & token spells -> wide Elf board that lords
+# pump. Elvish Harbinger / Bloom Tender fix the white splash for Morcant +
+# Rhys (token doubler). Jagged-Scar Archers & Moon-Vigil scale with the swarm.
+FBM_ELF_RAMP = Deck(
+    name="FBM Elf Ramp",
+    archetype="Midrange",
+    colors=["G", "W"],
+    description="Golgari-free Selesnya Elves: accelerate on mana dorks into "
+                "Imperious Perfect and token sorceries, then overrun with lords "
+                "(High Perfect Morcant, Rhys) and count-scaling payoffs.",
+    mainboard=[
+        # Mana dorks / fixers
+        DeckEntry("Heritage Druid", 3, "FBM"),
+        DeckEntry("Bloom Tender", 3, "FBM"),
+        DeckEntry("Elvish Harbinger", 3, "FBM"),
+        DeckEntry("Lys Alana Dignitary", 2, "FBM"),
+        # Lords / anthems
+        DeckEntry("Imperious Perfect", 4, "FBM"),
+        DeckEntry("High Perfect Morcant", 2, "FBM"),
+        DeckEntry("Rhys the Redeemed", 2, "FBM"),
+        # Payoffs that scale with the swarm
+        DeckEntry("Jagged-Scar Archers", 2, "FBM"),
+        DeckEntry("Moon-Vigil Adherents", 1, "FBM"),
+        DeckEntry("Sun-Dappled Celebrant", 1, "FBM"),
+        DeckEntry("Masked Admirers", 2, "FBM"),
+        # Top-end bomb + value
+        DeckEntry("Champions of the Perfect", 2, "FBM"),
+        DeckEntry("Wilt-Leaf Liege", 2, "FBM"),
+        # Token spells / removal
+        DeckEntry("Hunting Triad", 2, "FBM"),
+        DeckEntry("Gilt-Leaf Ambush", 2, "FBM"),
+        DeckEntry("Scarblade's Malice", 1, "FBM"),
+        DeckEntry("Blossoming Defense", 2, "FBM"),
+        # Lands (24)
+        DeckEntry("Forest", 13, "FBM"),
+        DeckEntry("Plains", 4, "FBM"),
+        DeckEntry("Temple Garden", 3, "FBM"),
+        DeckEntry("Evolving Wilds", 4, "FBM"),
+    ],
+    sideboard=[],
+    author="Deckbuilder",
+    source="Fae but Mid pinnacle decks",
+    game="mtg",
+)
+
+
+# ---- 3. KITHKIN GO-WIDE (GW) ------------------------------------------------
+# Cheapest creatures in the set + token-makers + stacking +1/+1 lords. Spectral
+# Procession & Clachan Festival flood the board; Kinbinding / Mistmeadow Council
+# / Gaddock Teeg turn the swarm lethal. Catharsis is a board reset that refills
+# YOUR side with Kithkin tokens.
+FBM_KITHKIN_WIDE = Deck(
+    name="FBM Kithkin Go-Wide",
+    archetype="Aggro",
+    colors=["G", "W"],
+    description="Selesnya Kithkin tokens: dump a wide board of one-drops and "
+                "token-makers, then stack anthems (Mistmeadow Council, Gaddock "
+                "Teeg, Champion of the Clachan) and alpha strike.",
+    mainboard=[
+        # One-drops / counter-payoffs
+        DeckEntry("Kinsbaile Aspirant", 4, "FBM"),
+        DeckEntry("Goldmeadow Nomad", 1, "FBM"),
+        DeckEntry("Figure of Destiny", 2, "FBM"),
+        # Token-makers
+        DeckEntry("Kithkeeper", 3, "FBM"),
+        DeckEntry("Brigid, Clachan's Heart", 3, "FBM"),
+        DeckEntry("Kinsbaile Borderguard", 2, "FBM"),
+        DeckEntry("Cloudgoat Ranger", 2, "FBM"),
+        # Lords / anthems
+        DeckEntry("Gaddock Teeg", 2, "FBM"),
+        DeckEntry("Mistmeadow Council", 3, "FBM"),
+        DeckEntry("Champion of the Clachan", 2, "FBM"),
+        DeckEntry("Thoughtweft Lieutenant", 2, "FBM"),
+        # Go-wide spells / payoffs
+        DeckEntry("Spectral Procession", 3, "FBM"),
+        DeckEntry("Clachan Festival", 2, "FBM"),
+        DeckEntry("Kinbinding", 2, "FBM"),
+        DeckEntry("Gallant Fowlknight", 1, "FBM"),
+        # Removal / reset
+        DeckEntry("Spiral into Solitude", 2, "FBM"),
+        DeckEntry("Catharsis", 2, "FBM"),
+        # Lands (22 — low curve)
+        DeckEntry("Plains", 12, "FBM"),
+        DeckEntry("Forest", 6, "FBM"),
+        DeckEntry("Temple Garden", 4, "FBM"),
+    ],
+    sideboard=[],
+    author="Deckbuilder",
+    source="Fae but Mid pinnacle decks",
+    game="mtg",
+)
+
+
+# ---- 4. MERFOLK TEMPO (WU) --------------------------------------------------
+# Tap-matters Merfolk. Merrow Commerce untaps the team each end step so tap
+# abilities (Wanderbrine, Champions of the Shoal) fire every turn; evasion +
+# bounce close behind a card-advantage engine (Silvergill Adept, Merrow
+# Skyswimmer).
+FBM_MERFOLK_TEMPO = Deck(
+    name="FBM Merfolk Tempo",
+    archetype="Tempo",
+    colors=["W", "U"],
+    description="Azorius Merfolk: tap your opponents down and keep your own "
+                "team untapped with Merrow Commerce, grind card advantage off "
+                "Silvergill Adept / Merrow Skyswimmer, and fly over.",
+    mainboard=[
+        # Engine
+        DeckEntry("Merrow Commerce", 2, "FBM"),
+        DeckEntry("Silvergill Adept", 4, "FBM"),
+        DeckEntry("Silvergill Mentor", 3, "FBM"),
+        # Tap-down / disruption Merfolk
+        DeckEntry("Wanderwine Distracter", 3, "FBM"),
+        DeckEntry("Wanderbrine Trapper", 2, "FBM"),
+        DeckEntry("Tributary Vaulter", 3, "FBM"),
+        DeckEntry("Champions of the Shoal", 2, "FBM"),
+        # Evasion / card flow
+        DeckEntry("Deepway Navigator", 2, "FBM"),
+        DeckEntry("Merrow Skyswimmer", 2, "FBM"),
+        DeckEntry("Sygg, River Guide", 2, "FBM"),
+        DeckEntry("Stratosoarer", 2, "FBM"),
+        # Spells (bounce / counters / removal)
+        DeckEntry("Swat Away", 2, "FBM"),
+        DeckEntry("Run Away Together", 2, "FBM"),
+        DeckEntry("Sygg's Command", 2, "FBM"),
+        DeckEntry("Spell Snare", 2, "FBM"),
+        DeckEntry("Thoughtweft Gambit", 2, "FBM"),
+        # Lands (23)
+        DeckEntry("Island", 11, "FBM"),
+        DeckEntry("Plains", 5, "FBM"),
+        DeckEntry("Hallowed Fountain", 3, "FBM"),
+        DeckEntry("Evolving Wilds", 4, "FBM"),
+    ],
+    sideboard=[],
+    author="Deckbuilder",
+    source="Fae but Mid pinnacle decks",
+    game="mtg",
+)
+
+
+# ---- 5. GOBLIN AGGRO (RB) ---------------------------------------------------
+# Lowest curve in the set + reach. Token-makers feed sacrifice outlets
+# (Sting-Slinger, Murderous Redcap, Hovel Hurler, Boggart Cursecrafter) so the
+# deck pushes the last points of damage even through a stall. Grub drains on
+# every Goblin death.
+FBM_GOBLIN_AGGRO = Deck(
+    name="FBM Goblin Aggro",
+    archetype="Aggro",
+    colors=["B", "R"],
+    description="Rakdos Goblins: flood cheap bodies and tokens, then convert "
+                "them to reach with Sting-Slinger, Murderous Redcap, Hovel "
+                "Hurler and Grub's death drain. Burn finishes.",
+    mainboard=[
+        # One-drops
+        DeckEntry("Sting-Slinger", 4, "FBM"),
+        DeckEntry("Knucklebone Witch", 2, "FBM"),
+        DeckEntry("Tattermunge Maniac", 3, "FBM"),
+        # Token-makers / aggro bodies
+        DeckEntry("Elder Auntie", 3, "FBM"),
+        DeckEntry("Sourbread Auntie", 3, "FBM"),
+        DeckEntry("Boggart Cursecrafter", 2, "FBM"),
+        DeckEntry("Hovel Hurler", 3, "FBM"),
+        # Reach / payoffs
+        DeckEntry("Murderous Redcap", 3, "FBM"),
+        DeckEntry("Grub, Storied Matriarch", 2, "FBM"),
+        DeckEntry("Boggart Ram-Gang", 1, "FBM"),
+        DeckEntry("Wort, the Raidmother", 2, "FBM"),
+        # Burn / removal
+        DeckEntry("Tarfire", 3, "FBM"),
+        DeckEntry("Lash Out", 2, "FBM"),
+        DeckEntry("Lasting Tarfire", 2, "FBM"),
+        DeckEntry("Fodder Launch", 2, "FBM"),
+        DeckEntry("Impolite Entrance", 1, "FBM"),
+        # Lands (22)
+        DeckEntry("Mountain", 9, "FBM"),
+        DeckEntry("Swamp", 9, "FBM"),
+        DeckEntry("Blood Crypt", 4, "FBM"),
+    ],
+    sideboard=[],
+    author="Deckbuilder",
+    source="Fae but Mid pinnacle decks",
+    game="mtg",
+)
+
+
+# ---- 6. FIVE-TRIBE CHANGELING GOOD-STUFF (WUBRG) ----------------------------
+# Changelings are every tribe, so they turn on every lord at once: the
+# wedge/allied Lieges (each pumps two colors), Reaper King, and the 5-color
+# Aurora payoffs. Heaviest fixing in the format (any-color dorks + shocks +
+# Eclipsed Realms). Slower, but every threat is a multi-format payoff.
+FBM_CHANGELING_5C = Deck(
+    name="FBM Five-Tribe Changeling",
+    archetype="Midrange",
+    colors=["W", "U", "B", "R", "G"],
+    description="Five-color Changeling good-stuff: shapeshifters that are every "
+                "tribe at once flip on every Liege, Reaper King and the Aurora "
+                "payoffs simultaneously. Fix hard, then deploy undercosted lords.",
+    mainboard=[
+        # Fixing dorks / ramp (any color)
+        DeckEntry("Bloom Tender", 3, "FBM"),
+        DeckEntry("Great Forest Druid", 3, "FBM"),
+        DeckEntry("Firdoch Core", 2, "FBM"),
+        DeckEntry("Changeling Wayfinder", 3, "FBM"),
+        # Changeling bodies (every tribe)
+        DeckEntry("Mirror Entity", 2, "FBM"),
+        DeckEntry("Chameleon Colossus", 2, "FBM"),
+        DeckEntry("Omni-Changeling", 2, "FBM"),
+        DeckEntry("Graveshifter", 2, "FBM"),
+        # Lords / payoffs that the changelings + dorks switch on
+        DeckEntry("Wilt-Leaf Liege", 2, "FBM"),
+        DeckEntry("Ashenmoor Liege", 2, "FBM"),
+        DeckEntry("Boartusk Liege", 2, "FBM"),
+        DeckEntry("Reaper King", 2, "FBM"),
+        DeckEntry("Horde of Notions", 2, "FBM"),
+        DeckEntry("Faewild Convocation", 2, "FBM"),
+        # 5-color payoffs / removal
+        DeckEntry("The Aurora Cycle", 1, "FBM"),
+        DeckEntry("Cryptic Command", 1, "FBM"),
+        DeckEntry("Crib Swap", 2, "FBM"),
+        DeckEntry("Unmake", 2, "FBM"),
+        # Lands (25 — heavy fixing)
+        DeckEntry("Forest", 3, "FBM"),
+        DeckEntry("Island", 2, "FBM"),
+        DeckEntry("Plains", 2, "FBM"),
+        DeckEntry("Swamp", 2, "FBM"),
+        DeckEntry("Mountain", 1, "FBM"),
+        DeckEntry("Temple Garden", 1, "FBM"),
+        DeckEntry("Hallowed Fountain", 1, "FBM"),
+        DeckEntry("Overgrown Tomb", 1, "FBM"),
+        DeckEntry("Steam Vents", 1, "FBM"),
+        DeckEntry("Blood Crypt", 1, "FBM"),
+        DeckEntry("Eclipsed Realms", 2, "FBM"),
+        DeckEntry("Evolving Wilds", 6, "FBM"),
+    ],
+    sideboard=[],
+    author="Deckbuilder",
+    source="Fae but Mid pinnacle decks",
+    game="mtg",
+)
+
+
 # =============================================================================
 # DECK REGISTRY
 # =============================================================================
 
 STANDARD_DECKS = {
     "fbm_faerie_tempo": FBM_FAERIE_TEMPO,
+    "fbm_elf_ramp": FBM_ELF_RAMP,
+    "fbm_kithkin_wide": FBM_KITHKIN_WIDE,
+    "fbm_merfolk_tempo": FBM_MERFOLK_TEMPO,
+    "fbm_goblin_aggro": FBM_GOBLIN_AGGRO,
+    "fbm_changeling_5c": FBM_CHANGELING_5C,
     "mono_red_aggro": MONO_RED_AGGRO,
     "mono_green_ramp": MONO_GREEN_RAMP,
     "dimir_control": DIMIR_CONTROL,
