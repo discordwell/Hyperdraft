@@ -218,6 +218,14 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="single-turn cap (seconds). Raise (e.g. 8) for big-board decks.",
     )
     parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Per-game RNG seed base for REPRODUCIBLE games (paired before/after "
+             "balance measurement). Same --seed + same deck set => identical games; "
+             "a card change only perturbs games involving that card. Omit for random.",
+    )
+    parser.add_argument(
         "--ai",
         default=None,
         help="Single AI strategy name (aggro|control|midrange) for both seats.",
@@ -268,6 +276,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         verbose=not args.quiet,
         per_turn_timeout_s=args.per_turn_timeout,
         wall_deadline_s=args.wall_deadline,
+        seed=args.seed,
     )
 
     agg = aggregate(results)

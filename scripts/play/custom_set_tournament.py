@@ -685,6 +685,7 @@ async def play_one_game(
     per_turn_timeout_s: float = 1.5,
     wall_deadline_s: float = 7.0,
     pre_start_hook: Optional[Any] = None,
+    seed: Optional[int] = None,
 ) -> GameResult:
     """
     Run one MTG AI-vs-AI game and return per-card stats + outcome.
@@ -708,6 +709,24 @@ async def play_one_game(
             game.add_card_to_library(p1.id, cd)
         for cd in deck2:
             game.add_card_to_library(p2.id, cd)
+
+        # Per-game deterministic seeding for reproducible, paired balance
+        # measurement. The MTG path's only randomness is the global-`random`
+        # library shuffles (src/ai uses no `random` — the AI is deterministic
+        # given state), so seeding the global RNG here makes the whole game
+        # reproducible from `seed`. Running the SAME seed before/after a card
+        # change isolates the change's effect: games not touched by the changed
+        # card replay byte-identically, killing the ~15-18% run-to-run variance
+        # that otherwise swamps a single nerf. state.rng_seed covers the few
+        # engines that use a local random.Random (clankers/depths) — harmless
+        # for MTG.
+        if seed is not None:
+            import random as _random
+            _random.seed(seed)
+            try:
+                game.state.rng_seed = seed
+            except Exception:
+                pass
 
         game.shuffle_library(p1.id)
         game.shuffle_library(p2.id)
@@ -1183,6 +1202,7 @@ def run_deck_tournament(
     verbose: bool = True,
     per_turn_timeout_s: float = 1.5,
     wall_deadline_s: float = 7.0,
+    seed: Optional[int] = None,
 ) -> dict[str, Any]:
     """
     Round-robin tournament over arbitrary `Deck` objects.
@@ -1271,6 +1291,11 @@ def run_deck_tournament(
                     max_turns=max_turns,
                     per_turn_timeout_s=per_turn_timeout_s,
                     wall_deadline_s=wall_deadline_s,
+                    # Stable per-game seed: for a fixed deck set the task index
+                    # `i` is deterministic, so the same (matchup, game) replays
+                    # identically across runs — a card change only perturbs the
+                    # games that actually involve the changed card.
+                    seed=(seed + i) if seed is not None else None,
                 )
             )
             results.append(result.__dict__)
