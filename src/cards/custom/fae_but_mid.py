@@ -496,18 +496,70 @@ def make_tribal_lord(
     return interceptors
 
 
-def make_champion(source_obj: GameObject, creature_type: str) -> Interceptor:
+def make_champion(source_obj: GameObject, creature_type: str,
+                  on_champion=None) -> list[Interceptor]:
     """
-    Champion a [type] — When this enters, sacrifice it unless you exile another
-    [type] you control. When this leaves the battlefield, return that card.
+    Champion a [type] (Lorwyn) — As this enters, exile another [type] you
+    control. (If you can't, sacrifice this.) When this leaves the battlefield,
+    return the exiled card to the battlefield under its owner's control.
 
-    Note: Full implementation requires exile zone tracking.
+    The championed object's id is stored on ``source_obj.state.championed_card_id``
+    so the leaves-trigger can find it. ``on_champion(source_obj, state)`` is an
+    optional callback returning extra events to append when a creature is
+    successfully championed (e.g. Mistbind Clique's "tap all lands" rider).
+
+    Returns a list of two interceptors (ETB exile + leaves-return).
     """
     def champion_effect(event: Event, state: GameState) -> list[Event]:
-        # Would create sacrifice-unless-exile event
-        return []
+        # Find another creature you control of the chosen type.
+        victim = None
+        for o in state.objects.values():
+            if (o.id != source_obj.id and
+                    o.zone == ZoneType.BATTLEFIELD and
+                    o.controller == source_obj.controller and
+                    CardType.CREATURE in o.characteristics.types and
+                    creature_type in o.characteristics.subtypes):
+                victim = o
+                break
 
-    return make_etb_trigger(source_obj, champion_effect)
+        if victim is None:
+            # Can't champion -> sacrifice the championing creature.
+            source_obj.state.championed_card_id = None
+            return [Event(
+                type=EventType.ZONE_CHANGE,
+                payload={'object_id': source_obj.id,
+                         'from_zone_type': ZoneType.BATTLEFIELD,
+                         'to_zone_type': ZoneType.GRAVEYARD,
+                         'cause': 'sacrifice'},
+                source=source_obj.id)]
+
+        source_obj.state.championed_card_id = victim.id
+        events = [Event(
+            type=EventType.EXILE,
+            payload={'object_id': victim.id, 'championed_by': source_obj.id},
+            source=source_obj.id, controller=source_obj.controller)]
+        if on_champion is not None:
+            events.extend(on_champion(source_obj, state) or [])
+        return events
+
+    def leaves_effect(event: Event, state: GameState) -> list[Event]:
+        championed = getattr(source_obj.state, 'championed_card_id', None)
+        if not championed:
+            return []
+        ret = state.objects.get(championed)
+        if ret is None or ret.zone != ZoneType.EXILE:
+            return []
+        source_obj.state.championed_card_id = None
+        return [Event(
+            type=EventType.ZONE_CHANGE,
+            payload={'object_id': championed,
+                     'from_zone_type': ZoneType.EXILE,
+                     'to_zone_type': ZoneType.BATTLEFIELD,
+                     'controller': getattr(ret, 'owner', source_obj.controller)},
+            source=source_obj.id)]
+
+    return [make_etb_trigger(source_obj, champion_effect),
+            make_leaves_battlefield_trigger(source_obj, leaves_effect)]
 
 
 def make_evoke(source_obj: GameObject, evoke_cost: str) -> Interceptor:
@@ -7657,6 +7709,24 @@ SOWER_OF_TEMPTATION = make_creature(
     setup_interceptors=sower_of_temptation_setup
 )
 
+def mistbind_clique_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Champion a Faerie. When a Faerie is championed with Mistbind Clique, tap
+    all lands target player controls. Uses make_champion's on_champion hook so
+    the tap rider fires only when a Faerie is actually championed."""
+    def tap_opponent_lands(src: GameObject, st: GameState) -> list[Event]:
+        events = []
+        for o in st.objects.values():
+            if (o.zone == ZoneType.BATTLEFIELD and
+                    o.controller != src.controller and
+                    CardType.LAND in o.characteristics.types and
+                    not o.state.tapped):
+                events.append(Event(type=EventType.TAP,
+                                    payload={'object_id': o.id}, source=src.id))
+        return events
+
+    return make_champion(obj, "Faerie", on_champion=tap_opponent_lands)
+
+
 MISTBIND_CLIQUE = make_creature(
     name="Mistbind Clique",
     power=4,
@@ -7664,7 +7734,8 @@ MISTBIND_CLIQUE = make_creature(
     mana_cost="{3}{U}",
     colors={Color.BLUE},
     subtypes={"Faerie", "Wizard"},
-    text="Flash. Flying. Champion a Faerie. When a Faerie is championed with Mistbind Clique, tap all lands target player controls."
+    text="Flash. Flying. Champion a Faerie. When a Faerie is championed with Mistbind Clique, tap all lands target player controls.",
+    setup_interceptors=mistbind_clique_setup
 )
 
 SPELLSTUTTER_SPRITE = make_creature(
