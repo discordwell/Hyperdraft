@@ -2211,12 +2211,16 @@ class PrioritySystem:
             # be re-offered for free); skip the free X=0 case entirely for AI
             # players. Human players keep the normal surface (the UI prompts for
             # X), so only the AI's degenerate X=0 loop is removed.
+            # Only AI players get the bake + X=0 suppression; humans keep
+            # x_value=0 and the UI prompts for X (the serializer drops this
+            # field anyway). Gating on is_ai_player keeps the human surface
+            # provably unchanged.
             x_for_action = 0
-            if getattr(ability, "has_x_cost", False):
+            if getattr(ability, "has_x_cost", False) and self.is_ai_player(player_id):
                 x_for_action = self._max_affordable_x(
                     ability, player_id, effective_cost,
                 )
-                if self.is_ai_player(player_id) and x_for_action < 1:
+                if x_for_action < 1:
                     # Only an unproductive free X=0 activation is available —
                     # don't offer it to the AI (prevents the priority loop).
                     continue
@@ -2256,6 +2260,18 @@ class PrioritySystem:
                 effective_mana_cost=effective_cost,
             ):
                 continue
+            # Same free-X=0 priority-loop guard as the primary loop, for X-cost
+            # MIRRORED abilities (e.g. Marvin, Murderous Mimic copying Mirror
+            # Entity's "{X}:"): bake the max affordable X for AI players and skip
+            # the degenerate X=0 so it isn't re-offered every priority window
+            # (the mirror activation handler reads action.x_value).
+            x_for_action = 0
+            if getattr(mirror_view, "has_x_cost", False) and self.is_ai_player(player_id):
+                x_for_action = self._max_affordable_x(
+                    mirror_view, player_id, effective_cost,
+                )
+                if x_for_action < 1:
+                    continue
             src_obj = self.state.objects.get(src_obj_id)
             src_name = src_obj.name if src_obj is not None else "source"
             actions.append(LegalAction(
@@ -2270,6 +2286,7 @@ class PrioritySystem:
                     mirror_view.mana_cost and not mirror_view.mana_cost.is_free()
                 ),
                 mana_cost=effective_cost or mirror_view.mana_cost,
+                x_value=x_for_action,
             ))
 
         ability_lines = self._get_activated_ability_lines(obj)

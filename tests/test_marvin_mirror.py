@@ -516,6 +516,63 @@ def test_marvin_handles_two_marvins():
     print("PASS: two marvins coexist without infinite recursion")
 
 
+def _x_pumper_card():
+    """A creature with a Mirror-Entity-shaped ``{X}:`` activated ability — the
+    source whose X-cost ability Marvin mirrors in the X-picking test."""
+    from src.cards.interceptor_helpers import make_activated_ability
+
+    def _setup(obj, state):
+        def _eff(o, st, targets, *, x_value: int = 0):
+            return []
+        make_activated_ability(obj, "{X}", _eff,
+                               description="creatures you control become X/X")
+        return []
+
+    return make_creature(
+        name="X Pumper", power=2, toughness=2, mana_cost="{2}{G}",
+        colors={Color.GREEN}, subtypes={"Elemental"},
+        text="{X}: Creatures you control become X/X until end of turn.",
+        setup_interceptors=_setup,
+    )
+
+
+def test_mirrored_x_cost_ability_ai_x_picking():
+    """A MIRRORED {X}: ability must get the same AI X-picking guard as the
+    primary loop — bake the max affordable X, suppress the free X=0.
+
+    Regression for the 2026-05-30 review finding: the loop fix was applied only
+    to the primary activated-abilities loop; the Marvin mirror loop surfaced a
+    mirrored {X}: ability (e.g. Marvin copying Mirror Entity) at the default
+    x_value=0 — the same free no-op that ping-pongs to the 5000-iteration cap.
+    """
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    _setup_game_for_player(p1.id, game)
+    game.priority_system.set_ai_player(p1.id)
+
+    marvin = _spawn_on_battlefield(game, p1, _marvin_card())
+    _spawn_on_battlefield(game, p1, _x_pumper_card())  # source Marvin mirrors
+
+    def _marvin_x_actions():
+        return [a for a in game.priority_system.get_legal_actions(p1.id)
+                if a.source_id == marvin.id
+                and (a.ability_id or "").startswith("mirror:")]
+
+    # Case 1 — no mana: the mirrored {X}: ability would only offer a free X=0.
+    # The AI must NOT be offered it (offering it is the priority loop).
+    assert not _marvin_x_actions(), \
+        "AI must not be offered the mirrored free X=0 activation (priority loop)"
+
+    # Case 2 — 4 mana: offered once, with the max affordable X baked in.
+    _give_player_mana(p1, game.priority_system.mana_system, generic=4)
+    acts = _marvin_x_actions()
+    assert len(acts) == 1, f"expected one mirrored X activation, got {len(acts)}"
+    assert acts[0].x_value == 4, \
+        f"mirror loop should bake max affordable X (=4), got {acts[0].x_value}"
+    print("PASS: mirrored X-cost ability gets the AI X-picking guard (no free X=0)")
+
+
 # ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
@@ -528,4 +585,5 @@ if __name__ == "__main__":
     test_marvin_no_other_creatures_no_mirrored_abilities()
     test_marvin_handles_creature_leaving_battlefield()
     test_marvin_handles_two_marvins()
+    test_mirrored_x_cost_ability_ai_x_picking()
     print("\nAll Marvin mirror tests passed.")
