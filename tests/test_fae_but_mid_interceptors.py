@@ -154,7 +154,6 @@ SKIPPED_CARDS = {
     "Rhys, the Evermore": "targeted ETB granting persist to a chosen creature (target-choice)",
     # --- Section 2 structural skips (lands / activated / equipment / aura / replacement / PW) ---
     'Champion of the Weird': "behold-a-Goblin cast cost (alt-cost choice the engine can't model) + 'Pay 1 life, Blight 2: target opponent blights 2' — there is no blight content-event the engine consumes (blight is parsed only as a cost), so the activated ability has no fireable effect (engine gap)",
-    'Demigod of Revenge': 'cast-time graveyard recursion (return all copies; resolves before ETB; structural)',
     'Earwig Squad': "prowl-gated ETB: the search+exile fires only 'if its prowl cost was paid'. Prowl is an alternative cost, and the engine cannot gate an effect on which cost was paid: the cost-payment path in priority.py sets NO per-cost-paid flag on the spell object, and the one precedent (was_bargained, interceptor_helpers.py) is itself a defined-but-never-auto-set flag awaiting a 'future cast-option extension'. Wiring needs non-additive engine work (out of scope).",
     'Kinbinding': 'dynamic lord +X/+X where X = creatures entered under your control this turn — no per-turn-entry-count helper/precedent exists',
     'Mirrormind Crown': "equipment token-creation replacement (first tokens each turn become copies of equipped creature) — no replacement hook that rewrites OBJECT_CREATED/CREATE_TOKEN into copy tokens (engine gap)",
@@ -4476,6 +4475,27 @@ def test_card_aurora_awakener():
         "Aurora Awakener: should put at least one permanent (X>=1) into hand"
 
 
+def test_card_demigod_of_revenge():
+    """Demigod of Revenge: when you cast it, return all cards named Demigod of
+    Revenge from your graveyard to the battlefield. Put one in the GY, place a
+    live one (registers the trigger), then CAST another -> the GY copy returns."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    cd = FAE_BUT_MID_CARDS['Demigod of Revenge']
+    obj = create_creature_on_battlefield(game, p1, "Demigod of Revenge")
+    gy_copy = game.create_object(name='Demigod of Revenge', owner_id=p1.id,
+        zone=ZoneType.GRAVEYARD, characteristics=cd.characteristics, card_def=None)
+    spell = game.create_object(name='Demigod of Revenge', owner_id=p1.id,
+        zone=ZoneType.STACK, characteristics=cd.characteristics, card_def=None)
+    game.emit(Event(type=EventType.CAST, payload={
+        'spell_id': spell.id, 'caster': p1.id, 'name': 'Demigod of Revenge'}, controller=p1.id))
+    got = _content_events(game)
+    assert any(t in got for t in ['RETURN_FROM_GRAVEYARD', 'RETURN_TO_BATTLEFIELD']), \
+        f"Demigod of Revenge: casting it should return GY copies, got {sorted(got)}"
+    assert gy_copy.zone == ZoneType.BATTLEFIELD, \
+        f"Demigod of Revenge: the graveyard copy should return to the battlefield, in {gy_copy.zone}"
+
+
 # ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
@@ -4552,7 +4572,8 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_gathering_stone,
     test_card_spiral_into_solitude, test_card_noggle_the_mind,
     test_card_dream_harvest, test_card_burning_curiosity,
-    test_card_end_blaze_epiphany, test_card_aurora_awakener]
+    test_card_end_blaze_epiphany, test_card_aurora_awakener,
+    test_card_demigod_of_revenge]
 
 
 def _run():

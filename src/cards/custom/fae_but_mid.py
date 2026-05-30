@@ -7383,6 +7383,39 @@ MURDEROUS_REDCAP = make_creature(
 )
 
 # Demigod of Revenge - {B/R}{B/R}{B/R}{B/R}{B/R} Creature
+def demigod_of_revenge_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # "When you cast this spell, return all cards named Demigod of Revenge from
+    # your graveyard to the battlefield." Modeled as a cast-trigger watching for
+    # a Demigod of Revenge spell cast by you; returns every Demigod sitting in
+    # your graveyard to the battlefield (RETURN_FROM_GRAVEYARD per card).
+    def demigod_cast_filter(event: Event, state: GameState, src: GameObject) -> bool:
+        if event.type not in (EventType.CAST, EventType.SPELL_CAST):
+            return False
+        caster = (event.payload.get('caster') or event.payload.get('controller')
+                  or event.controller)
+        if caster != src.controller:
+            return False
+        spell = state.objects.get(event.payload.get('spell_id'))
+        name = (getattr(spell, 'name', None) if spell
+                else event.payload.get('name'))
+        return name == "Demigod of Revenge"
+
+    def return_demigods(event: Event, state: GameState) -> list[Event]:
+        events = []
+        gy = state.zones.get(f"graveyard_{obj.controller}")
+        if gy:
+            for cid in list(gy.objects):
+                card = state.objects.get(cid)
+                if card and getattr(card, 'name', None) == "Demigod of Revenge":
+                    events.append(Event(type=EventType.RETURN_FROM_GRAVEYARD,
+                        payload={'object_id': cid, 'player': obj.controller,
+                                 'to': 'battlefield'}, source=obj.id))
+        return events
+
+    return [make_spell_cast_trigger(obj, return_demigods,
+                                    filter_fn=demigod_cast_filter)]
+
+
 DEMIGOD_OF_REVENGE = make_creature(
     name="Demigod of Revenge",
     power=5,
@@ -7390,7 +7423,8 @@ DEMIGOD_OF_REVENGE = make_creature(
     mana_cost="{B/R}{B/R}{B/R}{B/R}{B/R}",
     colors={Color.BLACK, Color.RED},
     subtypes={"Spirit", "Avatar"},
-    text="Flying. Haste. When you cast this spell, return all cards named Demigod of Revenge from your graveyard to the battlefield."
+    text="Flying. Haste. When you cast this spell, return all cards named Demigod of Revenge from your graveyard to the battlefield.",
+    setup_interceptors=demigod_of_revenge_setup
 )
 
 # Glen Elendra Archmage - {3}{U} Creature
