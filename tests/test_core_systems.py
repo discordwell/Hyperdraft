@@ -359,6 +359,44 @@ class TestCombatState:
         assert "c1" in cs.blocked_attackers
 
 
+class TestMustAttack:
+    """CR 508.1a 'attacks each combat if able' — the additive must-attack hook."""
+
+    def _setup(self, *, give_keyword):
+        from src.engine.combat import CombatManager
+        game = Game()
+        p1 = game.add_player("Alice")
+        p2 = game.add_player("Bob")
+        abilities = [{'keyword': 'attacks_each_combat'}] if give_keyword else []
+        ch = Characteristics(types={CardType.CREATURE}, power=2, toughness=1,
+                             abilities=abilities)
+        creature = game.create_object(name="Brute", owner_id=p1.id,
+                                      zone=ZoneType.BATTLEFIELD, characteristics=ch)
+        cm = CombatManager(game.state)   # no turn_manager -> active = first player
+        return cm, p1, p2, creature
+
+    def test_flagged_creature_is_forced(self):
+        cm, p1, p2, creature = self._setup(give_keyword=True)
+        decls = cm._apply_must_attack(p1.id, [creature.id], [])
+        assert any(d.attacker_id == creature.id for d in decls), \
+            "a creature that attacks-each-combat must be forced to attack"
+        forced = next(d for d in decls if d.attacker_id == creature.id)
+        assert forced.defending_player_id == p2.id
+
+    def test_unflagged_creature_not_forced(self):
+        """Additive: a plain creature is never forced."""
+        cm, p1, p2, creature = self._setup(give_keyword=False)
+        decls = cm._apply_must_attack(p1.id, [creature.id], [])
+        assert decls == [], "an ordinary creature must not be forced to attack"
+
+    def test_already_declared_not_duplicated(self):
+        cm, p1, p2, creature = self._setup(give_keyword=True)
+        existing = [AttackDeclaration(attacker_id=creature.id, defending_player_id=p2.id)]
+        decls = cm._apply_must_attack(p1.id, [creature.id], existing)
+        assert len([d for d in decls if d.attacker_id == creature.id]) == 1, \
+            "a creature already attacking must not be added twice"
+
+
 # =============================================================================
 # Priority System Tests
 # =============================================================================

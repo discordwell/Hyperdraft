@@ -7948,6 +7948,18 @@ BOGGART_RAM_GANG = make_creature(
     text="Haste. Wither."
 )
 
+# Tattermunge Maniac - {R/G} Creature — Goblin Warrior 2/1
+def tattermunge_maniac_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """Tattermunge Maniac attacks each combat if able.
+
+    Grants itself the 'attacks_each_combat' keyword; the combat
+    declare-attackers step (CombatManager._apply_must_attack) forces any
+    creature carrying it to attack when it legally can.
+    """
+    return [make_keyword_grant(obj, ["attacks_each_combat"],
+                               lambda t, s, _id=obj.id: t.id == _id)]
+
+
 TATTERMUNGE_MANIAC = make_creature(
     name="Tattermunge Maniac",
     power=2,
@@ -7955,7 +7967,8 @@ TATTERMUNGE_MANIAC = make_creature(
     mana_cost="{R/G}",
     colors={Color.RED, Color.GREEN},
     subtypes={"Goblin", "Warrior"},
-    text="Tattermunge Maniac attacks each combat if able."
+    text="Tattermunge Maniac attacks each combat if able.",
+    setup_interceptors=tattermunge_maniac_setup
 )
 
 # Vexing Shusher - {R/G}{R/G} Creature — Goblin Shaman 2/2

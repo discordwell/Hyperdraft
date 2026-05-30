@@ -159,6 +159,11 @@ class CombatManager:
         # Get attack declarations from player/AI
         declarations = await self._get_player_attacks(active_player, legal_attackers)
 
+        # CR 508.1a "attacks each combat if able": force any flagged creature
+        # that can attack but the player left back. Additive — no-op unless a
+        # creature carries the 'attacks_each_combat' keyword.
+        declarations = self._apply_must_attack(active_player, legal_attackers, declarations)
+
         if not declarations:
             return events
 
@@ -479,6 +484,35 @@ class CombatManager:
                 attackers.append(obj_id)
 
         return attackers
+
+    def _apply_must_attack(
+        self,
+        player_id: str,
+        legal_attackers: list[str],
+        declarations: list['AttackDeclaration'],
+    ) -> list['AttackDeclaration']:
+        """Force creatures with the 'attacks_each_combat' keyword to attack.
+
+        CR 508.1a: "attacks each combat if able" — a creature that CAN legally
+        attack but wasn't declared is added as a forced attacker against a
+        default defending player. Purely additive: a creature without the
+        keyword is never touched, so combat is unchanged for every other card.
+        """
+        already = {d.attacker_id for d in declarations}
+        defenders = self._get_defending_players()
+        if not defenders:
+            return declarations
+        for cid in legal_attackers:
+            if cid in already:
+                continue
+            creature = self.state.objects.get(cid)
+            if not creature or not has_ability(creature, 'attacks_each_combat', self.state):
+                continue
+            declarations.append(AttackDeclaration(
+                attacker_id=cid,
+                defending_player_id=defenders[0],
+            ))
+        return declarations
 
     def _can_attack(self, creature_id: str, controller_id: str) -> bool:
         """Check if a creature can attack."""

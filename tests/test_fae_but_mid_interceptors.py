@@ -177,7 +177,6 @@ SKIPPED_CARDS = {
     'Rimefire Torque': "'As this artifact enters, choose a creature type' gates every clause (charge-counter accrual + copy-next-spell) on a chosen-type the engine can't model as a deterministic choice; copy-the-next-spell also has no engine support (engine gap)",
     'Runed Halo': "grants the PLAYER 'protection from a chosen card name'. targeting.py protection only covers color/type/everything ON OBJECTS via has_ability; there is no name-based protection, no GRANT_PROTECTION event, and _player_can_be_targeted is a hard-coded `return True` stub (players aren't GameObjects). Wiring needs engine work, which is out of scope for card-wiring.",
     'Shimmerwilds Growth': 'PHASE B: aura grants the enchanted LAND a "{T}: Add any color" mana ability — mana abilities are text-parsed by the priority engine, not registerable via the granted-ability API',
-    'Tattermunge Maniac': "'attacks each combat if able' — a must-attack combat restriction the engine enforces at attack-declaration; no content event/trigger to fire (engine gap)",
     'Vendilion Clique': "ETB 'look at target player's hand, you MAY choose a nonland card, put it on the bottom, they draw' — the effect is entirely contingent on inspecting the hand and choosing a specific card (a player decision the harness can't deterministically drive); only the trailing draw is a plain event (engine gap for the hand-choice-to-bottom interaction)",
     'Vinebred Brawler': "'as an additional cost you MAY blight 2. If you do, enters with a +1/+1 counter' — the ETB counter is contingent on an optional alt-cost the engine can't know was paid at resolve time; no deterministic content event (engine gap)",
 }
@@ -3581,6 +3580,21 @@ def test_card_vexing_shusher():
         "the protected spell should survive the counter attempt"
 
 
+def test_card_tattermunge_maniac():
+    """Tattermunge Maniac attacks each combat if able: it grants itself the
+    'attacks_each_combat' keyword, and the combat declare-attackers step
+    (CombatManager._apply_must_attack) forces it to attack."""
+    from src.engine.combat import CombatManager
+    game, p1, p2 = _new_game()
+    tm = create_creature_on_battlefield(game, p1, "Tattermunge Maniac")
+    assert has_ability(tm, 'attacks_each_combat', game.state), \
+        "Tattermunge Maniac should grant itself the attacks_each_combat keyword"
+    cm = CombatManager(game.state)  # no turn_manager -> active = first player (p1)
+    decls = cm._apply_must_attack(p1.id, [tm.id], [])
+    assert any(d.attacker_id == tm.id for d in decls), \
+        "Tattermunge Maniac must be forced to attack each combat"
+
+
 # ---------------------------------------------------------------------------
 # Section 4: modal "choose one/two" spells (Foundations make_modal_resolve).
 # Each test pushes the spell to the stack, resolves it (-> modal_with_callback
@@ -4153,7 +4167,7 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_spell_snare_mv_gate, test_card_wild_unraveling,
     test_card_glen_elendras_answer, test_card_spellstutter_sprite,
     test_card_unwelcome_sprite, test_card_glen_elendra_guardian,
-    test_card_vexing_shusher,
+    test_card_vexing_shusher, test_card_tattermunge_maniac,
     # --- Section 4: modal "choose one/two" spells (make_modal_resolve) ---
     test_card_cryptic_command, test_card_ashlings_command,
     test_card_brigids_command, test_card_grubs_command,
