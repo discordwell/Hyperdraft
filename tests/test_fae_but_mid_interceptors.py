@@ -165,7 +165,7 @@ SKIPPED_CARDS = {
     # --- Section 2 structural skips (lands / activated / equipment / aura / replacement / PW) ---
     'Ajani, Outland Chaperone': 'planeswalker: loyalty-activated abilities (structural)',
     'Aurora Awakener': 'reveal-until-X dig (variable, library-state dependent; not a single content event)',
-    'Champion of the Weird': 'structural / activated / replacement effect not expressible via a canonical trigger',
+    'Champion of the Weird': "behold-a-Goblin cast cost (alt-cost choice the engine can't model) + 'Pay 1 life, Blight 2: target opponent blights 2' — there is no blight content-event the engine consumes (blight is parsed only as a cost), so the activated ability has no fireable effect (engine gap)",
     'Deity of Scars': "activated '{B/G}, Remove a -1/-1 counter: Regenerate' — the engine has no REGENERATE event/keyword (no regeneration-shield mechanic), so the ability's effect is not expressible as a content event (engine gap)",
     'Demigod of Revenge': 'cast-time graveyard recursion (return all copies; resolves before ETB; structural)',
     'Earwig Squad': 'prowl-gated ETB (search+exile only when prowl cost paid; alt-cost dependent)',
@@ -175,13 +175,13 @@ SKIPPED_CARDS = {
     'Mistbind Clique': 'champion mechanic (exile-on-ETB + return-on-leave; structural)',
     'Nettlevine Blight': 'PHASE B: aura grants the enchanted permanent an end-step "sacrifice then re-attach to a permanent you control" triggered ability — needs a granted self-moving aura trigger',
     "Painter's Servant": 'static lock / name-or-color-choice replacement effect (structural)',
-    'Rimefire Torque': 'structural / activated / replacement effect not expressible via a canonical trigger',
+    'Rimefire Torque': "'As this artifact enters, choose a creature type' gates every clause (charge-counter accrual + copy-next-spell) on a chosen-type the engine can't model as a deterministic choice; copy-the-next-spell also has no engine support (engine gap)",
     'Runed Halo': 'static lock / name-or-color-choice replacement effect (structural)',
     'Shimmerwilds Growth': 'PHASE B: aura grants the enchanted LAND a "{T}: Add any color" mana ability — mana abilities are text-parsed by the priority engine, not registerable via the granted-ability API',
-    'Tattermunge Maniac': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Vendilion Clique': 'structural / activated / replacement effect not expressible via a canonical trigger',
+    'Tattermunge Maniac': "'attacks each combat if able' — a must-attack combat restriction the engine enforces at attack-declaration; no content event/trigger to fire (engine gap)",
+    'Vendilion Clique': "ETB 'look at target player's hand, you MAY choose a nonland card, put it on the bottom, they draw' — the effect is entirely contingent on inspecting the hand and choosing a specific card (a player decision the harness can't deterministically drive); only the trailing draw is a plain event (engine gap for the hand-choice-to-bottom interaction)",
     'Vexing Shusher': "{R/G}: Target spell can't be countered — StackItem.can_be_countered is set at push time with no MAKE_UNCOUNTERABLE event/marker the engine consumes (engine gap; no content event to fire)",
-    'Vinebred Brawler': 'structural / activated / replacement effect not expressible via a canonical trigger',
+    'Vinebred Brawler': "'as an additional cost you MAY blight 2. If you do, enters with a +1/+1 counter' — the ETB counter is contingent on an optional alt-cost the engine can't know was paid at resolve time; no deterministic content event (engine gap)",
 }
 
 def test_card_changeling_wayfinder():
