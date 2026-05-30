@@ -152,7 +152,6 @@ def _new_game():
 
 SKIPPED_CARDS = {
     "Rhys, the Evermore": "targeted ETB granting persist to a chosen creature (target-choice)",
-    "Retched Wretch": "reanimation: only effect is a ZONE_CHANGE back to the battlefield (plumbing-only; no content event)",
     'Burning Curiosity': 'instant/sorcery: exile top N + play-this-turn (impulse draw); needs a play-from-exile window',
     'Dream Harvest': 'instant/sorcery: exile-until-mana threshold (structural)',
     'End-Blaze Epiphany': 'instant/sorcery: X-damage + dies-this-turn delayed exile rider (variable X + delayed trigger)',
@@ -4295,6 +4294,31 @@ def test_card_gangly_stompling():
     assert has_ability(obj, "trample", game.state), "should have trample"
 
 
+def test_card_retched_wretch():
+    """Retched Wretch: when it dies WITH a -1/-1 counter, it returns to the
+    battlefield (reanimation). The effect is a self-ZONE_CHANGE, so assert the
+    object's final zone, not a content event."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Retched Wretch")
+    obj.state.counters['-1/-1'] = obj.state.counters.get('-1/-1', 0) + 1
+    game.emit(Event(type=EventType.ZONE_CHANGE, payload={
+        'object_id': obj.id, 'from_zone_type': ZoneType.BATTLEFIELD,
+        'to_zone_type': ZoneType.GRAVEYARD}, source=obj.id))
+    assert obj.zone == ZoneType.BATTLEFIELD, \
+        f"Retched Wretch with a -1/-1 counter should reanimate, in {obj.zone}"
+
+
+def test_card_retched_wretch_no_counter_stays_dead():
+    """Retched Wretch: without a -1/-1 counter the return does NOT fire."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Retched Wretch")
+    game.emit(Event(type=EventType.ZONE_CHANGE, payload={
+        'object_id': obj.id, 'from_zone_type': ZoneType.BATTLEFIELD,
+        'to_zone_type': ZoneType.GRAVEYARD}, source=obj.id))
+    assert obj.zone == ZoneType.GRAVEYARD, \
+        f"Retched Wretch without a -1/-1 counter should stay dead, in {obj.zone}"
+
+
 # ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
@@ -4365,7 +4389,8 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_ajani_outland_chaperone, test_card_garruk_wildspeaker,
     test_card_goatnap, test_card_the_aurora_cycle,
     # --- FINISH-TAIL batch (last feasible cards) ---
-    test_card_chitinous_graspling, test_card_gangly_stompling]
+    test_card_chitinous_graspling, test_card_gangly_stompling,
+    test_card_retched_wretch, test_card_retched_wretch_no_counter_stays_dead]
 
 
 def _run():
