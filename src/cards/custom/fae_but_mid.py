@@ -3362,8 +3362,32 @@ RIVERGUARDS_REFLEXES = make_instant(
 
 # Evershrike's Gift - {2}{W} Enchantment — Aura
 def evershrikes_gift_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Death trigger on enchanted creature - requires aura tracking
-    return []  # Complex - needs aura and death trigger coordination
+    """Enchant creature. Enchanted creature gets +2/+2 and has flying.
+    When enchanted creature dies, return Evershrike's Gift to your hand."""
+    aura_id = obj.id
+
+    def _return_to_hand(_dying, event, st) -> list[Event]:
+        # `obj` (the aura) is closed over; on the enchanted creature's death the
+        # aura would otherwise go to the graveyard — instead return it to hand.
+        aura = st.objects.get(aura_id)
+        if aura is None:
+            return []
+        return [Event(type=EventType.ZONE_CHANGE,
+                      payload={'object_id': aura_id, 'from_zone': 'battlefield',
+                               'to_zone': f'hand_{aura.owner}',
+                               'to_zone_type': ZoneType.HAND,
+                               'reason': 'enchanted creature died'},
+                      source=aura_id, controller=aura.controller)]
+
+    setup_fn = make_aura_setup(
+        power_mod=2, toughness_mod=2, keywords=["flying"],
+        granted_triggered_abilities={
+            "trigger_on": "death",
+            "effect_fn": _return_to_hand,
+            "description": "When enchanted creature dies, return Evershrike's Gift to your hand",
+        },
+    )
+    return setup_fn(obj, state)
 
 
 EVERSHRIKES_GIFT = make_enchantment(

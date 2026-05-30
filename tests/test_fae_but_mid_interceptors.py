@@ -147,13 +147,10 @@ def _new_game():
 
 
 SKIPPED_CARDS = {
-    "Evershrike's Gift": "aura static + death trigger needs an attached creature",
     "Timid Shieldbearer": "activated 'can attack as though it didn't have defender' — combat._can_attack hard-checks the defender keyword with no override marker/event (engine gap, mirrors EOE/Tarkir/Avatar printings)",
-    "Morcant's Eyes": "aura static (enchant creature) needs an attached creature",
     "Champion of the Path": "grants a triggered ability to OTHER creatures (static; setup returns [])",
     "Chitinous Graspling": "keyword-only (Changeling/Reach); setup returns [] — vanilla-equivalent",
     "Gangly Stompling": "keyword-only (Changeling/Trample); setup returns [] — vanilla-equivalent",
-    "Treefolk-bough Spear": "equipment dynamic-P/T static needs an attached creature",
     "The Aurora Cycle": "Saga — chapter abilities are lore-counter driven (structural)",
     "Rhys, the Evermore": "targeted ETB granting persist to a chosen creature (target-choice)",
     "Retched Wretch": "reanimation: only effect is a ZONE_CHANGE back to the battlefield (plumbing-only; no content event)",
@@ -175,7 +172,7 @@ SKIPPED_CARDS = {
     'Earwig Squad': 'prowl-gated ETB (search+exile only when prowl cost paid; alt-cost dependent)',
     'Gathering Stone': 'choose-a-type cost-reducer / mana on ETB (structural; no content event)',
     'Kinbinding': 'dynamic lord +X/+X where X = creatures entered under your control this turn — no per-turn-entry-count helper/precedent exists',
-    'Mirrormind Crown': 'equipment: grants statics/abilities to the held creature (needs an attached host)',
+    'Mirrormind Crown': "equipment token-creation replacement (first tokens each turn become copies of equipped creature) — no replacement hook that rewrites OBJECT_CREATED/CREATE_TOKEN into copy tokens (engine gap)",
     'Mistbind Clique': 'champion mechanic (exile-on-ETB + return-on-leave; structural)',
     'Nettle Sentinel': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Nettlevine Blight': 'PHASE B: aura grants the enchanted permanent an end-step "sacrifice then re-attach to a permanent you control" triggered ability — needs a granted self-moving aura trigger',
@@ -2910,6 +2907,61 @@ def test_card_goldmeadow_nomad():
         f"should create a Kithkin token, got {[e.type.name for e in evs]}")
 
 
+# === Re-exam batch: auras / equipment (attach, then read statics / fire trigger) ===
+
+def test_card_morcants_eyes():
+    """Morcant's Eyes: Enchanted creature gets +2/+2 and has 'Whenever this creature
+    deals combat damage to a player, draw a card.'"""
+    game, p1, p2 = _new_game()
+    host = _spawn(game, p1, power=2, toughness=2, name='Enchanted')
+    aura = _enchant_host(game, p1, "Morcant's Eyes", host)
+    # ATTACH installs the granted triggered ability (the cast/resolve path emits it).
+    _attach(game, aura, host)
+    assert get_power(host, game.state) == 4 and get_toughness(host, game.state) == 4, (
+        f"+2/+2 expected 4/4, got {get_power(host, game.state)}/{get_toughness(host, game.state)}")
+    log0 = len(game.state.event_log)
+    game.emit(Event(type=EventType.DAMAGE,
+                    payload={'source': host.id, 'target': p2.id, 'amount': 2, 'combat': True},
+                    source=host.id))
+    new = {e.type.name for e in game.state.event_log[log0:]}
+    assert 'DRAW' in new, (
+        f"combat damage to a player should make the controller draw, got {sorted(new - _PLUMBING)}")
+
+
+def test_card_evershrikes_gift():
+    """Evershrike's Gift: Enchanted creature gets +2/+2 and has flying. When enchanted
+    creature dies, return Evershrike's Gift to your hand."""
+    game, p1, p2 = _new_game()
+    host = _spawn(game, p1, power=2, toughness=2, name='Enchanted')
+    aura = _enchant_host(game, p1, "Evershrike's Gift", host)
+    _attach(game, aura, host)
+    assert get_power(host, game.state) == 4, f"+2/+2 expected power 4, got {get_power(host, game.state)}"
+    assert has_ability(host, "flying", game.state), "enchanted creature should gain flying"
+    log0 = len(game.state.event_log)
+    game.emit(Event(type=EventType.ZONE_CHANGE,
+                    payload={'object_id': host.id, 'from_zone': 'battlefield',
+                             'to_zone': f'graveyard_{host.owner}',
+                             'to_zone_type': ZoneType.GRAVEYARD,
+                             'from_zone_type': ZoneType.BATTLEFIELD}, source=host.id))
+    returned = [e for e in game.state.event_log[log0:]
+                if e.type == EventType.ZONE_CHANGE and e.payload.get('object_id') == aura.id
+                and e.payload.get('to_zone_type') == ZoneType.HAND]
+    assert returned, "when the enchanted creature dies, the aura should return to its owner's hand"
+
+
+def test_card_treefolk_bough_spear():
+    """Treefolk-bough Spear: Equipped creature gets +X/+X, where X is the number of
+    Treefolk and Forests you control."""
+    game, p1, p2 = _new_game()
+    _spawn(game, p1, subtypes=['Treefolk'], name='TF1')
+    _spawn(game, p1, subtypes=['Treefolk'], name='TF2')
+    _, host = _equip_to_host(game, p1, "Treefolk-bough Spear", host_power=2, host_toughness=2)
+    # Two Treefolk on the battlefield -> +2/+2 on the equipped 2/2 host.
+    assert get_power(host, game.state) == 4 and get_toughness(host, game.state) == 4, (
+        f"dynamic +2/+2 (2 Treefolk) expected 4/4, got "
+        f"{get_power(host, game.state)}/{get_toughness(host, game.state)}")
+
+
 # === Phase A Batch A tests ===
 def test_card_heap_doll():
     """Heap Doll: Sacrifice Heap Doll: Exile target card from a graveyard."""
@@ -3805,6 +3857,8 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_surly_farrier, test_card_safewright_cavalry, test_card_flame_chain_mauler,
     test_card_bre_of_clan_stoutarm, test_card_gristle_glutton,
     test_card_glen_elendra_archmage, test_card_goldmeadow_nomad,
+    # --- Re-exam batch: auras / equipment ---
+    test_card_morcants_eyes, test_card_evershrikes_gift, test_card_treefolk_bough_spear,
     # --- Phase A Batch A (activated / mana) ---
     test_card_heap_doll, test_card_scarblade_elite, test_card_scarblade_scout,
     test_card_rhys_the_redeemed, test_card_twilight_diviner, test_card_brion_stoutarm,
