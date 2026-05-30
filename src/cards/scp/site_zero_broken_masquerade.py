@@ -796,6 +796,15 @@ def _build_cards() -> list[CardDefinition]:
 # ---------------------------------------------------------------------------
 
 
+def _bomb_setup(**ability_kwargs):
+    """A setup_interceptors closure that registers one SCP activated/modal
+    ability on the card (the registration is the side effect; returns [])."""
+    def setup(obj, state):
+        make_scp_activated_ability(obj, **ability_kwargs)
+        return []
+    return setup
+
+
 # 1. broken_masquerade — Public Spectacle Suite
 def _public_spectacle_effect(obj, state):
     game = getattr(state, "_game", None)
@@ -826,12 +835,11 @@ _PUBLIC_SPECTACLE = _make_card(
           "The cameras were always the containment."),
     rarity="mythic",
 )
-_PUBLIC_SPECTACLE.setup_interceptors = (lambda obj, state: (
-    make_scp_activated_ability(
-        obj, cost=SCPCost(exhaust_self=True),
+_PUBLIC_SPECTACLE.setup_interceptors = _bomb_setup(
+        cost=SCPCost(exhaust_self=True),
         description="Each opponent's secrecy -2; +1 archive if they are at 6 or less secrecy",
         effect_fn=_public_spectacle_effect, value_hint=SCPValueHint(custom_value_fn=_public_spectacle_value),
-    ), [])[1])
+)
 
 
 # 2. mnestic_quarantine — Induced Docility Protocol (modal)
@@ -861,15 +869,14 @@ _INDUCED_DOCILITY = _make_card(
           "Calm is just another containment protocol."),
     rarity="mythic",
 )
-_INDUCED_DOCILITY.setup_interceptors = (lambda obj, state: (
-    make_scp_activated_ability(
-        obj, cost=SCPCost(exhaust_self=True), description="Choose one — calm your anomalies, or Brief 2",
+_INDUCED_DOCILITY.setup_interceptors = _bomb_setup(
+        cost=SCPCost(exhaust_self=True), description="Choose one — calm your anomalies, or Brief 2",
         modes=[
             SCPMode("Calm: set your active anomalies to docile", _induced_docility_calm,
                     ("stabilize",), SCPValueHint(custom_value_fn=_docility_calm_value)),
             SCPMode("Brief 2", _induced_docility_brief, ("value",), SCPValueHint(briefing=2)),
         ],
-    ), [])[1])
+)
 
 
 # 3. thaumiel_grid — Containment Singularity
@@ -894,12 +901,11 @@ _CONTAINMENT_SINGULARITY = _make_card(
           "Perfect containment is its own reward."),
     rarity="mythic",
 )
-_CONTAINMENT_SINGULARITY.setup_interceptors = (lambda obj, state: (
-    make_scp_activated_ability(
-        obj, cost=SCPCost(exhaust_self=True),
+_CONTAINMENT_SINGULARITY.setup_interceptors = _bomb_setup(
+        cost=SCPCost(exhaust_self=True),
         description="If 2+ contained anomalies, gain 1 archive per contained (max 3)",
         effect_fn=_containment_singularity_effect, value_hint=SCPValueHint(custom_value_fn=_containment_singularity_value),
-    ), [])[1])
+)
 
 
 # 4. blackfile_bureau — Perfect Audit Bureau
@@ -935,12 +941,11 @@ _PERFECT_AUDIT = _make_card(
           "Every file finds its error."),
     rarity="mythic",
 )
-_PERFECT_AUDIT.setup_interceptors = (lambda obj, state: (
-    make_scp_activated_ability(
-        obj, cost=SCPCost(exhaust_self=True),
+_PERFECT_AUDIT.setup_interceptors = _bomb_setup(
+        cost=SCPCost(exhaust_self=True),
         description="Misfile each opponent pending dossier; +1 archive per dossier (max 3)",
         effect_fn=_perfect_audit_effect, value_hint=SCPValueHint(custom_value_fn=_perfect_audit_value),
-    ), [])[1])
+)
 
 
 # 5. clean_hands — Ethical Discharge Reactor
@@ -965,12 +970,11 @@ _ETHICAL_DISCHARGE = _make_card(
           "The ledger is balanced by spending it."),
     rarity="mythic",
 )
-_ETHICAL_DISCHARGE.setup_interceptors = (lambda obj, state: (
-    make_scp_activated_ability(
-        obj, cost=SCPCost(ethics=2),
+_ETHICAL_DISCHARGE.setup_interceptors = _bomb_setup(
+        cost=SCPCost(ethics=2),
         description="Pay 2 ethics: gain 1 archive and each opponent's secrecy -1",
         effect_fn=_ethical_discharge_effect, value_hint=SCPValueHint(archives=1, secrecy=-1),
-    ), [])[1])
+)
 
 
 # 6. veil_rotation — Shift Change Suite (modal)
@@ -1010,16 +1014,15 @@ _SHIFT_CHANGE = _make_card(
           "The next shift never sleeps."),
     rarity="mythic",
 )
-_SHIFT_CHANGE.setup_interceptors = (lambda obj, state: (
-    make_scp_activated_ability(
-        obj, cost=SCPCost(exhaust_self=True), description="Choose one — refresh staff + refund 1, or refund 2 assignments",
+_SHIFT_CHANGE.setup_interceptors = _bomb_setup(
+        cost=SCPCost(exhaust_self=True), description="Choose one — refresh staff + refund 1, or refund 2 assignments",
         modes=[
             SCPMode("Refresh all exhausted staff + refund 1 assignment", _shift_change_refresh,
                     ("tempo",), SCPValueHint(custom_value_fn=_shift_refresh_value)),
             SCPMode("Refund 2 assignments", _shift_change_refund, ("tempo",),
                     SCPValueHint(custom_value_fn=_shift_refund_value)),
         ],
-    ), [])[1])
+)
 
 
 _SIGNATURE_BOMB_CARDS = [
