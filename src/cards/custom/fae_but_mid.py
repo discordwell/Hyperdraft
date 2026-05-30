@@ -3533,15 +3533,41 @@ RELUCTANT_DOUNGUARD = make_creature(
 
 # Rhys, the Evermore - {1}{W} Legendary Creature — Elf Warrior 2/2
 def rhys_the_evermore_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # "When Rhys enters, another target creature you control gains persist until end of turn."
-    return [make_targeted_etb_trigger(
-        obj,
-        effect='grant_keyword',
-        effect_params={'keyword': 'persist'},
-        target_filter='other_creature_you_control',
-        optional=True,
-        prompt="Choose another creature you control to gain persist"
-    )]
+    # "When Rhys enters, another target creature you control gains persist until
+    # end of turn." Auto-picks another creature you control (harness/AI default),
+    # grants it a persist death-trigger (dies with no -1/-1 counter -> return with
+    # one) plus a GRANT_KEYWORD('persist') marker so the grant is observable.
+    from src.cards.interceptor_helpers import grant_death_trigger as _grant_death_trigger
+
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        target = None
+        for o in state.objects.values():
+            if (o.id != obj.id and o.controller == obj.controller and
+                    o.zone == ZoneType.BATTLEFIELD and
+                    CardType.CREATURE in o.characteristics.types):
+                target = o
+                break
+        if target is None:
+            return []
+
+        def persist_return(target_obj, st):
+            if target_obj.state.counters.get('-1/-1', 0) > 0:
+                return []  # had a -1/-1 counter -> persist does nothing
+            return [
+                Event(type=EventType.RETURN_FROM_GRAVEYARD,
+                      payload={'object_id': target_obj.id, 'player': target_obj.controller,
+                               'to': 'battlefield'}, source=obj.id),
+                Event(type=EventType.COUNTER_ADDED,
+                      payload={'object_id': target_obj.id, 'counter_type': '-1/-1', 'amount': 1},
+                      source=obj.id),
+            ]
+
+        _grant_death_trigger(target, obj, state, persist_return, duration='end_of_turn')
+        return [Event(type=EventType.GRANT_KEYWORD, payload={
+            'object_id': target.id, 'keyword': 'persist', 'duration': 'end_of_turn'},
+            source=obj.id)]
+
+    return [make_etb_trigger(obj, etb_effect)]
 
 
 RHYS_THE_EVERMORE = make_creature(

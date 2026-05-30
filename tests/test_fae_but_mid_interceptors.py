@@ -151,7 +151,6 @@ def _new_game():
 
 
 SKIPPED_CARDS = {
-    "Rhys, the Evermore": "targeted ETB granting persist to a chosen creature (target-choice)",
     # --- Section 2 structural skips (lands / activated / equipment / aura / replacement / PW) ---
     'Champion of the Weird': "behold-a-Goblin cast cost (alt-cost choice the engine can't model) + 'Pay 1 life, Blight 2: target opponent blights 2' — there is no blight content-event the engine consumes (blight is parsed only as a cost), so the activated ability has no fireable effect (engine gap)",
     'Earwig Squad': "prowl-gated ETB: the search+exile fires only 'if its prowl cost was paid'. Prowl is an alternative cost, and the engine cannot gate an effect on which cost was paid: the cost-payment path in priority.py sets NO per-cost-paid flag on the spell object, and the one precedent (was_bargained, interceptor_helpers.py) is itself a defined-but-never-auto-set flag awaiting a 'future cast-option extension'. Wiring needs non-additive engine work (out of scope).",
@@ -4496,6 +4495,25 @@ def test_card_demigod_of_revenge():
         f"Demigod of Revenge: the graveyard copy should return to the battlefield, in {gy_copy.zone}"
 
 
+def test_card_rhys_the_evermore():
+    """Rhys, the Evermore: when it enters, another target creature you control
+    gains persist until end of turn. Place an ally, enter Rhys -> the ally
+    gains persist (GRANT_KEYWORD) and returns to the battlefield when it dies."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    ally = _spawn(game, p1, power=2, toughness=2, name='Persist Ally')
+    obj = create_creature_on_battlefield(game, p1, "Rhys, the Evermore")
+    got = _content_events(game)
+    assert any(t in got for t in ['GRANT_KEYWORD', 'KEYWORD_GRANT', 'GRANT_ABILITY']), \
+        f"Rhys, the Evermore: should grant persist to a creature, got {sorted(got)}"
+    assert has_ability(ally, 'persist', game.state), \
+        "Rhys, the Evermore: the targeted ally should have persist"
+    # Persist payoff: when the ally dies it returns to the battlefield.
+    game.emit(Event(type=EventType.OBJECT_DESTROYED, payload={'object_id': ally.id}, source=ally.id))
+    assert ally.zone == ZoneType.BATTLEFIELD, \
+        f"Rhys, the Evermore: a persisting creature should return on death, in {ally.zone}"
+
+
 # ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
@@ -4573,7 +4591,7 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_spiral_into_solitude, test_card_noggle_the_mind,
     test_card_dream_harvest, test_card_burning_curiosity,
     test_card_end_blaze_epiphany, test_card_aurora_awakener,
-    test_card_demigod_of_revenge]
+    test_card_demigod_of_revenge, test_card_rhys_the_evermore]
 
 
 def _run():
