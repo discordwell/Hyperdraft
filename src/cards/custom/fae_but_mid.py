@@ -7958,6 +7958,40 @@ TATTERMUNGE_MANIAC = make_creature(
     text="Tattermunge Maniac attacks each combat if able."
 )
 
+# Vexing Shusher - {R/G}{R/G} Creature — Goblin Shaman 2/2
+def vexing_shusher_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    """{R/G}: Target spell can't be countered.
+
+    Emits MAKE_UNCOUNTERABLE naming the chosen spell; the SYSTEM glue in
+    game.py flips that stack item's can_be_countered flag (which
+    StackManager.counter() already honors). The "This spell can't be
+    countered" self-static is declared via card_def.can_be_countered below.
+    """
+    def _make_target_uncounterable(o, st, targets):
+        victim = None
+        if targets:
+            tid = getattr(targets[0], 'id', None) or getattr(targets[0], 'object_id', None)
+            cand = st.objects.get(tid) if tid else None
+            if cand is not None and cand.zone == ZoneType.STACK:
+                victim = cand
+        if victim is None:
+            victim = _victim_spell_on_stack("Vexing Shusher", o.controller, st)
+        if victim is None:
+            return []
+        return [Event(type=EventType.MAKE_UNCOUNTERABLE,
+                      payload={'spell_id': victim.id, 'object_id': victim.id,
+                               'target': victim.id}, source=o.id)]
+    make_activated_ability(
+        obj,
+        cost="{R/G}",
+        effect_fn=_make_target_uncounterable,
+        description="Target spell can't be countered",
+        targets_required=1,
+        target_kind="spell",
+    )
+    return []
+
+
 VEXING_SHUSHER = make_creature(
     name="Vexing Shusher",
     power=2,
@@ -7965,8 +7999,11 @@ VEXING_SHUSHER = make_creature(
     mana_cost="{R/G}{R/G}",
     colors={Color.RED, Color.GREEN},
     subtypes={"Goblin", "Shaman"},
-    text="This spell can't be countered. {R/G}: Target spell can't be countered."
+    text="This spell can't be countered. {R/G}: Target spell can't be countered.",
+    setup_interceptors=vexing_shusher_setup
 )
+# "This spell can't be countered" — self-static read by SpellBuilder.cast_spell.
+VEXING_SHUSHER.can_be_countered = False
 
 PLUMEVEIL = make_creature(
     name="Plumeveil",

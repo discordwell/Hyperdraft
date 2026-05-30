@@ -262,6 +262,27 @@ class TestStackManager:
         assert stack.pop().id == "b"
         assert stack.pop().id == "a"
 
+    def test_counter_respects_uncounterable_flag(self):
+        """A stack item flagged can_be_countered=False survives counter()."""
+        state = GameState()
+        stack = StackManager(state)
+        stack.push(StackItem(id="immune", type=StackItemType.SPELL,
+                             source_id="c1", controller_id="p1",
+                             can_be_countered=False))
+        events = stack.counter("immune")
+        assert events == []                       # counter() refused
+        assert stack.size() == 1                  # still on the stack
+        assert stack.top().id == "immune"
+
+    def test_counter_default_still_counters(self):
+        """Default (counterable) items are still removed — the hook is additive."""
+        state = GameState()
+        stack = StackManager(state)
+        stack.push(StackItem(id="normal", type=StackItemType.SPELL,
+                             source_id="c1", controller_id="p1"))
+        stack.counter("normal")
+        assert stack.is_empty()                   # countered as before
+
 
 # =============================================================================
 # Turn Manager Tests

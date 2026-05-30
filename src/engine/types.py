@@ -153,6 +153,7 @@ class EventType(Enum):
     COUNTER_SPELL = auto()                 # Alias for COUNTER (counter a spell)
     COUNTER_SPELL_UNLESS_PAY = auto()      # Alias (counter unless pay)
     SPELL_COUNTERED = auto()               # Marker event (spell was countered)
+    MAKE_UNCOUNTERABLE = auto()            # Set can_be_countered=False on a target stack item
     COPY_SPELL = auto()                    # Copy a spell on the stack
     COPY_STACK_ITEM = auto()               # Copy any stack item (spell or activated/triggered ability)
     RETURN_TO_HAND = auto()                # Return permanent to hand
@@ -1333,6 +1334,12 @@ class CardDefinition:
     domain: str = "MTG"
     text: str = ""
     rarity: Optional[str] = None  # 'common', 'uncommon', 'rare', 'mythic'
+
+    # Spells whose own text reads "this spell can't be countered" set this to
+    # False. The cast path (SpellBuilder.cast_spell) copies it onto the
+    # StackItem.can_be_countered flag that StackManager.counter() honors.
+    # Default True preserves behavior for every existing card.
+    can_be_countered: bool = True
 
     # Keyword-ability metadata (list of dicts like {'keyword': 'taunt'}). Retained
     # for the Hearthstone keyword catalog and legacy text-based assertions in

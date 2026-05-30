@@ -179,7 +179,6 @@ SKIPPED_CARDS = {
     'Shimmerwilds Growth': 'PHASE B: aura grants the enchanted LAND a "{T}: Add any color" mana ability — mana abilities are text-parsed by the priority engine, not registerable via the granted-ability API',
     'Tattermunge Maniac': "'attacks each combat if able' — a must-attack combat restriction the engine enforces at attack-declaration; no content event/trigger to fire (engine gap)",
     'Vendilion Clique': "ETB 'look at target player's hand, you MAY choose a nonland card, put it on the bottom, they draw' — the effect is entirely contingent on inspecting the hand and choosing a specific card (a player decision the harness can't deterministically drive); only the trailing draw is a plain event (engine gap for the hand-choice-to-bottom interaction)",
-    'Vexing Shusher': "uncounterable: StackItem.can_be_countered exists as a field but has NO card-facing hook — create_spell() never reads card_def.can_be_countered (self-static dead), and there is no MAKE_UNCOUNTERABLE EventType/handler that sets can_be_countered=False on a target StackItem (activated ability dead). Both clauses require engine work, out of scope for card-wiring.",
     'Vinebred Brawler': "'as an additional cost you MAY blight 2. If you do, enters with a +1/+1 counter' — the ETB counter is contingent on an optional alt-cost the engine can't know was paid at resolve time; no deterministic content event (engine gap)",
 }
 
@@ -3540,6 +3539,48 @@ def test_card_glen_elendra_guardian():
         f"activated ability should counter the noncreature spell, got {[e.type.name for e in evs]}"
 
 
+def test_card_vexing_shusher():
+    """Vexing Shusher: (a) its own spell can't be countered (self-static read by
+    the cast path); (b) {R/G}: target spell can't be countered (activated ability
+    emits MAKE_UNCOUNTERABLE, which the SYSTEM glue applies to the stack item)."""
+    # --- (a) self-static: a Vexing Shusher spell survives counter() ---
+    game, p1, p2 = _new_game()
+    vs = game.create_object(
+        name='Vexing Shusher', owner_id=p1.id, zone=ZoneType.HAND,
+        characteristics=FAE_BUT_MID_CARDS['Vexing Shusher'].characteristics,
+        card_def=FAE_BUT_MID_CARDS['Vexing Shusher'])
+    item = game.cast_spell(vs.id, p1.id)
+    assert item.can_be_countered is False, \
+        "Vexing Shusher's own spell should be uncounterable on cast"
+    assert game.stack.counter(item.id) == [], "counter() should refuse"
+    assert game.stack.size() == 1, "Vexing Shusher should survive on the stack"
+
+    # --- (b) activated ability makes a TARGET spell uncounterable ---
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    victim = _push_spell(game, p2, 'Opp Spell', mana_cost='{2}', colors=set())
+    # Mirror the cast path: register a real StackItem so counter() has a target.
+    from src.engine.stack import StackItem as _SI, StackItemType as _SIT
+    game.stack.push(_SI(id='', type=_SIT.SPELL, source_id=victim.id,
+                        controller_id=p2.id, card_id=victim.id))
+    obj = create_creature_on_battlefield(game, p1, 'Vexing Shusher')
+    abils = getattr(obj.state, 'activated_abilities', None) or []
+    assert abils, "Vexing Shusher should register its activated ability"
+    ab = abils[0]
+    effect_fn = ab['effect_fn'] if isinstance(ab, dict) else ab.effect_fn
+    evs = effect_fn(obj, game.state, []) or []
+    assert any(e.type == EventType.MAKE_UNCOUNTERABLE and e.payload.get('spell_id') == victim.id
+               for e in evs), \
+        f"activated ability should emit MAKE_UNCOUNTERABLE naming the victim, got {[e.type.name for e in evs]}"
+    for e in evs:
+        game.emit(e)
+    si = next(s for s in game.stack.items if s.card_id == victim.id)
+    assert si.can_be_countered is False, "target spell should now be uncounterable"
+    assert game.stack.counter(si.id) == [], "counter() should refuse the protected spell"
+    assert any(s.card_id == victim.id for s in game.stack.items), \
+        "the protected spell should survive the counter attempt"
+
+
 # ---------------------------------------------------------------------------
 # Section 4: modal "choose one/two" spells (Foundations make_modal_resolve).
 # Each test pushes the spell to the stack, resolves it (-> modal_with_callback
@@ -4112,6 +4153,7 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_spell_snare_mv_gate, test_card_wild_unraveling,
     test_card_glen_elendras_answer, test_card_spellstutter_sprite,
     test_card_unwelcome_sprite, test_card_glen_elendra_guardian,
+    test_card_vexing_shusher,
     # --- Section 4: modal "choose one/two" spells (make_modal_resolve) ---
     test_card_cryptic_command, test_card_ashlings_command,
     test_card_brigids_command, test_card_grubs_command,
