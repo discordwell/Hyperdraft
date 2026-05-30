@@ -162,7 +162,6 @@ SKIPPED_CARDS = {
     'Champion of the Weird': "behold-a-Goblin cast cost (alt-cost choice the engine can't model) + 'Pay 1 life, Blight 2: target opponent blights 2' — there is no blight content-event the engine consumes (blight is parsed only as a cost), so the activated ability has no fireable effect (engine gap)",
     'Demigod of Revenge': 'cast-time graveyard recursion (return all copies; resolves before ETB; structural)',
     'Earwig Squad': "prowl-gated ETB: the search+exile fires only 'if its prowl cost was paid'. Prowl is an alternative cost, and the engine cannot gate an effect on which cost was paid: the cost-payment path in priority.py sets NO per-cost-paid flag on the spell object, and the one precedent (was_bargained, interceptor_helpers.py) is itself a defined-but-never-auto-set flag awaiting a 'future cast-option extension'. Wiring needs non-additive engine work (out of scope).",
-    'Gathering Stone': 'choose-a-type cost-reducer / mana on ETB (structural; no content event)',
     'Kinbinding': 'dynamic lord +X/+X where X = creatures entered under your control this turn — no per-turn-entry-count helper/precedent exists',
     'Mirrormind Crown': "equipment token-creation replacement (first tokens each turn become copies of equipped creature) — no replacement hook that rewrites OBJECT_CREATED/CREATE_TOKEN into copy tokens (engine gap)",
     'Nettlevine Blight': 'PHASE B: aura grants the enchanted permanent an end-step "sacrifice then re-attach to a permanent you control" triggered ability — needs a granted self-moving aura trigger',
@@ -4349,6 +4348,38 @@ def test_card_rimefire_torque_wrong_type_no_charge():
         "Rimefire Torque: a non-chosen-type permanent should not add a charge"
 
 
+def test_card_gathering_stone():
+    """Gathering Stone: as it enters, choose a creature type; spells you cast of
+    the chosen type cost {1} less. Choose 'Goblin' then verify a Goblin spell's
+    effective cost drops by 1 generic, while a Merfolk spell is unchanged."""
+    from src.engine.cost_query import get_effective_mana_cost
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Gathering Stone")
+    pc = game.state.pending_choice
+    assert pc is not None and pc.choice_type == "choose_creature_type", \
+        f"Gathering Stone: expected a choose_creature_type choice, got {pc and pc.choice_type}"
+    ok, err, _ = game.submit_choice(pc.id, p1.id, ['Goblin'])
+    assert ok, f"Gathering Stone: type choice submit failed: {err}"
+    assert getattr(obj.state, 'chosen_type', None) == 'Goblin', \
+        "Gathering Stone: chosen type should be stored on obj.state"
+    gob = game.create_object(
+        name='GobSpell', owner_id=p1.id, zone=ZoneType.HAND,
+        characteristics=Characteristics(types={CardType.CREATURE}, subtypes={'Goblin'},
+                                        colors={Color.RED}, mana_cost='{2}{R}'),
+        card_def=None)
+    eff = get_effective_mana_cost(gob, p1.id, game.state)
+    assert eff.generic == 1, \
+        f"Gathering Stone: a chosen-type spell should cost 1 less generic (got {eff.generic})"
+    fish = game.create_object(
+        name='FishSpell', owner_id=p1.id, zone=ZoneType.HAND,
+        characteristics=Characteristics(types={CardType.CREATURE}, subtypes={'Merfolk'},
+                                        colors={Color.BLUE}, mana_cost='{2}{U}'),
+        card_def=None)
+    eff2 = get_effective_mana_cost(fish, p1.id, game.state)
+    assert eff2.generic == 2, \
+        f"Gathering Stone: a non-chosen-type spell should be unchanged (got {eff2.generic})"
+
+
 # ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
@@ -4421,7 +4452,8 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     # --- FINISH-TAIL batch (last feasible cards) ---
     test_card_chitinous_graspling, test_card_gangly_stompling,
     test_card_retched_wretch, test_card_retched_wretch_no_counter_stays_dead,
-    test_card_rimefire_torque, test_card_rimefire_torque_wrong_type_no_charge]
+    test_card_rimefire_torque, test_card_rimefire_torque_wrong_type_no_charge,
+    test_card_gathering_stone]
 
 
 def _run():

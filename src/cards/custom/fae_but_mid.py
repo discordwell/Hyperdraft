@@ -6737,10 +6737,30 @@ FORAGING_WICKERMAW = make_creature(
 )
 
 # Gathering Stone - {4} Artifact
+def gathering_stone_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
+    # As enters: choose a creature type (stored on obj.state.chosen_type).
+    # Spells you cast of the chosen type cost {1} less. (The "look at top card,
+    # if chosen type put into hand" clause is a library-peek-with-choice the
+    # harness can't drive deterministically — only the cost reducer is wired.)
+    def applies_to(card: GameObject, pid: str, st: GameState) -> bool:
+        if pid != obj.controller or card is None:
+            return False
+        chosen = getattr(obj.state, 'chosen_type', None)
+        if not chosen:
+            return False
+        return chosen in card.characteristics.subtypes
+
+    return [
+        make_choose_type_etb(obj),
+        make_cost_reduction(obj, applies_to=applies_to, amount=1),
+    ]
+
+
 GATHERING_STONE = make_artifact(
     name="Gathering Stone",
     mana_cost="{4}",
-    text="As this artifact enters, choose a creature type. Spells you cast of the chosen type cost {1} less to cast. When this artifact enters and at the beginning of your upkeep, look at the top card of your library. If it's a card of the chosen type, you may reveal it and put it into your hand."
+    text="As this artifact enters, choose a creature type. Spells you cast of the chosen type cost {1} less to cast. When this artifact enters and at the beginning of your upkeep, look at the top card of your library. If it's a card of the chosen type, you may reveal it and put it into your hand.",
+    setup_interceptors=gathering_stone_setup
 )
 
 # Mirrormind Crown - {4} Artifact — Equipment
