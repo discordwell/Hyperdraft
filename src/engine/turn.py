@@ -437,6 +437,11 @@ class TurnManager:
                     if obj.state.saddled_count_this_turn:
                         obj.state.saddled_count_this_turn = 0
 
+                    # End "can attack this turn as though it didn't have
+                    # defender" (Timid Shieldbearer and similar).
+                    if getattr(obj.state, 'can_attack_despite_defender', False):
+                        obj.state.can_attack_despite_defender = False
+
                     # Clear end-of-turn PT modifiers
                     if hasattr(obj.state, 'pt_modifiers'):
                         obj.state.pt_modifiers = [

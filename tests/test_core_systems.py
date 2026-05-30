@@ -397,6 +397,42 @@ class TestMustAttack:
             "a creature already attacking must not be added twice"
 
 
+class TestAttackDespiteDefender:
+    """The additive 'can attack as though it didn't have defender' override."""
+
+    def _make_defender(self):
+        from src.engine.combat import CombatManager
+        game = Game()
+        p1 = game.add_player("Alice")
+        p2 = game.add_player("Bob")
+        ch = Characteristics(types={CardType.CREATURE}, power=0, toughness=3,
+                             abilities=[{'keyword': 'defender'}])
+        creature = game.create_object(name="Wall", owner_id=p1.id,
+                                      zone=ZoneType.BATTLEFIELD, characteristics=ch)
+        creature.entered_zone_at = -1   # no summoning sickness
+        cm = CombatManager(game.state)
+        return cm, p1, creature
+
+    def test_defender_blocks_attack_by_default(self):
+        cm, p1, creature = self._make_defender()
+        assert cm._can_attack(creature.id, p1.id) is False, \
+            "a Defender creature cannot attack without the override"
+
+    def test_override_lets_defender_attack(self):
+        cm, p1, creature = self._make_defender()
+        creature.state.can_attack_despite_defender = True
+        assert cm._can_attack(creature.id, p1.id) is True, \
+            "the override should let a Defender creature attack"
+
+    def test_override_does_not_help_a_tapped_creature(self):
+        """Additive: the override only bypasses Defender, not other rules."""
+        cm, p1, creature = self._make_defender()
+        creature.state.can_attack_despite_defender = True
+        creature.state.tapped = True
+        assert cm._can_attack(creature.id, p1.id) is False, \
+            "the override must not override the tapped restriction"
+
+
 # =============================================================================
 # Priority System Tests
 # =============================================================================

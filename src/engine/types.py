@@ -1000,6 +1000,9 @@ class ObjectState:
     foil: bool = False               # Cosmetic "holo foil" — rolled at deck-load
     damage_marked: int = 0           # Damage marked this turn (before cleanup)
     crewed_until_eot: bool = False   # True if Vehicle was crewed this turn
+    # Set EOT by abilities like Timid Shieldbearer's "can attack this turn as
+    # though it didn't have defender"; read by CombatManager._can_attack.
+    can_attack_despite_defender: bool = False
     # OTJ Saddle mechanic state
     saddled_until_eot: bool = False  # True if Mount was saddled this turn
     saddled_by_this_turn: list = field(default_factory=list)  # Creature IDs that saddled this Mount this turn

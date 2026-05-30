@@ -3850,8 +3850,24 @@ THOUGHTWEFT_IMBUER = make_creature(
 
 # Timid Shieldbearer - {W} Creature — Kithkin Soldier 0/3
 def timid_shieldbearer_setup(obj: GameObject, state: GameState) -> list[Interceptor]:
-    # Activated ability - handled by activated ability system
-    return []
+    """Defender. {1}{W}: can attack this turn as though it didn't have defender.
+
+    Grants itself Defender (so the keyword actually applies), and registers the
+    activated ability that sets the EOT 'can_attack_despite_defender' override
+    which CombatManager._can_attack respects.
+    """
+    def _attack_despite_defender(o, st, targets):
+        live = st.objects.get(o.id)
+        if live is not None:
+            live.state.can_attack_despite_defender = True
+        return []
+    make_activated_ability(
+        obj,
+        cost="{1}{W}",
+        effect_fn=_attack_despite_defender,
+        description="Can attack this turn as though it didn't have defender",
+    )
+    return [make_keyword_grant(obj, ["defender"], lambda t, s, _id=obj.id: t.id == _id)]
 
 
 TIMID_SHIELDBEARER = make_creature(

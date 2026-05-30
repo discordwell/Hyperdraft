@@ -538,9 +538,13 @@ class CombatManager:
             if not has_ability(creature, 'haste', self.state):
                 return False
 
-        # Check for "can't attack" abilities
+        # Check for "can't attack" abilities. A creature with the temporary
+        # 'can_attack_despite_defender' override (set EOT by abilities like
+        # Timid Shieldbearer's) ignores its own Defender. Additive: defender
+        # still stops every creature that lacks the override flag.
         if has_ability(creature, 'defender', self.state):
-            return False
+            if not getattr(creature.state, 'can_attack_despite_defender', False):
+                return False
 
         if has_ability(creature, 'cant_attack', self.state):
             return False

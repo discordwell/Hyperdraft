@@ -151,7 +151,6 @@ def _new_game():
 
 
 SKIPPED_CARDS = {
-    "Timid Shieldbearer": "activated 'can attack as though it didn't have defender' — combat._can_attack hard-checks the defender keyword with no override marker/event (engine gap, mirrors EOE/Tarkir/Avatar printings)",
     "Chitinous Graspling": "keyword-only (Changeling/Reach); setup returns [] — vanilla-equivalent",
     "Gangly Stompling": "keyword-only (Changeling/Trample); setup returns [] — vanilla-equivalent",
     "Rhys, the Evermore": "targeted ETB granting persist to a chosen creature (target-choice)",
@@ -3595,6 +3594,30 @@ def test_card_tattermunge_maniac():
         "Tattermunge Maniac must be forced to attack each combat"
 
 
+def test_card_timid_shieldbearer():
+    """Timid Shieldbearer: Defender. {1}{W}: can attack this turn as though it
+    didn't have defender. The activated ability sets the
+    can_attack_despite_defender override that CombatManager._can_attack honors."""
+    from src.engine.combat import CombatManager
+    game, p1, p2 = _new_game()
+    ts = create_creature_on_battlefield(game, p1, "Timid Shieldbearer")
+    ts.entered_zone_at = -1  # clear summoning sickness for the attack check
+    assert has_ability(ts, 'defender', game.state), \
+        "Timid Shieldbearer should have Defender"
+    cm = CombatManager(game.state)
+    assert cm._can_attack(ts.id, p1.id) is False, \
+        "Timid Shieldbearer cannot attack before activating its ability"
+    abils = getattr(ts.state, 'activated_abilities', None) or []
+    assert abils, "Timid Shieldbearer should register its activated ability"
+    ab = abils[0]
+    effect_fn = ab['effect_fn'] if isinstance(ab, dict) else ab.effect_fn
+    effect_fn(ts, game.state, [])
+    assert ts.state.can_attack_despite_defender is True, \
+        "the ability should set the can_attack_despite_defender override"
+    assert cm._can_attack(ts.id, p1.id) is True, \
+        "Timid Shieldbearer can attack after activating its ability"
+
+
 # ---------------------------------------------------------------------------
 # Section 4: modal "choose one/two" spells (Foundations make_modal_resolve).
 # Each test pushes the spell to the stack, resolves it (-> modal_with_callback
@@ -4168,6 +4191,7 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_glen_elendras_answer, test_card_spellstutter_sprite,
     test_card_unwelcome_sprite, test_card_glen_elendra_guardian,
     test_card_vexing_shusher, test_card_tattermunge_maniac,
+    test_card_timid_shieldbearer,
     # --- Section 4: modal "choose one/two" spells (make_modal_resolve) ---
     test_card_cryptic_command, test_card_ashlings_command,
     test_card_brigids_command, test_card_grubs_command,
