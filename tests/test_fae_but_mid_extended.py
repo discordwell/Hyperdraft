@@ -681,8 +681,8 @@ class TestTribalLords:
         champion_power = get_power(champion, game.state)
         champion_toughness = get_toughness(champion, game.state)
 
-        assert champion_power == 4, f"Champion expected 4 power, got {champion_power}"
-        assert champion_toughness == 5, f"Champion expected 5 toughness, got {champion_toughness}"
+        assert champion_power == 3, f"Champion expected 3 power, got {champion_power}"  # 4/5->3/4 balance nerf 2026-05-30
+        assert champion_toughness == 4, f"Champion expected 4 toughness, got {champion_toughness}"
 
 
 # =============================================================================

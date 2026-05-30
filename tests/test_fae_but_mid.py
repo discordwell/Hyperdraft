@@ -108,8 +108,8 @@ def test_champion_of_clachan_lord():
 
     # Check Champion doesn't buff itself
     champion_power = get_power(champion, game.state)
-    print(f"Champion's own power: {champion_power} (should be base 4)")
-    assert champion_power == 4, "Champion shouldn't buff itself"
+    print(f"Champion's own power: {champion_power} (should be base 3)")
+    assert champion_power == 3, "Champion shouldn't buff itself"  # 4->3 balance nerf 2026-05-30
 
     print("✓ Champion of the Clachan lord effect works!")
 

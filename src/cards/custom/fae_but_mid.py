@@ -924,8 +924,11 @@ def champion_of_clachan_setup(obj: GameObject, state: GameState) -> list[Interce
 
 CHAMPION_OF_THE_CLACHAN = make_creature(
     name="Champion of the Clachan",
-    power=4,
-    toughness=5,
+    # BALANCE NERF (2026-05-30): 4/5 -> 3/4. Kithkin's strongest single card
+    # (flash anthem-lord, perf 245); a modest body cut to compress kithkin's
+    # 68% lead without flattening the go-wide identity.
+    power=3,
+    toughness=4,
     mana_cost="{3}{W}",
     colors={Color.WHITE},
     subtypes={"Kithkin", "Knight"},
@@ -5018,8 +5021,13 @@ def champions_of_the_perfect_setup(obj: GameObject, state: GameState) -> list[In
 
 CHAMPIONS_OF_THE_PERFECT = make_creature(
     name="Champions of the Perfect",
-    power=6,
-    toughness=6,
+    # BALANCE NERF (2026-05-30): 6/6 -> 4/4. A 6/6 for {3}{G} plus a
+    # draw-on-creature-cast engine was elf's runaway carry (perf 514 in the
+    # 240-game tournament — ~2x any other card; elf 78% winrate). Cutting the
+    # body to a fair 4/4 keeps the behold + draw-engine identity while removing
+    # the wildly undercosted beater. Nerf the CARD, not the deck's copy count.
+    power=4,
+    toughness=4,
     mana_cost="{3}{G}",
     colors={Color.GREEN},
     subtypes={"Elf", "Warrior"},
