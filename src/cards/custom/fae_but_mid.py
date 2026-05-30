@@ -1773,6 +1773,43 @@ def glen_elendra_guardian_setup(obj: GameObject, state: GameState) -> list[Inter
             payload={'object_id': obj.id, 'counter_type': '-1/-1', 'amount': 1},
             source=obj.id
         )]
+
+    # Activated counterspell: {1}{U}, Remove a counter — counter target
+    # noncreature spell; its controller draws a card. Wired to the real
+    # activated-ability pipeline (Foundations CANCEL mechanic on resolve).
+    def _counter_noncreature(o, st, targets):
+        victim = None
+        if targets:
+            tid = getattr(targets[0], 'id', None) or getattr(targets[0], 'object_id', None)
+            cand = st.objects.get(tid) if tid else None
+            if cand is not None and cand.zone == ZoneType.STACK:
+                victim = cand
+        if victim is None:
+            victim = _victim_spell_on_stack(
+                "Glen Elendra Guardian", o.controller, st,
+                predicate=lambda s: CardType.CREATURE not in s.characteristics.types)
+        if victim is None:
+            return []
+        return [
+            Event(type=EventType.COUNTER_SPELL,
+                  payload={'spell_id': victim.id, 'object_id': victim.id,
+                           'target': victim.id}, source=o.id),
+            Event(type=EventType.ZONE_CHANGE,
+                  payload={'object_id': victim.id, 'from_zone': 'stack',
+                           'to_zone': f'graveyard_{victim.owner}',
+                           'to_zone_type': ZoneType.GRAVEYARD,
+                           'reason': 'countered'}, source=o.id),
+            Event(type=EventType.DRAW,
+                  payload={'player': victim.controller, 'count': 1}, source=o.id),
+        ]
+    make_activated_ability(
+        obj,
+        cost="{1}{U}, Remove a counter from this creature",
+        effect_fn=_counter_noncreature,
+        description="Counter target noncreature spell. Its controller draws a card.",
+        targets_required=1,
+        target_kind="spell",
+    )
     return [make_etb_trigger(obj, etb_effect)]
 
 
@@ -11663,3 +11700,223 @@ def _register_phase_a_batch_d():
 
 
 _register_phase_a_batch_d()
+
+
+# =============================================================================
+# SECTION 3 (counterspells): counter a target spell on the stack.
+# Mirrors the Foundations CANCEL pattern (src/cards/foundations.py
+# `_cancel_execute` / `_resolve_counter_targeted_spell`): the resolving
+# counterspell finds the victim spell on the STACK and moves it
+# stack -> graveyard (or exile) with reason='countered'. We ALSO emit a
+# COUNTER_SPELL event so the engine's built-in counterspell glue
+# (src/engine/game.py:758) can counter the matching StackItem in real play,
+# and so the effect is observable as a COUNTER_SPELL-class event regardless
+# of how the spell got onto the stack.
+# =============================================================================
+
+from src.engine.mana import ManaCost as _ManaCost  # mana-value gate for Spell Snare/Spellstutter
+
+
+def _spell_mana_value(obj) -> int:
+    """Mana value of a spell object on the stack (0 if unparseable)."""
+    try:
+        return int(_ManaCost.parse(obj.characteristics.mana_cost or "").mana_value)
+    except Exception:
+        return 0
+
+
+def _victim_spell_on_stack(self_name, caster, state, *, predicate=None):
+    """Return the topmost spell on the stack that is NOT the resolving
+    counterspell itself and that satisfies ``predicate(obj)`` (if given).
+
+    Topmost == last pushed == highest index in the stack-zone object list,
+    matching MTG LIFO resolution.
+    """
+    stack = state.zones.get('stack')
+    if not stack:
+        return None
+    for cid in reversed(list(stack.objects)):
+        obj = state.objects.get(cid)
+        if obj is None or obj.zone != ZoneType.STACK:
+            continue
+        if getattr(obj, 'name', None) == self_name:
+            continue  # never counter ourselves
+        if predicate is not None and not predicate(obj):
+            continue
+        return obj
+    return None
+
+
+def _counter_events(self_name, state, *, predicate=None, exile=False, extra=None):
+    """Build the counter event(s) for a counterspell resolve.
+
+    - Emits COUNTER_SPELL (engine glue + observable counter-class event).
+    - Emits ZONE_CHANGE stack -> graveyard/exile with reason='countered'
+      (the Foundations CANCEL mechanic; actually removes the victim).
+    - ``exile=True`` routes the countered card to exile instead of GY
+      (Faerie Trickery).
+    - ``extra`` is a callable (victim_obj, sid, caster) -> list[Event] for
+      the card's rider (mill / draw).
+    """
+    sid, caster = _spell_src(self_name, state)
+    victim = _victim_spell_on_stack(self_name, caster, state, predicate=predicate)
+    if victim is None:
+        # No legal spell to counter: the counterspell fizzles. Still emit a
+        # COUNTER_SPELL marker so the action is observable, but with no target.
+        return [Event(type=EventType.COUNTER_SPELL,
+                      payload={'spell_id': None, 'no_target': True}, source=sid)]
+    events = [
+        Event(type=EventType.COUNTER_SPELL,
+              payload={'spell_id': victim.id, 'object_id': victim.id,
+                       'target': victim.id}, source=sid),
+        Event(type=EventType.ZONE_CHANGE,
+              payload={'object_id': victim.id, 'from_zone': 'stack',
+                       'to_zone': ('exile' if exile
+                                   else f'graveyard_{victim.owner}'),
+                       'to_zone_type': (ZoneType.EXILE if exile
+                                        else ZoneType.GRAVEYARD),
+                       'reason': 'countered'},
+              source=sid),
+    ]
+    if extra is not None:
+        events.extend(extra(victim, sid, caster) or [])
+    return events
+
+
+def _non_faerie_spell(obj) -> bool:
+    return 'Faerie' not in (obj.characteristics.subtypes or set())
+
+
+def broken_ambitions_resolve(targets, state):
+    """Broken Ambitions: Counter target spell unless its controller pays {X}.
+    Clash; if you win, that spell's controller mills four cards."""
+    def _rider(victim, sid, caster):
+        return [Event(type=EventType.MILL,
+                      payload={'player': victim.controller, 'amount': 4,
+                               'count': 4}, source=sid)]
+    return _counter_events('Broken Ambitions', state, extra=_rider)
+
+
+def faerie_trickery_resolve(targets, state):
+    """Faerie Trickery: Counter target non-Faerie spell. If countered this
+    way, exile it instead of putting it into its owner's graveyard."""
+    return _counter_events('Faerie Trickery', state,
+                           predicate=_non_faerie_spell, exile=True)
+
+
+def spell_snare_resolve(targets, state):
+    """Spell Snare: Counter target spell with mana value 2."""
+    return _counter_events('Spell Snare', state,
+                           predicate=lambda o: _spell_mana_value(o) == 2)
+
+
+def wild_unraveling_resolve(targets, state):
+    """Wild Unraveling: Counter target spell unless its controller pays {3}.
+    If that spell is countered this way, its controller draws a card."""
+    def _rider(victim, sid, caster):
+        return [Event(type=EventType.DRAW,
+                      payload={'player': victim.controller, 'count': 1},
+                      source=sid)]
+    return _counter_events('Wild Unraveling', state, extra=_rider)
+
+
+def glen_elendras_answer_resolve(targets, state):
+    """Glen Elendra's Answer: Counter all spells your opponents control;
+    create a 1/1 U/B Faerie with flying for each spell countered this way.
+    (Abilities-on-stack aren't modeled as distinct stack objects here, so we
+    counter every opponent spell currently on the stack.)"""
+    sid, caster = _spell_src("Glen Elendra's Answer", state)
+    stack = state.zones.get('stack')
+    events = []
+    countered = 0
+    if stack:
+        for cid in reversed(list(stack.objects)):
+            obj = state.objects.get(cid)
+            if obj is None or obj.zone != ZoneType.STACK:
+                continue
+            if getattr(obj, 'name', None) == "Glen Elendra's Answer":
+                continue
+            if obj.controller == caster:
+                continue  # only opponents' spells
+            events.append(Event(type=EventType.COUNTER_SPELL,
+                                payload={'spell_id': obj.id, 'object_id': obj.id,
+                                         'target': obj.id}, source=sid))
+            events.append(Event(type=EventType.ZONE_CHANGE,
+                                payload={'object_id': obj.id, 'from_zone': 'stack',
+                                         'to_zone': f'graveyard_{obj.owner}',
+                                         'to_zone_type': ZoneType.GRAVEYARD,
+                                         'reason': 'countered'}, source=sid))
+            countered += 1
+    for _ in range(countered):
+        events.append(Event(type=EventType.CREATE_TOKEN,
+                            payload={'controller': caster, 'power': 1,
+                                     'toughness': 1, 'count': 1,
+                                     'subtypes': ['Faerie'],
+                                     'colors': ['blue', 'black'],
+                                     'keywords': ['flying']}, source=sid))
+    return events
+
+
+def _spellstutter_sprite_setup(obj: GameObject, state: GameState):
+    """Spellstutter Sprite: Flash, Flying. ETB — counter target spell with
+    mana value X or less, where X = number of Faeries you control."""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        faeries = sum(
+            1 for o in state.objects.values()
+            if o.zone == ZoneType.BATTLEFIELD
+            and o.controller == obj.controller
+            and 'Faerie' in (o.characteristics.subtypes or set())
+        )
+        victim = _victim_spell_on_stack(
+            "Spellstutter Sprite", obj.controller, state,
+            predicate=lambda o: _spell_mana_value(o) <= faeries)
+        if victim is None:
+            return []
+        return [
+            Event(type=EventType.COUNTER_SPELL,
+                  payload={'spell_id': victim.id, 'object_id': victim.id,
+                           'target': victim.id}, source=obj.id),
+            Event(type=EventType.ZONE_CHANGE,
+                  payload={'object_id': victim.id, 'from_zone': 'stack',
+                           'to_zone': f'graveyard_{victim.owner}',
+                           'to_zone_type': ZoneType.GRAVEYARD,
+                           'reason': 'countered'}, source=obj.id),
+        ]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def _unwelcome_sprite_setup(obj: GameObject, state: GameState):
+    """Unwelcome Sprite: Flash, Flying. ETB — counter target ability.
+    Abilities aren't pushed as distinct stack objects in this scaffold, so we
+    counter the topmost non-self item on the stack as a best-effort stand-in
+    for 'the targeted ability'. (Note: true ability-on-stack targeting is
+    engine work; this fires the COUNTER_SPELL mechanic on a stack item.)"""
+    def etb_effect(event: Event, state: GameState) -> list[Event]:
+        victim = _victim_spell_on_stack("Unwelcome Sprite", obj.controller, state)
+        if victim is None:
+            return []
+        return [
+            Event(type=EventType.COUNTER_SPELL,
+                  payload={'spell_id': victim.id, 'object_id': victim.id,
+                           'target': victim.id, 'counters_ability': True},
+                  source=obj.id),
+            Event(type=EventType.ZONE_CHANGE,
+                  payload={'object_id': victim.id, 'from_zone': 'stack',
+                           'to_zone': f'graveyard_{victim.owner}',
+                           'to_zone_type': ZoneType.GRAVEYARD,
+                           'reason': 'countered'}, source=obj.id),
+        ]
+    return [make_etb_trigger(obj, etb_effect)]
+
+
+def _register_section3_counterspells():
+    FAE_BUT_MID_CARDS['Broken Ambitions'].resolve = broken_ambitions_resolve
+    FAE_BUT_MID_CARDS['Faerie Trickery'].resolve = faerie_trickery_resolve
+    FAE_BUT_MID_CARDS['Spell Snare'].resolve = spell_snare_resolve
+    FAE_BUT_MID_CARDS['Wild Unraveling'].resolve = wild_unraveling_resolve
+    FAE_BUT_MID_CARDS["Glen Elendra's Answer"].resolve = glen_elendras_answer_resolve
+    FAE_BUT_MID_CARDS['Spellstutter Sprite'].setup_interceptors = _spellstutter_sprite_setup
+    FAE_BUT_MID_CARDS['Unwelcome Sprite'].setup_interceptors = _unwelcome_sprite_setup
+
+
+_register_section3_counterspells()

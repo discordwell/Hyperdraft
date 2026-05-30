@@ -169,23 +169,18 @@ SKIPPED_CARDS = {
     "The Aurora Cycle": "Saga — chapter abilities are lore-counter driven (structural)",
     "Glamermite": "modal ETB (choose tap OR untap target) — needs mode selection",
     "Rhys, the Evermore": "targeted ETB granting persist to a chosen creature (target-choice)",
-    "Unwelcome Sprite": "counter target ability — needs an ability on the stack",
-    "Glen Elendra Guardian": "ETB only adds a counter; the counter-spell is an activated ability w/ stack target",
     "Raiding Schemes": "static 'each noncreature spell has conspire' grant — firing needs conspire cost paid (creatures tapped)",
     "Retched Wretch": "reanimation: only effect is a ZONE_CHANGE back to the battlefield (plumbing-only; no content event)",
     "Garruk Wildspeaker": "planeswalker: loyalty-activated abilities (structural; no canonical trigger to fire)",
     "Ashling's Command": "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
     'Austere Command': "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
     "Brigid's Command": "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
-    'Broken Ambitions': 'instant/sorcery: counterspell: counters a spell on the stack (needs a spell on the stack to target)',
     'Burning Curiosity': 'instant/sorcery: exile top N + play-this-turn (impulse draw); needs a play-from-exile window',
     'Cryptic Command': 'instant/sorcery: counterspell: counters a spell on the stack (needs a spell on the stack to target)',
     'Dream Harvest': 'instant/sorcery: exile-until-mana threshold (structural)',
     'End-Blaze Epiphany': 'instant/sorcery: X-damage + dies-this-turn delayed exile rider (variable X + delayed trigger)',
-    'Faerie Trickery': 'instant/sorcery: counterspell: counters a spell on the stack (needs a spell on the stack to target)',
     'Giantfall': "instant/sorcery: modal 'choose one': needs mode selection",
     'Gilt-Leaf Ambush': 'instant/sorcery: clash mechanic: outcome-dependent secondary effect (structural)',
-    "Glen Elendra's Answer": 'instant/sorcery: mass counter: counters spells/abilities on the stack (stack-target)',
     'Goatnap': 'instant/sorcery: gain-control effect: not expressible as a single content event',
     "Grub's Command": "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
     'Incendiary Command': "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
@@ -196,11 +191,9 @@ SKIPPED_CARDS = {
     'Primal Command': "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
     'Profane Command': "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
     'Run Away Together': 'instant/sorcery: bounce two creatures controlled by DIFFERENT players (paired-target constraint)',
-    'Spell Snare': 'instant/sorcery: counterspell: counters a spell on the stack (needs a spell on the stack to target)',
     'Spiral into Solitude': 'instant/sorcery: exile an attacking/blocking creature (combat-restricted target) + opponent makes a token',
     "Sygg's Command": "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
     "Trystan's Command": "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
-    'Wild Unraveling': 'instant/sorcery: counterspell: counters a spell on the stack (needs a spell on the stack to target)',
     # --- Section 2 structural skips (lands / activated / equipment / aura / replacement / PW) ---
     'Ajani, Outland Chaperone': 'planeswalker: loyalty-activated abilities (structural)',
     'Aurora Awakener': 'reveal-until-X dig (variable, library-state dependent; not a single content event)',
@@ -225,7 +218,6 @@ SKIPPED_CARDS = {
     'Sensation Gorger': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Shimmerwilds Growth': 'PHASE B: aura grants the enchanted LAND a "{T}: Add any color" mana ability — mana abilities are text-parsed by the priority engine, not registerable via the granted-ability API',
     'Sower of Temptation': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Spellstutter Sprite': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Tattermunge Maniac': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Vendilion Clique': 'structural / activated / replacement effect not expressible via a canonical trigger',
     'Vexing Shusher': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
@@ -3101,6 +3093,190 @@ def test_card_rime_chill():
 
 
 # ---------------------------------------------------------------------------
+# Section 3: counterspells (Foundations CANCEL pattern). Each test pushes a
+# victim spell onto the stack, casts/resolves the counter, and asserts the
+# victim is countered (COUNTER_SPELL event + the victim leaves the stack into
+# the graveyard/exile with reason='countered').
+# ---------------------------------------------------------------------------
+
+def _push_spell(game, owner, name, *, mana_cost="{1}{G}", subtypes=None,
+                types=None, colors=None):
+    """Create a spell object on the stack and return it (also returns its id
+    in game.state.zones['stack'].objects)."""
+    ch = Characteristics(
+        types=set(types) if types else {CardType.CREATURE},
+        subtypes=set(subtypes) if subtypes else set(),
+        power=1, toughness=1,
+        colors=set(colors) if colors else {Color.GREEN},
+        mana_cost=mana_cost,
+    )
+    return game.create_object(
+        name=name, owner_id=owner.id, zone=ZoneType.STACK,
+        characteristics=ch, card_def=None,
+    )
+
+
+def _assert_countered(evs, victim, game, card_name, *, to_zone='graveyard'):
+    """A counterspell fired correctly: a COUNTER_SPELL event names the victim
+    AND the victim left the stack (now in graveyard/exile)."""
+    cs = [e for e in evs if e.type == EventType.COUNTER_SPELL
+          and e.payload.get('spell_id') == victim.id]
+    assert cs, (f"{card_name}: expected a COUNTER_SPELL event naming the "
+                f"victim, got {[(e.type.name, e.payload.get('spell_id')) for e in evs]}")
+    # Apply the events so the victim actually leaves the stack.
+    for e in evs:
+        game.emit(e)
+    moved = game.state.objects[victim.id]
+    assert moved.zone != ZoneType.STACK, (
+        f"{card_name}: victim should leave the stack, still {moved.zone}")
+    if to_zone == 'exile':
+        assert moved.zone == ZoneType.EXILE, (
+            f"{card_name}: victim should be exiled, got {moved.zone}")
+
+
+def test_card_broken_ambitions():
+    """Broken Ambitions: Counter target spell ...; if you win the clash, that
+    spell's controller mills four cards."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    victim = _push_spell(game, p2, 'Victim Bear')
+    game.create_object(name='Broken Ambitions', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Broken Ambitions'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Broken Ambitions'].resolve([], game.state)
+    assert any(e.type == EventType.MILL for e in evs), \
+        f"Broken Ambitions should mill, got {[e.type.name for e in evs]}"
+    _assert_countered(evs, victim, game, 'Broken Ambitions')
+
+
+def test_card_faerie_trickery():
+    """Faerie Trickery: Counter target non-Faerie spell; exile it instead of GY."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    victim = _push_spell(game, p2, 'NonFae Bear', subtypes={'Bear'})
+    game.create_object(name='Faerie Trickery', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Faerie Trickery'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Faerie Trickery'].resolve([], game.state)
+    _assert_countered(evs, victim, game, 'Faerie Trickery', to_zone='exile')
+
+
+def test_card_faerie_trickery_skips_faerie():
+    """Faerie Trickery does NOT counter a Faerie spell."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _push_spell(game, p2, 'Faerie Spell', subtypes={'Faerie'}, mana_cost='{U}',
+                colors={Color.BLUE})
+    game.create_object(name='Faerie Trickery', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Faerie Trickery'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Faerie Trickery'].resolve([], game.state)
+    assert any(e.payload.get('no_target') for e in evs), \
+        f"Faerie Trickery should fizzle vs a Faerie spell, got {[e.type.name for e in evs]}"
+
+
+def test_card_spell_snare():
+    """Spell Snare: Counter target spell with mana value 2 (and only MV 2)."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    victim = _push_spell(game, p2, 'MV2 Bear', mana_cost='{1}{G}')  # MV 2
+    game.create_object(name='Spell Snare', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Spell Snare'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Spell Snare'].resolve([], game.state)
+    _assert_countered(evs, victim, game, 'Spell Snare')
+
+
+def test_card_spell_snare_mv_gate():
+    """Spell Snare does NOT counter an MV-3 spell."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _push_spell(game, p2, 'MV3 Bear', mana_cost='{1}{G}{G}')  # MV 3
+    game.create_object(name='Spell Snare', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Spell Snare'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Spell Snare'].resolve([], game.state)
+    assert any(e.payload.get('no_target') for e in evs), \
+        f"Spell Snare should not counter MV-3, got {[e.type.name for e in evs]}"
+
+
+def test_card_wild_unraveling():
+    """Wild Unraveling: Counter target spell ...; its controller draws a card."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    victim = _push_spell(game, p2, 'Victim Bear')
+    game.create_object(name='Wild Unraveling', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Wild Unraveling'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Wild Unraveling'].resolve([], game.state)
+    assert any(e.type == EventType.DRAW for e in evs), \
+        f"Wild Unraveling should draw, got {[e.type.name for e in evs]}"
+    _assert_countered(evs, victim, game, 'Wild Unraveling')
+
+
+def test_card_glen_elendras_answer():
+    """Glen Elendra's Answer: Counter all opponent spells; make a Faerie token
+    for each spell countered."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    v1 = _push_spell(game, p2, 'Opp Bolt', mana_cost='{R}', colors={Color.RED})
+    v2 = _push_spell(game, p2, 'Opp Bear', mana_cost='{1}{G}')
+    game.create_object(name="Glen Elendra's Answer", owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS["Glen Elendra's Answer"].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS["Glen Elendra's Answer"].resolve([], game.state)
+    cs = [e for e in evs if e.type == EventType.COUNTER_SPELL]
+    tok = [e for e in evs if e.type == EventType.CREATE_TOKEN]
+    assert len(cs) == 2, f"should counter both opponent spells, got {len(cs)}"
+    assert len(tok) == 2, f"should make a Faerie token per counter, got {len(tok)}"
+    for e in evs:
+        game.emit(e)
+    assert game.state.objects[v1.id].zone != ZoneType.STACK
+    assert game.state.objects[v2.id].zone != ZoneType.STACK
+
+
+def test_card_spellstutter_sprite():
+    """Spellstutter Sprite: ETB counters a spell with MV <= number of Faeries
+    you control (Spellstutter itself is a Faerie, so X>=1)."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    victim = _push_spell(game, p2, 'MV1 Spell', mana_cost='{U}', colors={Color.BLUE})
+    create_creature_on_battlefield(game, p1, 'Spellstutter Sprite')
+    got = {e.type.name for e in game.state.event_log}
+    assert 'COUNTER_SPELL' in got, \
+        f"Spellstutter Sprite ETB should counter a spell, got {sorted(got)}"
+    assert game.state.objects[victim.id].zone != ZoneType.STACK, \
+        "Spellstutter Sprite should remove the victim from the stack"
+
+
+def test_card_unwelcome_sprite():
+    """Unwelcome Sprite: ETB counters the targeted item on the stack."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    victim = _push_spell(game, p2, 'Some Item', mana_cost='{2}', colors=set())
+    create_creature_on_battlefield(game, p1, 'Unwelcome Sprite')
+    got = {e.type.name for e in game.state.event_log}
+    assert 'COUNTER_SPELL' in got, \
+        f"Unwelcome Sprite ETB should counter a stack item, got {sorted(got)}"
+    assert game.state.objects[victim.id].zone != ZoneType.STACK, \
+        "Unwelcome Sprite should remove the victim from the stack"
+
+
+def test_card_glen_elendra_guardian():
+    """Glen Elendra Guardian: ETB puts a -1/-1 counter on itself; it ALSO
+    registers a real activated counterspell ability."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Glen Elendra Guardian")
+    got = {e.type.name for e in game.state.event_log}
+    assert 'COUNTER_ADDED' in got, \
+        f"Glen Elendra Guardian ETB should add a -1/-1 counter, got {sorted(got)}"
+    # The activated counter ability is wired and counters a noncreature spell.
+    abils = getattr(obj.state, 'activated_abilities', None) or []
+    assert abils, "Glen Elendra Guardian should register an activated ability"
+    spell = _push_spell(game, p2, 'Opp Sorcery', mana_cost='{1}{R}',
+                        types={CardType.SORCERY}, colors={Color.RED})
+    ab = abils[0]
+    effect_fn = ab['effect_fn'] if isinstance(ab, dict) else ab.effect_fn
+    evs = effect_fn(obj, game.state, []) or []
+    assert any(e.type == EventType.COUNTER_SPELL and e.payload.get('spell_id') == spell.id
+               for e in evs), \
+        f"activated ability should counter the noncreature spell, got {[e.type.name for e in evs]}"
+
+
+# ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
 _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_card_adept_watershaper, test_card_brigid_clachan_s_heart, test_card_burdened_stoneback, test_card_champion_of_the_clachan, test_card_clachan_festival, test_card_curious_colossus, test_card_eirdu_carrier_of_dawn, test_card_encumbered_reejerey, test_card_flock_impostor, test_card_gallant_fowlknight, test_card_reluctant_dounguard, test_card_kinsbaile_aspirant, test_card_kinscaer_sentry, test_card_kithkeeper, test_card_liminal_hold, test_card_meanders_guide, test_card_moonlit_lamenter, test_card_shore_lurker, test_card_slumbering_walker, test_card_sun_dappled_celebrant, test_card_thoughtweft_imbuer, test_card_tributary_vaulter, test_card_wanderbrine_preacher, test_card_wanderbrine_trapper, test_card_formidable_speaker, test_card_luminollusk, test_card_lys_alana_informant, test_card_moon_vigil_adherents, test_card_mutable_explorer, test_card_pummeler_for_hire, test_card_selfless_safewright, test_card_bristlebane_battler, test_card_bristlebane_outrider, test_card_champions_of_the_perfect, test_card_chomping_changeling, test_card_crossroads_watcher, test_card_dundoolin_weaver, test_card_prismabasher, test_card_mistmeadow_council, test_card_sapling_nursery, test_card_trystan_callous_cultivator, test_card_virulent_emissary, test_card_wildvine_pummeler, test_card_aquitect_s_defenses, test_card_blossombind, test_card_champions_of_the_shoal, test_card_flitterwing_nuisance, test_card_gravelgill_scoundrel, test_card_illusion_spinners, test_card_disruptor_of_currents, test_card_glamer_gifter, test_card_pestered_wellguard, test_card_rimekin_recluse, test_card_kulrath_mystic, test_card_loch_mare, test_card_omni_changeling, test_card_shinestriker, test_card_silvergill_mentor, test_card_silvergill_peddler, test_card_stratosoarer, test_card_tanufel_rimespeaker, test_card_wanderwine_distracter, test_card_bile_vial_boggart, test_card_bitterbloom_bearer, test_card_blighted_blackthorn, test_card_boggart_mischief, test_card_boggart_prankster, test_card_creakwood_safewright, test_card_dawnhand_eulogist, test_card_dream_seizer, test_card_gnarlbark_elm, test_card_graveshifter, test_card_deceit, test_card_gloom_ripper, test_card_grub_storied_matriarch, test_card_ashling_rekindled, test_card_boldwyr_aggressor, test_card_boneclub_berserker, test_card_brambleback_brute, test_card_elder_auntie, test_card_enraged_flamecaster, test_card_explosive_prodigy, test_card_flamekin_gildweaver, test_card_abigale_eloquent_first_year, test_card_boggart_cursecrafter, test_card_chaos_spewer, test_card_deepchannel_duelist, test_card_deepway_navigator, test_card_eclipsed_boggart, test_card_eclipsed_elf, test_card_eclipsed_flamekin, test_card_eclipsed_kithkin, test_card_eclipsed_merrow, test_card_feisty_spikeling, test_card_flaring_cinder, test_card_glister_bairn, test_card_foraging_wickermaw, test_card_stalactite_dagger, test_card_imperious_perfect, test_card_timber_protector, test_card_oona_queen_of_the_fae, test_card_wydwen_the_biting_gale, test_card_wort_boggart_auntie, test_card_gaddock_teeg, test_card_godhead_of_awe, test_card_oblivion_ring, test_card_preeminent_captain, test_card_merrow_commerce, test_card_surgespanner, test_card_silvergill_adept, test_card_mulldrifter, test_card_caterwauling_boggart, test_card_knucklebone_witch, test_card_wort_the_raidmother, test_card_jagged_scar_archers, test_card_wistful_selkie, test_card_gwyllion_hedge_mage, test_card_selkie_hedge_mage, test_card_ashling_the_extinguisher, test_card_reaper_king, test_card_wicker_warcrawler, test_card_aurora_of_five, test_card_faewild_convocation, test_card_augury_adept, test_card_bitterblossom, test_card_chronicle_of_victory, test_card_cloudgoat_ranger, test_card_cold_eyed_selkie, test_card_creakwood_liege, test_card_dawn_blessed_pennant, test_card_elvish_harbinger, test_card_emptiness, test_card_gutsplitter_gang, test_card_heirloom_auntie, test_card_hexing_squelcher, test_card_hovel_hurler, test_card_kinsbaile_borderguard, test_card_kirol_attentive_first_year, test_card_kitchen_finks, test_card_kulrath_zealot, test_card_lavaleaper, test_card_lluwen_imperfect_naturalist, test_card_masked_admirers, test_card_merrow_skyswimmer, test_card_mischievous_sneakling, test_card_moonglove_extractor, test_card_moonshadow, test_card_mudbutton_cursetosser, test_card_murderous_redcap, test_card_nath_of_the_gilt_leaf, test_card_nightmare_sower, test_card_noggle_robber, test_card_oonas_blackguard, test_card_prismatic_undercurrents, test_card_pucas_eye, test_card_ranger_of_eos, test_card_sanar_innovative_first_year, test_card_shadow_urchin, test_card_shimmercreep, test_card_shriekmaw, test_card_sizzling_changeling, test_card_smoldering_spinebacks, test_card_sourbread_auntie, test_card_spinerock_tyrant, test_card_squawkroaster, test_card_taster_of_wares, test_card_thundercloud_shaman, test_card_treefolk_harbinger, test_card_twinflame_travelers, test_card_vibrance, test_card_wary_farmer, test_card_wistfulness, test_card_wolf_skull_shaman, test_card_balefire_liege, test_card_cinder_pyromancer, test_card_deathbringer_liege, test_card_deus_of_calamity, test_card_high_perfect_morcant, test_card_tam_mindful_first_year, test_card_incandescent_soulstoke, test_card_mindwrack_liege, test_card_murkfiend_liege, test_card_ashenmoor_liege, test_card_morcants_loyalist, test_card_voracious_tome_skimmer, test_card_sygg_river_cutthroat, test_card_reveillark, test_card_ghastlord_of_fugue, test_card_assert_perfection, test_card_aunties_favor, test_card_blight_rot, test_card_bloodline_bidding, test_card_blossoming_defense, test_card_bogslithers_embrace, test_card_boulder_dash, test_card_catharsis, test_card_cinder_strike, test_card_crib_swap, test_card_darkness_descends, test_card_death_denied, test_card_dose_of_dawnglow, test_card_feed_the_flames, test_card_fiery_justice, test_card_firespout, test_card_fodder_launch, test_card_harmonized_crescendo, test_card_hunting_triad, test_card_impolite_entrance, test_card_lasting_tarfire, test_card_lofty_dreams, test_card_makeshift_mannequin, test_card_manamorphose, test_card_midnight_tilling, test_card_mirrorform, test_card_morningtides_light, test_card_peppersmoke, test_card_perfect_intimidation, test_card_personify, test_card_ponder, test_card_protective_response, test_card_pyrrhic_strike, test_card_reckless_ransacking, test_card_requiting_hex, test_card_riverguards_reflexes, test_card_sear, test_card_soul_immolation, test_card_spectral_procession, test_card_spry_and_mighty, test_card_sunderflock, test_card_swat_away, test_card_tarfire, test_card_tend_the_sprigs, test_card_thirst_for_identity, test_card_thoughtweft_charge, test_card_thoughtweft_gambit, test_card_tweeze, test_card_unbury, test_card_unexpected_assistance, test_card_unforgiving_aim, test_card_unmake, test_card_wanderwine_farewell, test_card_winnowing, test_card_wretched_banquet,
@@ -3129,7 +3305,13 @@ _ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_ca
     test_card_reaping_willow, test_card_horde_of_notions, test_card_figure_of_destiny,
     test_card_elvish_branchbender, test_card_dawnhand_dissident,
     # --- Phase A Batch D (aura fight + instant tap/stun) ---
-    test_card_pitiless_fists, test_card_rime_chill]
+    test_card_pitiless_fists, test_card_rime_chill,
+    # --- Section 3: counterspells (Foundations CANCEL pattern) ---
+    test_card_broken_ambitions, test_card_faerie_trickery,
+    test_card_faerie_trickery_skips_faerie, test_card_spell_snare,
+    test_card_spell_snare_mv_gate, test_card_wild_unraveling,
+    test_card_glen_elendras_answer, test_card_spellstutter_sprite,
+    test_card_unwelcome_sprite, test_card_glen_elendra_guardian]
 
 
 def _run():
