@@ -21,6 +21,7 @@ class ActionScoreBreakdown:
     adventure: float = 0.0
     split: float = 0.0
     graveyard_activation: float = 0.0
+    x_ability: float = 0.0  # board-aware value of an X-cost activated ability
     target_quality: float = 0.0
     board_delta: float = 0.0
     mana_posture: float = 0.0
@@ -39,6 +40,7 @@ class ActionScoreBreakdown:
             + self.adventure
             + self.split
             + self.graveyard_activation
+            + self.x_ability
             + self.target_quality
             + self.board_delta
             + self.mana_posture
@@ -58,6 +60,7 @@ class ActionScoreBreakdown:
             "adventure": round(self.adventure, 4),
             "split": round(self.split, 4),
             "graveyard_activation": round(self.graveyard_activation, 4),
+            "x_ability": round(self.x_ability, 4),
             "target_quality": round(self.target_quality, 4),
             "board_delta": round(self.board_delta, 4),
             "mana_posture": round(self.mana_posture, 4),

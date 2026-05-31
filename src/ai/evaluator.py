@@ -239,11 +239,28 @@ class BoardEvaluator:
     def _can_attack_now(self, obj: 'GameObject') -> bool:
         if obj.state.tapped:
             return False
-        if self._has_ability(obj, "defender"):
+        # Defender can't attack unless an effect granted a temporary override
+        # (mirrors combat.py's _can_attack, e.g. Timid Shieldbearer).
+        if self._has_ability(obj, "defender") and not getattr(
+                obj.state, "can_attack_despite_defender", False):
             return False
-        if getattr(obj.state, "summoning_sickness", False) and not self._has_ability(obj, "haste"):
-            return False
-        return True
+        if self._has_ability(obj, "haste"):
+            return True
+        # Summoning sickness — mirror combat.py's AUTHORITATIVE check
+        # (`entered_zone_at == state.timestamp`). The per-object
+        # `summoning_sickness` flag is set on battlefield entry but only
+        # *maintained* by some engines (Hearthstone / finance / minecraft / …);
+        # under the MTG turn manager nothing ever clears it, so it is a stale
+        # always-True signal. Trusting it made every MTG creature read as unable
+        # to attack, silently blanking all attack-based valuation — lethal
+        # detection, attack/evasive pressure, blocker coverage, and the X-ability
+        # board-pump EV. Trust the timestamp when present (what combat actually
+        # enforces); fall back to the flag only when no timestamp is available.
+        entered = getattr(obj, "entered_zone_at", None)
+        ts = getattr(self.state, "timestamp", None)
+        if entered is not None and ts is not None:
+            return entered != ts
+        return not getattr(obj.state, "summoning_sickness", False)
 
     def _can_block(self, obj: 'GameObject') -> bool:
         if obj.state.tapped:

@@ -1476,11 +1476,230 @@ class AIEngine:
                     efficiency = stats_total / mv
                     breakdown.graveyard_activation += 1.0 + (efficiency * 0.3)
 
+        # X-cost activated abilities (Mirror Entity, Boommobile, Likeness Looter,
+        # Winter, Mindspring, ...). priority.py bakes action.x_value = the max
+        # affordable X, but with no board awareness the AI would fire them on
+        # generic value at blind max-X. Re-value by board impact and pick the X
+        # that is actually best — lethal pump, kill the right target, copy the
+        # best graveyard creature, draw without decking, etc. A value of ~0 means
+        # "no board benefit right now", so the AI passes instead of firing (e.g.
+        # a board pump with no attack-ready creatures).
+        if (
+            action.type == ActionType.ACTIVATE_ABILITY
+            and int(getattr(action, "x_value", 0) or 0) >= 1
+        ):
+            try:
+                xa_value, xa_optimal = self._score_x_ability(
+                    action, state, evaluator, player_id
+                )
+                if int(xa_optimal) >= 1:
+                    action.x_value = int(xa_optimal)
+                breakdown.x_ability = xa_value
+            except Exception:
+                pass
+
         return ActionCandidateScore(
             action=action,
             bucket=bucket,
             breakdown=breakdown,
         )
+
+    @staticmethod
+    def _classify_x_ability(blob: str) -> str:
+        """Classify an X-cost activated ability from '<ability desc> <card text>'.
+
+        Order matters: more specific patterns first.
+        """
+        b = blob
+        if "draw" in b and "x card" in b:
+            return "draw"
+        if "copy" in b and "graveyard" in b and "mana value x" in b:
+            return "copy_gy"
+        if "copy" in b and "abilit" in b and "x time" in b:
+            return "copy_ability"
+        if "-x/-x" in b:
+            return "debuff"
+        if (("creatures you control" in b or "each creature you control" in b)
+                and ("x/x" in b or "+x/+x" in b)):
+            return "board_pump"
+        if "x damage" in b:
+            return "damage"
+        if "+x/+x" in b or "x/x" in b:
+            return "self_pump"
+        return "unknown"
+
+    def _score_x_ability(self, action, state, evaluator, player_id):
+        """Board-aware (value, optimal_X) for an X-cost activated ability.
+
+        priority.py bakes action.x_value = the max affordable X. This re-values
+        the ability by its board impact and returns ``(value, optimal_X)`` with
+        optimal_X in ``[1, max]`` (always payable). ``value`` is on the
+        breakdown scale (~1-2.5 = strong play, >=6 = lethal/dominant). A value of
+        0.0 means "no board benefit now", so the AI won't fire it.
+        """
+        from src.engine import get_power, get_toughness, CardType
+
+        max_x = int(getattr(action, "x_value", 0) or 0)
+        if max_x < 1:
+            return 0.0, max_x
+
+        src = state.objects.get(getattr(action, "source_id", None))
+        desc = (getattr(action, "description", "") or "").lower()
+        text = ""
+        if src is not None and getattr(src, "card_def", None) is not None:
+            text = (src.card_def.text or "").lower()
+        blob = f"{desc} {text}"
+        arch = self._classify_x_ability(blob)
+
+        opp_id = self._get_opponent_id(player_id, state)
+        opp = state.players.get(opp_id) if opp_id else None
+        opp_life = int(getattr(opp, "life", 0) or 0) if opp else 0
+        LETHAL = 6.0
+
+        def my_attackers():
+            return [c for c in evaluator._creatures_for(player_id)
+                    if evaluator._can_attack_now(c)]
+
+        def live_blockers():
+            if not opp_id:
+                return []
+            return [b for b in evaluator._creatures_for(opp_id) if evaluator._can_block(b)]
+
+        # ---------------- board-wide pump (Mirror Entity / +X/+X lords) -------
+        if arch == "board_pump":
+            attackers = my_attackers()
+            if not attackers:
+                return 0.0, max_x  # nothing to swing with -> don't pump
+            is_set = ("base power" in blob) or ("become" in blob) or ("have base" in blob)
+            powers = [max(0, get_power(a, state)) for a in attackers]
+            # "become X/X" must not shrink our biggest attacker.
+            floor = max(powers) if (is_set and powers) else 1
+            if floor > max_x:
+                return 0.0, max_x
+            blockers = live_blockers()
+            nb = len(blockers)
+            # Evasive attackers (no live blocker can block them) always connect.
+            ev_powers, gr_powers = [], []
+            for a, p in zip(attackers, powers):
+                if not any(evaluator._can_block_attacker(b, a) for b in blockers):
+                    ev_powers.append(p)
+                else:
+                    gr_powers.append(p)
+            gr_powers.sort()  # opponent blocks the biggest ground attackers first
+            n_ground_through = max(0, len(gr_powers) - nb)
+            through_cur = ev_powers + gr_powers[:n_ground_through]
+            ct = len(through_cur)
+            if ct == 0:
+                return 0.0, max_x  # everything gets blocked -> pump adds no damage
+
+            def total_dmg(X):
+                return ct * X if is_set else sum(p + X for p in through_cur)
+
+            base_dmg = sum(through_cur)  # unblocked damage with no pump
+            if opp_life > 0:
+                for X in range(int(floor), max_x + 1):
+                    if total_dmg(X) >= opp_life:
+                        return LETHAL, X
+            extra = max(0, total_dmg(max_x) - base_dmg)
+            if extra <= 0:
+                return 0.0, max_x
+            return min(4.0, extra * 0.35), max_x
+
+        # ---------------- self pump ("this creature gets +X/+X") --------------
+        if arch == "self_pump":
+            if src is None or not evaluator._can_attack_now(src):
+                return 0.0, max_x
+            cp = max(0, get_power(src, state))
+            is_set = ("base power" in blob) or ("become" in blob)
+            blockers = live_blockers()
+            blockable = any(evaluator._can_block_attacker(b, src) for b in blockers)
+
+            def src_dmg(X):
+                p = (X if is_set else cp + X)
+                if not blockable:
+                    return max(0, p)
+                if evaluator._has_ability(src, "trample"):
+                    absorb = max((max(0, get_toughness(b, state)) for b in blockers
+                                  if evaluator._can_block_attacker(b, src)), default=0)
+                    return max(0, p - absorb)
+                return 0
+
+            if opp_life > 0:
+                for X in range(1, max_x + 1):
+                    if src_dmg(X) >= opp_life:
+                        return LETHAL, X
+            extra = max(0, src_dmg(max_x) - src_dmg(0))
+            if extra <= 0:
+                return 0.0, max_x
+            return min(2.5, extra * 0.3), max_x
+
+        # ---------------- direct damage ("deal X damage") ---------------------
+        if arch == "damage":
+            if opp_life > 0 and max_x >= opp_life:
+                return LETHAL, opp_life  # lethal to the face
+            best_val, best_x = 0.0, 0
+            for c in live_blockers():
+                t = max(0, get_toughness(c, state))
+                if 1 <= t <= max_x:
+                    v = evaluator._creature_value(c)
+                    if v > best_val:
+                        best_val, best_x = v, t
+            if best_x >= 1:
+                return min(4.0, best_val * 0.18), best_x
+            return min(1.5, max_x * 0.15), max_x  # chip the face, low priority
+
+        # ---------------- symmetric debuff sweep ("each ... gets -X/-X") ------
+        if arch == "debuff":
+            opp_cr = live_blockers()
+            mine = [c for c in evaluator._creatures_for(player_id)
+                    if src is None or c.id != src.id]
+            best_net, best_x = 0.0, 0
+            for X in range(1, max_x + 1):
+                opp_killed = sum(evaluator._creature_value(c) for c in opp_cr
+                                 if 1 <= max(0, get_toughness(c, state)) <= X)
+                mine_killed = sum(evaluator._creature_value(c) for c in mine
+                                  if 1 <= max(0, get_toughness(c, state)) <= X)
+                net = opp_killed - mine_killed
+                if net > best_net:
+                    best_net, best_x = net, X
+            if best_x >= 1:
+                return min(5.0, best_net * 0.18), best_x
+            return 0.0, max_x
+
+        # ---------------- draw X cards ----------------------------------------
+        if arch == "draw":
+            lib = state.zones.get(f"library_{player_id}")
+            lib_n = len(getattr(lib, "objects", []) or []) if lib is not None else max_x
+            # never draw the deck dry: cap at library size minus a 1-card buffer
+            x = min(max_x, max(0, lib_n - 1))
+            if x < 1:
+                return 0.0, max_x
+            return min(3.5, x * 0.6), x
+
+        # ---------------- copy a graveyard creature with MV X -----------------
+        if arch == "copy_gy":
+            from src.engine.library_search import _mana_value as _mv
+            gy = state.zones.get(f"graveyard_{player_id}")
+            ids = list(getattr(gy, "objects", []) or []) if gy else []
+            best_val, best_x = 0.0, 0
+            for cid in ids:
+                c = state.objects.get(cid)
+                if c is None or CardType.CREATURE not in c.characteristics.types:
+                    continue
+                mv = _mv(getattr(c.characteristics, "mana_cost", "") or "")
+                if 1 <= mv <= max_x:
+                    v = evaluator._creature_value(c)
+                    if v > best_val:
+                        best_val, best_x = v, mv
+            if best_x >= 1:
+                return min(3.0, best_val * 0.2), best_x
+            return 0.0, max_x
+
+        # ---------------- copy an ability X times (Gogo) ----------------------
+        if arch == "copy_ability":
+            return 0.5, max_x  # niche: modest value, copy as many times as affordable
+
+        return 0.0, max_x
 
     def _action_bucket(self, action: 'LegalAction', state: 'GameState') -> str:
         from src.engine import ActionType, CardType
