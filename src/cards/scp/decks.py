@@ -1,6 +1,6 @@
 """SCP: SECURE / CONTAIN / SUBVERT — starter decks (2 archetypes per faction).
 
-Four 40-card pinnacle decks built from the scp2 pool. Each Foundation deck satisfies the
+Four 40-card pinnacle decks built from the scp pool. Each Foundation deck satisfies the
 anomaly-density rule (≥ 18 Containment points of *real* anomalies — traps don't count, per
 spec §2), so it can always draw a win-con. Two archetypes per side keeps the Phase-4
 balance matrix honest:
@@ -15,14 +15,14 @@ balance matrix honest:
                                           (Leak/Wetwork + freeing) for the secondary win.
 
 Each deck is (identity, list[CardDefinition]); the identity is installed at setup, the list
-becomes the 40-card library. Decks are validated by tests/test_scp2_cards.py.
+becomes the 40-card library. Decks are validated by tests/test_scp_cards.py.
 """
 
 from __future__ import annotations
 
 from src.engine.types import CardDefinition, CardType
-from src.cards.scp2 import foundation as F
-from src.cards.scp2 import insurgency as I
+from src.cards.scp import foundation as F
+from src.cards.scp import insurgency as I
 
 DECK_SIZE = 40
 MIN_ANOMALY_DENSITY = 18  # spec §2: ≥18 Containment points of real anomalies per Foundation deck
@@ -41,8 +41,8 @@ def anomaly_density(deck: list[CardDefinition]) -> int:
     """Sum of Value across non-trap anomalies — the deck's guaranteed containment ceiling."""
     total = 0
     for cd in deck:
-        if getattr(cd, "scp2_kind", None) == CardType.SCP2_ANOMALY and not getattr(cd, "scp2_trap", False):
-            total += int(getattr(cd, "scp2_value", 0) or 0)
+        if getattr(cd, "scp_kind", None) == CardType.SCP_ANOMALY and not getattr(cd, "scp_trap", False):
+            total += int(getattr(cd, "scp_value", 0) or 0)
     return total
 
 
@@ -133,12 +133,12 @@ def containment_breach() -> list[CardDefinition]:
 # Site-19 Command identity; both Insurgency decks share Black Queen Cell (one
 # identity per faction in v0.1, per rules §11).
 # ===========================================================================
-SCP2_FOUNDATION_DECKS = {
-    "SCP2_site19_containment": (F.SITE_19_COMMAND, site19_containment),
-    "SCP2_blackfile_bait": (F.SITE_19_COMMAND, blackfile_bait),
+SCP_FOUNDATION_DECKS = {
+    "SCP_site19_containment": (F.SITE_19_COMMAND, site19_containment),
+    "SCP_blackfile_bait": (F.SITE_19_COMMAND, blackfile_bait),
 }
-SCP2_INSURGENCY_DECKS = {
-    "SCP2_black_queen_cell": (I.BLACK_QUEEN_CELL, black_queen_cell),
-    "SCP2_containment_breach": (I.BLACK_QUEEN_CELL, containment_breach),
+SCP_INSURGENCY_DECKS = {
+    "SCP_black_queen_cell": (I.BLACK_QUEEN_CELL, black_queen_cell),
+    "SCP_containment_breach": (I.BLACK_QUEEN_CELL, containment_breach),
 }
-SCP2_DECKS = {**SCP2_FOUNDATION_DECKS, **SCP2_INSURGENCY_DECKS}
+SCP_DECKS = {**SCP_FOUNDATION_DECKS, **SCP_INSURGENCY_DECKS}

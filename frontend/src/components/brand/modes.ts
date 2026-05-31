@@ -15,7 +15,7 @@ export type GameModeId =
   | 'finance'
   | 'depths'
   | 'scp'
-  | 'scp2'
+  | 'scp'
   | 'cats'
   | 'clankers';
 
@@ -44,7 +44,7 @@ export interface GameModeMeta {
     | '/fin'
     | '/depths'
     | '/scp'
-    | '/scp2'
+    | '/scp'
     | '/cats'
     | '/clankers';
 }
@@ -114,15 +114,6 @@ export const GAME_MODES: GameModeMeta[] = [
     gameViewSuffix: '/depths',
   },
   {
-    id: 'scp',
-    code: 'SCP',
-    name: 'SCP',
-    title: 'SCP: Secure / Contain / Protect',
-    blurb: 'Open dossiers, contain anomalies, mind the breach.',
-    accent: 'violet',
-    gameViewSuffix: '/scp',
-  },
-  {
     id: 'cats',
     code: 'CATS',
     name: 'Cats',
@@ -141,13 +132,13 @@ export const GAME_MODES: GameModeMeta[] = [
     gameViewSuffix: '/clankers',
   },
   {
-    id: 'scp2',
-    code: 'SCP2',
+    id: 'scp',
+    code: 'SCP',
     name: 'SCP: Subvert',
     title: 'SCP: Secure / Contain / Subvert',
     blurb: 'Asymmetric. Foundation contains anomalies; Chaos Insurgency breaks them loose.',
     accent: 'violet',
-    gameViewSuffix: '/scp2',
+    gameViewSuffix: '/scp',
   },
 ];
 

@@ -66,19 +66,6 @@ export type ActionType =
   | 'FIN_END_TURN'
   | 'FIN_PLAY_RESPONSE'
   | 'FIN_PASS_RESPONSE'
-  | 'SCP_OPEN_DOSSIER'
-  | 'SCP_REVEAL_DOSSIER'
-  | 'SCP_RESEARCH'
-  | 'SCP_CONTAIN'
-  | 'SCP_SUPPRESS'
-  | 'SCP_SPEND_ETHICS'
-  | 'SCP_SHIFT_MOOD'
-  | 'SCP_CROSS_CONTAIN'
-  | 'SCP_MEMORY_HOLE'
-  | 'SCP_APPLY_PROTOCOL'
-  | 'SCP_RESOLVE_INCIDENT'
-  | 'SCP_ACTIVATE_ABILITY'
-  | 'SCP_END_TURN'
   | 'CATS_PLAY_CARD'
   | 'CATS_CHOOSE_PILE'
   | 'CATS_KNOCK_OVER'
@@ -98,14 +85,14 @@ export type ActionType =
   | 'CLANKERS_REFILL_DECISION'
   | 'CLANKERS_END_PHASE'
   | 'CLANKERS_PASS_PHASE'
-  | 'SCP2_GAIN'
-  | 'SCP2_DRAW'
-  | 'SCP2_PLAY'
-  | 'SCP2_ADVANCE'
-  | 'SCP2_CONTAIN'
-  | 'SCP2_INFILTRATE'
-  | 'SCP2_ACTIVATE'
-  | 'SCP2_END_TURN';
+  | 'SCP_GAIN'
+  | 'SCP_DRAW'
+  | 'SCP_PLAY'
+  | 'SCP_ADVANCE'
+  | 'SCP_CONTAIN'
+  | 'SCP_INFILTRATE'
+  | 'SCP_ACTIVATE'
+  | 'SCP_END_TURN';
 
 export type Phase =
   | 'BEGINNING'
@@ -431,7 +418,7 @@ export interface GameState {
   // the parent's board. Engine-side subgame execution is a follow-up
   // feature; the field is here so the contract is stable from day one.
   subgame?: GameState | null;
-  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'scp2' | 'cats' | 'clankers';
+  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'scp' | 'cats' | 'clankers';
   variant?: string | null;
   max_hand_size?: number;
   // Pokemon zones
@@ -534,7 +521,7 @@ export interface FinancePendingResponse {
 // Request/Response Types
 export interface CreateMatchRequest {
   mode: MatchMode;
-  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'scp2' | 'cats' | 'clankers';
+  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'scp' | 'cats' | 'clankers';
   variant?: string;
   ultra_agent?: 'claude' | 'codex';
   ultra_model?: string;
@@ -586,8 +573,8 @@ export interface PlayerActionRequest {
   index?: number;
   amount?: number;
   // Clankers-specific — names match src/server/models.py PlayerActionRequest
-  cell_id?: number;                    // SCP2 containment cell id for install/advance/contain
-  scp2_target?: string[];              // SCP2 ['cell','3'] | ['central','research'] for layer install / infiltrate
+  cell_id?: number;                    // SCP containment cell id for install/advance/contain
+  scp_target?: string[];              // SCP ['cell','3'] | ['central','research'] for layer install / infiltrate
   target_chassis_id?: string;          // weapon/add-on attach target on CLANKERS_PLAY_CARD or CLANKERS_ATTACH_PART
   part_obj_id?: string;                // CLANKERS_ATTACH_PART floor-part id
   source_obj_id?: string;              // CLANKERS_ACTIVATE_ABILITY source
@@ -607,7 +594,7 @@ export interface ActionResultResponse {
 
 // Bot Game Types
 export interface StartBotGameRequest {
-  mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'scp2' | 'cats' | 'clankers';
+  mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'scp' | 'cats' | 'clankers';
   bot1_deck: string[];
   bot2_deck: string[];
   bot1_deck_id?: string;

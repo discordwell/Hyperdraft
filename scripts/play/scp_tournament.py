@@ -7,11 +7,11 @@ the Phase-4 goal (rules §10) is a healthy split where neither faction wins >~55
 are decided by play, not by which seat you were dealt.
 
 Usage:
-    python -m scripts.play.scp2_tournament --games 25
-    python -m scripts.play.scp2_tournament --games 25 --out logs/scp2_tournament.json
+    python -m scripts.play.scp_tournament --games 25
+    python -m scripts.play.scp_tournament --games 25 --out logs/scp_tournament.json
 
 The play_game / run_tournament functions are importable so balance *probes* can reuse them
-after monkeypatching scp2 tuning constants — the cheap "disprove before you commit" loop.
+after monkeypatching scp tuning constants — the cheap "disprove before you commit" loop.
 """
 
 from __future__ import annotations
@@ -24,26 +24,26 @@ from collections import Counter, defaultdict
 from typing import Optional
 
 from src.engine.game import Game
-from src.engine import scp2
-from src.cards.scp2 import decks as D
-from src.ai.scp2_adapter import SCP2AIAdapter, DispatchSCP2AIAdapter
+from src.engine import scp
+from src.cards.scp import decks as D
+from src.ai.scp_adapter import SCPAIAdapter, DispatchSCPAIAdapter
 
 DEFAULT_TURN_CAP = 200
 
 
 async def play_game(foundation_label: str, insurgency_label: str, seed: int,
                     difficulty: str = "medium", turn_cap: int = DEFAULT_TURN_CAP) -> dict:
-    g = Game(mode="scp2")
+    g = Game(mode="scp")
     f = g.add_player("Foundation")
     i = g.add_player("Insurgency")
-    fident, fbuild = D.SCP2_FOUNDATION_DECKS[foundation_label]
-    iident, ibuild = D.SCP2_INSURGENCY_DECKS[insurgency_label]
-    scp2.setup_scp2_game(g, f, i, foundation_deck=fbuild(), insurgency_deck=ibuild(),
+    fident, fbuild = D.SCP_FOUNDATION_DECKS[foundation_label]
+    iident, ibuild = D.SCP_INSURGENCY_DECKS[insurgency_label]
+    scp.setup_scp_game(g, f, i, foundation_deck=fbuild(), insurgency_deck=ibuild(),
                          foundation_identity=fident, insurgency_identity=iident,
                          rng=__import__("random").Random(seed))
-    handler = DispatchSCP2AIAdapter({
-        f.id: SCP2AIAdapter(difficulty),
-        i.id: SCP2AIAdapter(difficulty),
+    handler = DispatchSCPAIAdapter({
+        f.id: SCPAIAdapter(difficulty),
+        i.id: SCPAIAdapter(difficulty),
     })
     g.turn_manager.set_ai_handler(handler)
     g.turn_manager.set_ai_player(f.id)
@@ -58,10 +58,10 @@ async def play_game(foundation_label: str, insurgency_label: str, seed: int,
         events = await g.turn_manager.run_turn()
         turns += 1
         for e in events:
-            if e.type.name == "SCP2_WIN":
+            if e.type.name == "SCP_WIN":
                 win = e.payload
-    fr = scp2.ensure_scp2_state(g.state, f.id)
-    ir = scp2.ensure_scp2_state(g.state, i.id)
+    fr = scp.ensure_scp_state(g.state, f.id)
+    ir = scp.ensure_scp_state(g.state, i.id)
     winner_faction = None
     if win:
         winner_faction = "Foundation" if win.get("winner") == f.id else "Insurgency"
@@ -77,8 +77,8 @@ async def play_game(foundation_label: str, insurgency_label: str, seed: int,
 def run_tournament(games: int = 25, difficulty: str = "medium",
                    turn_cap: int = DEFAULT_TURN_CAP, base_seed: int = 1000) -> list[dict]:
     results = []
-    for fl in D.SCP2_FOUNDATION_DECKS:
-        for il in D.SCP2_INSURGENCY_DECKS:
+    for fl in D.SCP_FOUNDATION_DECKS:
+        for il in D.SCP_INSURGENCY_DECKS:
             for k in range(games):
                 seed = base_seed + k
                 results.append(asyncio.run(play_game(fl, il, seed, difficulty, turn_cap)))
@@ -114,8 +114,8 @@ def summarize(results: list[dict]) -> dict:
 
 def print_report(results: list[dict]) -> dict:
     s = summarize(results)
-    print(f"\n=== scp2 balance — {s['games']} games "
-          f"({len(D.SCP2_FOUNDATION_DECKS)}×{len(D.SCP2_INSURGENCY_DECKS)} pairings) ===")
+    print(f"\n=== scp balance — {s['games']} games "
+          f"({len(D.SCP_FOUNDATION_DECKS)}×{len(D.SCP_INSURGENCY_DECKS)} pairings) ===")
     print(f"Foundation win%: {s['foundation_winrate']}   Insurgency win%: {s['insurgency_winrate']}"
           f"   (goal: neither >~55)")
     print(f"avg turns/game: {s['avg_turns']}   stalls (hit cap): {s['stalls']}")

@@ -417,9 +417,9 @@ class Game:
         if self.state.game_mode == "minecraft":
             from .minecraft import handle_avatar_deaths
             events.extend(handle_avatar_deaths(self))
-        elif self.state.game_mode == "scp2":
-            from .scp2 import check_scp2_win
-            events.extend(check_scp2_win(self))
+        elif self.state.game_mode == "scp":
+            from .scp import check_scp_win
+            events.extend(check_scp_win(self))
         else:
             for player in self.state.players.values():
                 if player.life <= 0 and not player.has_lost:

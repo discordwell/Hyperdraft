@@ -690,19 +690,19 @@ class EventType(Enum):
     CLANKERS_REFILL_DECLINED = auto()       # Marker: a player declined the refill.
     CLANKERS_ACTIVATE = auto()              # Marker: an activated ability fired. Payload: {'player_id', 'source_id', 'ability_index', 'targets', 'compute_paid', 'exhausted_self'}
 
-    # SCP2 (Foundation vs Insurgency) — see src/engine/scp2.py.
-    SCP2_INSTALL = auto()         # A card was installed. Payload: {'player','object_id','kind'}
-    SCP2_ADVANCE = auto()         # An anomaly gained an advancement token. Payload: {'player','object_id','advancement'}
-    SCP2_CONTAIN = auto()         # An anomaly locked into containment. Payload: {'player','object_id','value','containment_points'}
-    SCP2_INFILTRATE = auto()      # The Insurgency began a run. Payload: {'player','target'}
-    SCP2_LAYER_ENCOUNTER = auto() # A layer was encountered during a run. Payload: {'player','layer_id','rezzed','broken'}
-    SCP2_ACCESS = auto()          # The Insurgency accessed a target. Payload: {'player','target'}
-    SCP2_FREE = auto()            # An anomaly was freed/stolen. Payload: {'player','object_id','value','liberation_points'}
-    SCP2_BREACH = auto()          # Total Breach increased. Payload: {'amount','total_breach'}
-    SCP2_DAMAGE = auto()          # Damage dealt to the Insurgency. Payload: {'player','amount'}
-    SCP2_EXPOSE = auto()          # The Insurgency was exposed (tagged). Payload: {'player'}
-    SCP2_WIN = auto()             # A faction met a win condition. Payload: {'winner','loser','reason'}
-    SCP2_ACTIVATE = auto()        # An installed asset/tool ability was activated. Payload: {'player','object_id'}
+    # SCP (Foundation vs Insurgency) — see src/engine/scp.py.
+    SCP_INSTALL = auto()         # A card was installed. Payload: {'player','object_id','kind'}
+    SCP_ADVANCE = auto()         # An anomaly gained an advancement token. Payload: {'player','object_id','advancement'}
+    SCP_CONTAIN = auto()         # An anomaly locked into containment. Payload: {'player','object_id','value','containment_points'}
+    SCP_INFILTRATE = auto()      # The Insurgency began a run. Payload: {'player','target'}
+    SCP_LAYER_ENCOUNTER = auto() # A layer was encountered during a run. Payload: {'player','layer_id','rezzed','broken'}
+    SCP_ACCESS = auto()          # The Insurgency accessed a target. Payload: {'player','target'}
+    SCP_FREE = auto()            # An anomaly was freed/stolen. Payload: {'player','object_id','value','liberation_points'}
+    SCP_BREACH = auto()          # Total Breach increased. Payload: {'amount','total_breach'}
+    SCP_DAMAGE = auto()          # Damage dealt to the Insurgency. Payload: {'player','amount'}
+    SCP_EXPOSE = auto()          # The Insurgency was exposed (tagged). Payload: {'player'}
+    SCP_WIN = auto()             # A faction met a win condition. Payload: {'winner','loser','reason'}
+    SCP_ACTIVATE = auto()        # An installed asset/tool ability was activated. Payload: {'player','object_id'}
 
 
 class EventStatus(Enum):
@@ -870,15 +870,15 @@ class CardType(Enum):
     CLANKERS_STRUCTURE = auto()  # Workshop fixture providing passive global effects. Max 3 per player.
     CLANKERS_CORE = auto()       # The AI itself. Commander-equivalent. Lives in COMMAND zone. Carries workshop_integrity (HP).
 
-    # SCP: SECURE / CONTAIN / SUBVERT (asymmetric Foundation-vs-Insurgency rebuild) — see src/engine/scp2.py.
-    SCP2_ANOMALY = auto()      # Foundation "agenda": installed face-down, advanced over turns to contain for points.
-    SCP2_LAYER = auto()        # Foundation "ICE": a containment layer guarding a site; rezzed on encounter.
-    SCP2_ASSET = auto()        # Foundation installed econ/utility (persistent).
-    SCP2_OPERATION = auto()    # Foundation one-shot operation.
-    SCP2_OPERATIVE = auto()    # Insurgency breaker/body (cracks a layer type).
-    SCP2_TOOL = auto()         # Insurgency installed hardware/resource (persistent).
-    SCP2_EVENT = auto()        # Insurgency one-shot event (often a run).
-    SCP2_IDENTITY = auto()     # Faction identity: base stats + a passive, installed at setup.
+    # SCP: SECURE / CONTAIN / SUBVERT (asymmetric Foundation-vs-Insurgency rebuild) — see src/engine/scp.py.
+    SCP_ANOMALY = auto()      # Foundation "agenda": installed face-down, advanced over turns to contain for points.
+    SCP_LAYER = auto()        # Foundation "ICE": a containment layer guarding a site; rezzed on encounter.
+    SCP_ASSET = auto()        # Foundation installed econ/utility (persistent).
+    SCP_OPERATION = auto()    # Foundation one-shot operation.
+    SCP_OPERATIVE = auto()    # Insurgency breaker/body (cracks a layer type).
+    SCP_TOOL = auto()         # Insurgency installed hardware/resource (persistent).
+    SCP_EVENT = auto()        # Insurgency one-shot event (often a run).
+    SCP_IDENTITY = auto()     # Faction identity: base stats + a passive, installed at setup.
 
 
 class Color(Enum):
@@ -1631,11 +1631,11 @@ class GameState:
     minecraft_combat: dict[str, Any] = field(default_factory=dict)
 
 
-    # SCP2 (Foundation vs Insurgency rebuild): one record per player holding
+    # SCP (Foundation vs Insurgency rebuild): one record per player holding
     # faction, resources (credits/AP), win counters (containment/liberation),
     # the shared Total Breach (kept on the Foundation's record), and board
-    # structures (remote cells + central-access layer stacks). See scp2.py.
-    scp2_state: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # structures (remote cells + central-access layer stacks). See scp.py.
+    scp_state: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     # Depths (submarine fleet) mode state. depths_combat tracks the
     # active engagement (analogous to minecraft_combat) — populated by

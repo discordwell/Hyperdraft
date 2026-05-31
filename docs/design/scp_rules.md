@@ -1,6 +1,6 @@
 # SCP — SECURE / CONTAIN / SUBVERT (rules spec v0.1)
 
-> Working title. The engine code namespace is `scp2`. Final user-facing name is open (see
+> Working title. The engine code namespace is `scp`. Final user-facing name is open (see
 > §11). This is the **Phase-0 sign-off artifact** for the asymmetric SCP rebuild — approve or
 > redline this before any engine code is written. Plan: `~/.claude/plans/cosmic-dancing-pearl.md`.
 
@@ -170,13 +170,13 @@ under-defend a real anomaly and dare the Insurgency to commit. Hidden installs +
 | Total Breach ≥ **14** | **Insurgency wins** (secondary — "unleash") |
 
 No self-inflicted loss exists. Checked after every state-changing action (a single
-`check_scp2_win(game)` analogous to `check_scp_victory`, but symmetric across the two win axes).
+`check_scp_win(game)` analogous to `check_scp_victory`, but symmetric across the two win axes).
 
 ---
 
 ## 8. Card-type taxonomy & example cards
 
-New `CardType.SCP2_*` members (Phase 1). ~10 examples per type below; reuse existing SCP **art and
+New `CardType.SCP_*` members (Phase 1). ~10 examples per type below; reuse existing SCP **art and
 lore** (`frontend/public/scp-art/`, the FBN/GOI card names) re-skinned onto these roles.
 
 **Foundation — Anomalies** (Threshold/Value · on-lock / on-free):
@@ -242,17 +242,17 @@ Two archetypes per side keeps the Phase-4 matrix honest (no single dominant line
 AP **4** · start credits 5 · gain +2 · draw 1/turn · max hand 5 · deck 40 · anomaly density ≥18 ·
 Containment target **6** · Liberation target 7 · Total Breach catastrophe **14** · anomaly lines
 3/1, 4/2, 5/3 · layer strength 1–6 · breaker power 1–2 + boost. (Engine constants in
-`src/engine/scp2.py`; `BREACH_FREE_MULTIPLIER` left at 1.0.)
+`src/engine/scp.py`; `BREACH_FREE_MULTIPLIER` left at 1.0.)
 
 **Phase-4 result.** Baseline self-play was a 0%/100% Foundation/Insurgency sweep (breach
 arrived in ~8 turns while containment needed ~3-4 locks). A runtime-probe sweep
-(`scripts/play/scp2_tournament.py`) showed the imbalance was multi-causal — single levers
+(`scripts/play/scp_tournament.py`) showed the imbalance was multi-causal — single levers
 barely moved it (removing breach-from-freeing entirely still lost 4%/96% as the Insurgency
 pivoted to liberation). The adopted fix is **buff-leaning** (per the buff-before-nerf
 principle): AP 3→4, containment target 7→6, breach catastrophe 10→14, *no* nerf to the value
 of freeing. Result over 100 games: **51% / 49%**, all four win conditions live (containment
 50, total_breach 42, liberation 7, burnout 1), avg ~21 turns, zero stalls. Guarded by
-`tests/test_scp2_balance.py`.
+`tests/test_scp_balance.py`.
 
 **Liberation-axis buff (done).** The liberation axis was underpowered (7/100 wins) — the
 *Black Queen Cell* steal/tempo deck couldn't close on its own axis. Fixed by making the
@@ -274,9 +274,9 @@ for cleaner "freeing adds its Value to Breach" rules.)
 ---
 
 ## 11. Phase-0 decisions (RESOLVED — locked for Phase 1)
-1. **Name.** Working **"SCP: SECURE / CONTAIN / SUBVERT"**. Code namespace `scp2`. (Open to a
+1. **Name.** Working **"SCP: SECURE / CONTAIN / SUBVERT"**. Code namespace `scp`. (Open to a
    rename later; not blocking.)
-2. **Coexistence:** ✅ **Build alongside** the existing SCP engine in a new `scp2` namespace; flip
+2. **Coexistence:** ✅ **Build alongside** the existing SCP engine in a new `scp` namespace; flip
    the default mode once proven; retire old SCP in a follow-up. The existing `scp.py` is untouched.
 3. **Economy:** ✅ **Single credit pool per side** (Funding / Cells). No separate advance budget.
 4. **Turn structure:** ✅ **Strict alternation, both draw 1** at start of turn. Asymmetry lives in
@@ -287,11 +287,11 @@ for cleaner "freeing adds its Value to Breach" rules.)
 ---
 
 ## 12. Verification (how we'll know each phase is real)
-- **Phase 1:** unit tests for every mechanic in §4–7 (`tests/test_scp2.py`), incl. a fog-of-war test
+- **Phase 1:** unit tests for every mechanic in §4–7 (`tests/test_scp.py`), incl. a fog-of-war test
   asserting the Insurgency payload never contains a face-down identity.
 - **Phase 2:** `/test-interceptors` per card (the effect gate).
 - **Phase 3:** `/card-fire-debug` (the fire gate — the AI must actually use each card in self-play).
-- **Phase 4:** `scripts/play/scp2_tournament.py` reports the win/lose-reason split and per-seat
+- **Phase 4:** `scripts/play/scp_tournament.py` reports the win/lose-reason split and per-seat
   winrate; tune to the §10 goal.
 - **Phase 5:** wet + hard-wet browser tests; fog of war holds against a hostile client.
 - `scripts/ci_quick.sh` green (no new failures vs. baseline) before any "tests pass" claim.

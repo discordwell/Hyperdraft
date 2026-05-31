@@ -1,726 +1,313 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ReactNode } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { useSCPGame } from '../hooks/useSCPGame';
+/**
+ * SCPGameView — SCP: SECURE / CONTAIN / SUBVERT (asymmetric Foundation vs Chaos Insurgency).
+ *
+ * Functional fog-of-war board. The Foundation builds containment cells (face-down anomalies
+ * advanced "in the open" — token count public, identity not — behind layer stacks); the Chaos
+ * Insurgency builds a rig of breakers and infiltrates. Dossier aesthetic: dark slate, monospace
+ * stat lines, [CLASSIFIED] / [FACE-DOWN] bars for anything the viewer can't see.
+ *
+ * Self-bootstraps from the route (mirrors GameView's spectator join) so a direct
+ * /game/:matchId/scp link works; reads the viewer-redacted state via useSCPGame.
+ */
+import { useEffect, useState } from 'react';
+import { useParams } from 'react-router-dom';
 import { useGameStore } from '../stores/gameStore';
 import { matchAPI } from '../services/api';
-import { ChoiceModal } from '../components/actions/ChoiceModal';
-import { usePendingChoice } from '../hooks/usePendingChoice';
-import { GameViewLayout } from '../components/brand';
-import { useDiscoveryStore } from '../stores/discoveryStore';
 import {
-  SCPCardPanel,
-  SCPEmpty,
-  SCPSection,
-  SCPSitePanel,
-  SCPStat,
-} from '../components/game/SCPBoard';
-import { useCardInspector } from '../hooks/useCardInspector';
-import type { InspectorAction } from '../hooks/useCardInspector';
-import { useHandCard } from '../hooks/useHandCard';
-import { useCardZone } from '../hooks/useCardZone';
-import ZoneHighlight from '../components/cards/ZoneHighlight';
-import type { CardData, SCPIncident } from '../types';
+  useSCPGame,
+  type SCPCard,
+  type SCPCell,
+  type SCPSeat,
+} from '../hooks/useSCPGame';
 
-// ---- Shared card-zone primitive ----------------------------------------
-//
-// SCP wires two drop zones for the viewer's side:
-//   - SCP_ACTIVE_ANOMALY_ZONE — the universal "Open" intake. Any dossier
-//     (anomaly, personnel, facility, etc.) can be dropped here; the engine
-//     decides whether it actually enters as an active anomaly or routes
-//     through Pending. This mirrors the existing inline "Open" button.
-//   - SCP_CONTAINED_ZONE — anomaly-only "Seal" lane. Dropping fires the
-//     same action as the inline "Seal" button (`openDossier(card.id,
-//     false, true)`).
-//
-// Drop dispatches the FIRST step of the play; any follow-up flow (protocol
-// picker, personnel assignment) is still driven by the existing chrome
-// below — same "drop then engine resolves" pattern as Clankers.
+const ACCENT = { foundation: '#a78bfa', insurgency: '#f87171' } as const;
 
-const SCP_ENGINE_ID = 'scp';
-const SCP_ACCENT = '#f97316'; // orange — anomaly warning
-const SCP_ACTIVE_ANOMALY_ZONE = 'scp-active-anomaly-me';
-const SCP_CONTAINED_ZONE = 'scp-contained-me';
-
-// SCPGameView is the *interactive* SCP match page. The pure visual primitives
-// (SCPSitePanel / SCPCardPanel / SCPSection / SCPStat / SCPEmpty) live in
-// `components/game/SCPBoard.tsx` so spectator + replay dispatch can render
-// the same slate/cyan dossier identity without depending on `useSCPGame`.
-// This page composes those primitives with its own action chrome (hand,
-// action buttons, protocol picker, incident resolver, end turn).
-
-const PROTOCOLS = ['mirror_box', 'no_eye_contact', 'feed_it_lies', 'ritual_diagram'];
-const MOODS = ['docile', 'agitated', 'cryptic', 'cooperative'];
-
-function formatLabel(value: string | null | undefined): string {
-  if (!value) return 'none';
-  return value.replace(/_/g, ' ');
+function Bar({ label, value, target, color }: { label: string; value: number; target: number; color: string }) {
+  const pct = Math.min(100, Math.round((value / Math.max(1, target)) * 100));
+  return (
+    <div className="flex flex-col gap-1 min-w-[140px]">
+      <div className="flex justify-between text-[11px] uppercase tracking-widest text-slate-400">
+        <span>{label}</span>
+        <span className="font-mono text-slate-200">{value}/{target}</span>
+      </div>
+      <div className="h-2 rounded bg-slate-800 overflow-hidden">
+        <div className="h-full rounded transition-all" style={{ width: `${pct}%`, background: color }} />
+      </div>
+    </div>
+  );
 }
 
-/**
- * Compute the legal drop-zone IDs for a hand card. Empty when the viewer
- * can't act — that keeps the zones dim and the card non-draggable.
- *
- * Anomaly cards get both lanes: the universal Open lane (active anomaly
- * intake) and the anomaly-only Seal lane (contained archive). Non-anomaly
- * cards only get the Open lane — the engine handles whether they actually
- * land in Active or in Pending after the play resolves.
- */
-function scpValidZonesFor(canAct: boolean, isAnomalyCard: boolean): string[] {
-  if (!canAct) return [];
-  if (isAnomalyCard) return [SCP_ACTIVE_ANOMALY_ZONE, SCP_CONTAINED_ZONE];
-  return [SCP_ACTIVE_ANOMALY_ZONE];
-}
-
-function ActionButton({
-  children,
-  onClick,
-  disabled,
-  tone = 'neutral',
-}: {
-  children: ReactNode;
-  onClick: () => void;
-  disabled?: boolean;
-  tone?: 'neutral' | 'danger' | 'good' | 'warn';
-}) {
-  const tones = {
-    neutral: 'border-slate-600 text-slate-200 hover:bg-slate-800',
-    danger: 'border-red-800 text-red-300 hover:bg-red-950/40',
-    good: 'border-emerald-700 text-emerald-300 hover:bg-emerald-950/40',
-    warn: 'border-amber-700 text-amber-300 hover:bg-amber-950/40',
-  };
+function CardChip({ card, onClick, selected }: { card: SCPCard; onClick?: () => void; selected?: boolean }) {
+  if (card.hidden) {
+    return (
+      <div className="px-2 py-1 rounded border border-slate-700 bg-slate-900/80 text-[11px] font-mono tracking-widest text-slate-500 select-none">
+        ▮▮ CLASSIFIED
+      </div>
+    );
+  }
+  const stat =
+    card.kind === 'SCP_ANOMALY' ? `${card.trap ? 'TRAP ' : ''}${card.threshold}/${card.value}`
+    : card.kind === 'SCP_LAYER' ? `${card.ltype?.[0]?.toUpperCase()} ${card.strength}/${card.rez}`
+    : card.kind === 'SCP_OPERATIVE' ? `${card.breaks?.[0]?.toUpperCase()} p${card.power}+${card.boost}`
+    : card.cost != null ? `⌑${card.cost}` : '';
   return (
     <button
-      type="button"
-      onClick={(event) => {
-        event.stopPropagation();
-        onClick();
-      }}
-      disabled={disabled}
-      className={`rounded border px-2 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${tones[tone]}`}
+      onClick={onClick}
+      disabled={!onClick}
+      title={card.text || ''}
+      className={[
+        'px-2 py-1 rounded border text-left transition-colors',
+        selected ? 'border-violet-400 bg-violet-950/60' : 'border-slate-700 bg-slate-900 hover:bg-slate-800',
+        onClick ? 'cursor-pointer' : 'cursor-default',
+      ].join(' ')}
     >
-      {children}
+      <div className="text-[12px] text-slate-100 leading-tight max-w-[150px] truncate">{card.name}</div>
+      <div className="text-[10px] font-mono text-slate-400">{stat}</div>
     </button>
   );
 }
 
-// Activate affordance for a controlled permanent's SCP activated/modal
-// abilities. Modal abilities raise a PendingChoice on the backend, which the
-// shared ChoiceModal (driven by usePendingChoice) renders.
-export function AbilityButtons({
-  card,
-  onActivate,
-  disabled,
+function CellView({
+  cell, mine, canAct, onAdvance, onContain, onInfiltrate,
 }: {
-  card: CardData;
-  onActivate: (sourceId: string, abilityIndex: number) => void;
-  disabled: boolean;
+  cell: SCPCell; mine: boolean; canAct: boolean;
+  onAdvance?: (anomalyId: string) => void;
+  onContain?: (anomalyId: string) => void;
+  onInfiltrate?: (cellId: number) => void;
 }) {
-  const usable = (card.scp_abilities || []).filter((a) => a.affordable && !a.spent);
-  if (usable.length === 0) return null;
+  const a = cell.anomaly;
   return (
-    <div className="mt-2 flex flex-wrap gap-1">
-      {usable.map((ability) => (
-        <ActionButton
-          key={ability.index}
-          onClick={() => onActivate(card.id, ability.index)}
-          disabled={disabled}
-          tone="warn"
-        >
-          {ability.is_modal ? `Activate: choose one (${ability.cost})` : `Activate (${ability.cost})`}
-        </ActionButton>
-      ))}
-    </div>
-  );
-}
-
-function IncidentRow({
-  incident,
-  index,
-  onResolve,
-  disabled,
-}: {
-  incident: SCPIncident;
-  index: number;
-  onResolve: (index: number) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 border border-slate-700 bg-slate-900/80 px-3 py-2">
-      <div>
-        <div className="text-sm font-medium text-slate-200">{formatLabel(incident.name || `incident ${index + 1}`)}</div>
-        <div className="text-xs text-slate-500">Turn {String(incident.turn ?? '-')} · breach {String(incident.breach ?? '-')}</div>
+    <div className="flex flex-col gap-1 p-2 rounded-lg border border-slate-700 bg-slate-900/60 min-w-[150px]">
+      <div className="text-[10px] uppercase tracking-widest text-slate-500">Cell {cell.id}</div>
+      {a ? (
+        <div className="flex flex-col gap-1">
+          <div className="text-[12px] text-slate-100 truncate">
+            {a.hidden ? <span className="font-mono text-slate-500">▮▮ FACE-DOWN</span> : a.name}
+          </div>
+          <div className="flex items-center gap-1" title="advancement (public)">
+            {Array.from({ length: Math.max(a.advancement, 0) }).map((_, i) => (
+              <span key={i} className="w-2 h-2 rounded-full" style={{ background: ACCENT.foundation }} />
+            ))}
+            <span className="text-[10px] font-mono text-slate-400 ml-1">heat {a.advancement}</span>
+          </div>
+        </div>
+      ) : (
+        <div className="text-[11px] text-slate-600 italic">empty</div>
+      )}
+      <div className="flex flex-wrap gap-1 mt-1">
+        {cell.layers.length === 0 && <span className="text-[10px] text-slate-600">no layers</span>}
+        {cell.layers.map((l) => (
+          <span key={l.id} className={[
+            'px-1.5 py-0.5 rounded text-[10px] font-mono border',
+            l.rezzed ? 'border-amber-500/60 text-amber-300 bg-amber-950/30' : 'border-slate-700 text-slate-500 bg-slate-900',
+          ].join(' ')}>
+            {l.hidden ? '▮ ICE' : l.name}{l.rezzed ? ' ⚡' : ''}
+          </span>
+        ))}
       </div>
-      <ActionButton onClick={() => onResolve(index)} disabled={disabled}>Resolve</ActionButton>
+      <div className="flex gap-1 mt-1">
+        {mine && canAct && a && onAdvance && (
+          <button onClick={() => onAdvance(a.id)} className="text-[10px] px-1.5 py-0.5 rounded bg-violet-900/70 hover:bg-violet-800 text-violet-100">advance</button>
+        )}
+        {mine && canAct && a && onContain && (
+          <button onClick={() => onContain(a.id)} className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-900/70 hover:bg-emerald-800 text-emerald-100">contain</button>
+        )}
+        {!mine && canAct && onInfiltrate && (
+          <button onClick={() => onInfiltrate(cell.id)} className="text-[10px] px-1.5 py-0.5 rounded bg-rose-900/70 hover:bg-rose-800 text-rose-100">infiltrate ▸</button>
+        )}
+      </div>
     </div>
   );
 }
 
-/**
- * Hand-card wrapper that adds drag/click-prime behavior to an SCPCardPanel.
- * The card stays click-to-inspect via `onInspect` (the inspector's Play
- * actions are unchanged) — this only adds the secondary drag + prime path
- * so the user can drop directly onto the Active or Contained zone instead
- * of having to roundtrip through the modal.
- */
-function SCPHandDossier({
-  card,
-  canAct,
-  isAnomalyCard,
-  onInspect,
-  children,
-}: {
-  card: CardData;
-  canAct: boolean;
-  isAnomalyCard: boolean;
-  onInspect: () => void;
-  children?: ReactNode;
-}) {
-  const validZones = scpValidZonesFor(canAct, isAnomalyCard);
-  const handCard = useHandCard({
-    cardId: card.id,
-    cardName: card.name,
-    engineId: SCP_ENGINE_ID,
-    accent: SCP_ACCENT,
-    validZones,
-    disabled: !canAct,
-  });
+function SeatHeader({ seat, label }: { seat: SCPSeat; label: string }) {
+  const accent = ACCENT[seat.faction];
   return (
-    <div
-      draggable={handCard.draggable}
-      onDragStart={handCard.onDragStart}
-      onDragEnd={handCard.onDragEnd}
-      style={{
-        cursor: handCard.draggable ? 'grab' : undefined,
-        transform: handCard.isPrimed ? 'translateY(-6px)' : undefined,
-        filter: handCard.isPrimed ? `drop-shadow(0 0 8px ${SCP_ACCENT})` : undefined,
-        transition: 'transform 120ms ease, filter 120ms ease',
-      }}
-    >
-      <SCPCardPanel
-        card={card}
-        onClick={() => {
-          handCard.onClick();
-          onInspect();
-        }}
-      >
-        {children}
-      </SCPCardPanel>
+    <div className="flex items-center gap-4 flex-wrap">
+      <div className="flex items-center gap-2">
+        <span className="w-2.5 h-2.5 rounded-full" style={{ background: accent }} />
+        <span className="text-sm font-semibold text-slate-100">{label}</span>
+        <span className="text-[11px] uppercase tracking-widest" style={{ color: accent }}>{seat.faction}</span>
+        {seat.identity && <span className="text-[11px] text-slate-500">· {seat.identity}</span>}
+      </div>
+      <div className="flex gap-3 text-[12px] font-mono text-slate-300">
+        <span title="credits">⌑ {seat.credits}</span>
+        <span title="actions">◇ {seat.ap}</span>
+        <span title="hand">✋ {seat.hand_count}</span>
+        <span title="deck">⛁ {seat.deck_count}</span>
+        {seat.exposed > 0 && <span className="text-rose-400" title="exposed">⊘ {seat.exposed}</span>}
+      </div>
     </div>
   );
 }
 
-/**
- * Drop-zone wrapper used by the Active Anomalies and Contained Archive
- * sections. Renders a ZoneHighlight inside a position:relative container,
- * binds the useCardZone handlers, and lets its children render the panel
- * contents (the SCPCardPanel list + SCPEmpty fallback). The zone IS the
- * SCPSection wrapper — we add a thin extra container so the highlight can
- * lift the whole pile.
- */
-function SCPDropZone({
-  zoneId,
-  onPlay,
-  children,
+function SeatBoard({
+  seat, mine, canAct, onAdvance, onContain, onInfiltrate,
 }: {
-  zoneId: string;
-  onPlay: (cardId: string) => void;
-  children: ReactNode;
+  seat: SCPSeat; mine: boolean; canAct: boolean;
+  onAdvance?: (anomalyId: string) => void;
+  onContain?: (anomalyId: string) => void;
+  onInfiltrate?: (cellId: number) => void;
 }) {
-  const zone = useCardZone({ zoneId, engineId: SCP_ENGINE_ID, onPlay });
+  const isFoundation = seat.faction === 'foundation';
   return (
-    <div
-      onClick={zone.onClick}
-      onDragOver={zone.onDragOver}
-      onDragLeave={zone.onDragLeave}
-      onDrop={zone.onDrop}
-      style={{
-        position: 'relative',
-        borderRadius: 4,
-        cursor: zone.isValid ? 'pointer' : undefined,
-      }}
-    >
-      <ZoneHighlight
-        isValid={zone.isValid}
-        isHovered={zone.isHovered}
-        hasActiveCard={zone.hasActiveCard}
-        activeAccent={zone.activeAccent}
-      />
-      {children}
+    <div className="flex flex-col gap-2">
+      {isFoundation ? (
+        <div className="flex flex-wrap gap-2">
+          {seat.cells.length === 0 && <span className="text-[11px] text-slate-600 italic">no containment cells yet</span>}
+          {seat.cells.map((cell) => (
+            <CellView key={cell.id} cell={cell} mine={mine} canAct={canAct}
+              onAdvance={onAdvance} onContain={onContain} onInfiltrate={onInfiltrate} />
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          <span className="text-[10px] uppercase tracking-widest text-slate-500 w-full">Rig</span>
+          {seat.rig.length === 0 && <span className="text-[11px] text-slate-600 italic">no operatives/tools</span>}
+          {seat.rig.map((c) => <CardChip key={c.id} card={c} />)}
+        </div>
+      )}
+      {seat.assets.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <span className="text-[10px] uppercase tracking-widest text-slate-500 w-full">Assets</span>
+          {seat.assets.map((c) => <CardChip key={c.id} card={c} />)}
+        </div>
+      )}
     </div>
   );
 }
 
 export function SCPGameView() {
-  useEffect(() => useDiscoveryStore.getState().markPlayed('scp'), []);
   const { matchId } = useParams<{ matchId: string }>();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const {
-    gameState,
-    playerId,
-    isConnected: _isConnected,
-    myPlayer,
-    opponentPlayer,
-    mySite,
-    opponentSite,
-    hand,
-    myPending,
-    opponentPending,
-    activeAnomalies,
-    containedAnomalies,
-    personnel,
-    facilities,
-    mandates,
-    opponentAnomalies,
-    opponentContained,
-    opponentPersonnel,
-    incidents,
-    assignmentSlots,
-    isMyTurn,
-    isAnomaly,
-    openDossier,
-    revealDossier,
-    research,
-    contain,
-    suppress,
-    spendEthics,
-    shiftMood,
-    crossContain,
-    memoryHole,
-    applyProtocol,
-    resolveIncident,
-    activateAbility,
-    endTurn,
-    setError,
-    error,
-  } = useSCPGame();
-
-  const [selectedAnomalyId, setSelectedAnomalyId] = useState<string | null>(null);
-  const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
-  const [selectedContainedId, setSelectedContainedId] = useState<string>('');
-
-  // Shared "click to inspect, then act" modal. Additive — the inline action
-  // buttons on each hand card (Open / Fast-track / Seal) still work, and so
-  // does the existing selection + protocol picker chrome below.
-  const inspector = useCardInspector();
-
-  const {
-    pendingChoice,
-    handleChoiceSubmit,
-    isLoading: isSubmittingChoice,
-  } = usePendingChoice();
-
-  const storeMatchId = useGameStore((state) => state.matchId);
-  const storePlayerId = useGameStore((state) => state.playerId);
-  const setGameState = useGameStore((state) => state.setGameState);
-  const setConnection = useGameStore((state) => state.setConnection);
+  const storeMatchId = useGameStore((s) => s.matchId);
+  const storePlayerId = useGameStore((s) => s.playerId);
+  const setConnection = useGameStore((s) => s.setConnection);
+  const setGameState = useGameStore((s) => s.setGameState);
 
   useEffect(() => {
-    if (!matchId) return;
-    if (!storeMatchId || storeMatchId !== matchId) {
-      const queryPlayerId = new URLSearchParams(location.search).get('player_id');
-      if (!queryPlayerId) {
-        navigate('/');
-        return;
+    if (!matchId || storeMatchId === matchId) return;
+    (async () => {
+      try {
+        const initial = await matchAPI.getState(matchId);
+        const pids = Object.keys((initial.players as Record<string, unknown>) || {});
+        const me = pids[0];
+        if (!me) return;
+        setConnection(matchId, me, false);
+        const full = await matchAPI.getState(matchId, me);
+        setGameState(full);
+      } catch {
+        /* board shows "connecting" */
       }
-      setConnection(matchId, queryPlayerId, false);
-      return;
-    }
-    if (!gameState && storePlayerId) {
-      matchAPI.getState(matchId, storePlayerId)
-        .then(setGameState)
-        .catch((err) => setError(err instanceof Error ? err.message : 'Failed to fetch state'));
-    }
-  }, [matchId, storeMatchId, storePlayerId, gameState, location.search, navigate, setConnection, setGameState, setError]);
+    })();
+  }, [matchId, storeMatchId, setConnection, setGameState]);
 
-  const handleConcede = useCallback(async () => {
-    if (!matchId || !playerId) return;
-    if (!confirm('Concede?')) return;
-    try {
-      await matchAPI.concede(matchId, playerId);
-      navigate('/');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to concede');
-    }
-  }, [matchId, playerId, navigate, setError]);
+  const { state, dispatch, isConnected } = useSCPGame();
+  const [selected, setSelected] = useState<string | null>(null);
 
-  const selectedAnomaly = useMemo(
-    () => activeAnomalies.find((card) => card.id === selectedAnomalyId) || activeAnomalies[0] || null,
-    [activeAnomalies, selectedAnomalyId],
-  );
-
-  useEffect(() => {
-    if (!selectedAnomaly && selectedAnomalyId) setSelectedAnomalyId(null);
-  }, [selectedAnomaly, selectedAnomalyId]);
-
-  useEffect(() => {
-    setSelectedStaffIds((ids) => ids.filter((id) => personnel.some((card) => card.id === id && !card.scp_exhausted)));
-  }, [personnel]);
-
-  const canAct = isMyTurn();
-  const activeId = selectedAnomaly?.id || '';
-  const selectedStaffCount = selectedStaffIds.length;
-
-  const toggleStaff = (card: CardData) => {
-    setSelectedStaffIds((ids) => (
-      ids.includes(card.id) ? ids.filter((id) => id !== card.id) : [...ids, card.id]
-    ));
-  };
-
-  // Open the shared CardInspector for a hand-card. Surfaces the same set of
-  // actions the inline buttons offer (Open / Fast-track / Seal). The inline
-  // buttons stay so quick-action keyboard / muscle-memory flows are preserved.
-  const openHandCardInspector = (card: CardData) => {
-    const actions: InspectorAction[] = [];
-    const redTape = card.scp_red_tape ?? 0;
-    const anomaly = isAnomaly(card);
-
-    // openDossier returns Promise<void> (it's a socket send); we don't want
-    // to leak the promise into the inspector — wrap in a block body so the
-    // return type stays void and the modal closes immediately on click.
-    actions.push({
-      label: 'Open',
-      variant: 'primary',
-      disabled: !canAct,
-      disabledReason: !canAct ? 'Not your turn' : undefined,
-      onClick: () => {
-        void openDossier(card.id);
-      },
-    });
-    if (redTape > 0) {
-      actions.push({
-        label: 'Fast-track',
-        variant: 'secondary',
-        disabled: !canAct,
-        disabledReason: !canAct ? 'Not your turn' : undefined,
-        onClick: () => {
-          void openDossier(card.id, true);
-        },
-      });
-    }
-    if (anomaly) {
-      actions.push({
-        label: 'Seal',
-        variant: 'secondary',
-        disabled: !canAct,
-        disabledReason: !canAct ? 'Not your turn' : undefined,
-        onClick: () => {
-          void openDossier(card.id, false, true);
-        },
-      });
-    }
-
-    const typeLabel = card.types.join(' / ');
-    const subtitle = card.scp_status ? `${typeLabel} · ${card.scp_status}` : typeLabel;
-    const metaRows: { label: string; value: string }[] = [
-      { label: 'RT', value: String(card.scp_red_tape ?? 0) },
-      { label: 'CL', value: String(card.scp_clearance ?? 0) },
-    ];
-    if (anomaly) {
-      metaRows.push({
-        label: 'C/R/H',
-        value: `${card.scp_containment ?? 0} / ${card.scp_curiosity ?? 0} / ${card.scp_hazard ?? 0}`,
-      });
-    } else if (card.types.includes('SCP_PERSONNEL')) {
-      const skills = card.scp_skills ?? {};
-      metaRows.push({
-        label: 'C/R/S',
-        value: `${skills.contain ?? 0} / ${skills.research ?? 0} / ${skills.suppress ?? 0}`,
-      });
-    }
-    if (card.scp_mood) metaRows.push({ label: 'Mood', value: formatLabel(card.scp_mood) });
-
-    inspector.open(
-      {
-        id: card.id,
-        name: card.name,
-        text: card.text ?? undefined,
-        subtitle,
-        artUrl: card.image_url ?? null,
-        engine: 'scp',
-        meta: metaRows,
-      },
-      actions,
-    );
-  };
-
-  if (!gameState || !playerId) {
+  if (!state || !state.me) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950">
-        <div className="text-center">
-          <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-4 border-slate-700 border-t-cyan-400" />
-          <p className="text-sm uppercase tracking-widest text-slate-400">Opening dossier...</p>
+      <div className="min-h-screen bg-slate-950 text-slate-300 flex items-center justify-center">
+        <div className="text-sm tracking-widest uppercase text-slate-500">
+          {isConnected ? 'Loading containment site…' : 'Connecting…'}
         </div>
       </div>
     );
   }
 
-  if (gameState.is_game_over) {
-    const didWin = gameState.winner === playerId;
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950">
-        <div className="border border-slate-700 bg-slate-900 p-8 text-center">
-          <p className={`mb-4 text-2xl font-semibold uppercase tracking-wide ${didWin ? 'text-emerald-300' : 'text-red-300'}`}>
-            {didWin ? 'Archive Completed' : 'Site Lost'}
-          </p>
-          <button onClick={() => navigate('/')} className="rounded border border-slate-600 px-5 py-2 text-slate-200 hover:bg-slate-800">
-            Return to Lobby
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const me = state.me;
+  const opp = state.opponent;
+  const foundationSeat = me.faction === 'foundation' ? me : opp;
+  const insurgencySeat = me.faction === 'insurgency' ? me : opp;
+  const selectedCard = me.hand?.find((c) => c.id === selected) || null;
+  const canAct = state.yourTurn && !state.gameOver;
+  const iWon = state.winner != null && state.winner === storePlayerId;
 
-  const opponentEntryScp =
-    gameState?.players && Object.entries(gameState.players).find(([id]) => id !== playerId);
-  const opponentNameScp = opponentEntryScp
-    ? (opponentEntryScp[1] as { name?: string }).name
-    : undefined;
-  const meScp = gameState?.players?.[playerId] as { name?: string } | undefined;
+  const playSelected = () => {
+    if (!selectedCard) return;
+    dispatch({ type: 'PLAY', cardId: selectedCard.id });
+    setSelected(null);
+  };
+  const infiltrateCell = (cellId: number) => dispatch({ type: 'INFILTRATE', target: ['cell', String(cellId)] });
 
   return (
-    <GameViewLayout
-      mode="scp"
-      matchId={matchId}
-      turn={gameState.turn_number}
-      phase={canAct ? 'assignment' : 'awaiting'}
-      opponentName={opponentNameScp}
-      playerName={meScp?.name}
-      onExit={handleConcede}
-    >
-    <div className="min-h-[calc(100vh-3.5rem)] bg-slate-950 text-slate-100">
-      {error && <div className="border-b border-red-900 bg-red-950/40 px-4 py-2 text-sm text-red-300">{error}</div>}
-
-      <main className="grid gap-4 p-4 xl:grid-cols-[340px_minmax(0,1fr)_340px]">
-        <aside className="space-y-4">
-          <SCPSitePanel title={myPlayer?.name || 'Your Site'} site={mySite} />
-          <div className="grid grid-cols-2 gap-2">
-            <ActionButton onClick={() => spendEthics(2)} disabled={!canAct || (mySite.ethics_debt ?? 0) < 2} tone="warn">
-              Spend Ethics
-            </ActionButton>
-            <ActionButton onClick={endTurn} disabled={!canAct} tone="good">End Turn</ActionButton>
+    <div className="min-h-screen bg-slate-950 text-slate-200 p-4 flex flex-col gap-3">
+      {/* Header */}
+      <div className="flex items-center justify-between flex-wrap gap-3 border-b border-slate-800 pb-3">
+        <div>
+          <div className="text-lg font-semibold tracking-tight">SCP — SECURE / CONTAIN / SUBVERT</div>
+          <div className="text-[11px] uppercase tracking-widest text-slate-500">
+            {state.gameOver ? `GAME OVER · ${state.winReason ?? ''}` : state.yourTurn ? 'YOUR TURN' : "OPPONENT'S TURN"}
           </div>
+        </div>
+        <div className="flex gap-4 flex-wrap">
+          <Bar label="Containment" value={foundationSeat?.containment_points ?? 0} target={state.targets.containment} color="#34d399" />
+          <Bar label="Liberation" value={insurgencySeat?.liberation_points ?? 0} target={state.targets.liberation} color="#f87171" />
+          <Bar label="Total Breach" value={foundationSeat?.total_breach ?? 0} target={state.targets.breach} color="#fbbf24" />
+        </div>
+      </div>
 
-          <SCPSection title={`Hand (${hand.length})`}>
-            {hand.length === 0 && <SCPEmpty label="No cards in hand" />}
-            {hand.map((card) => (
-              <SCPHandDossier
-                key={card.id}
-                card={card}
-                canAct={canAct}
-                isAnomalyCard={isAnomaly(card)}
-                onInspect={() => openHandCardInspector(card)}
-              >
-                <ActionButton onClick={() => openDossier(card.id)} disabled={!canAct}>Open</ActionButton>
-                {(card.scp_red_tape ?? 0) > 0 && (
-                  <ActionButton onClick={() => openDossier(card.id, true)} disabled={!canAct} tone="warn">Fast-track</ActionButton>
-                )}
-                {isAnomaly(card) && (
-                  <ActionButton onClick={() => openDossier(card.id, false, true)} disabled={!canAct}>Seal</ActionButton>
-                )}
-              </SCPHandDossier>
-            ))}
-          </SCPSection>
-        </aside>
-
-        <section className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-4">
-            <SCPStat label="Assignments" value={assignmentSlots} tone="text-cyan-300" />
-            <SCPStat label="Active Anomalies" value={activeAnomalies.length} tone="text-red-300" />
-            <SCPStat label="Contained" value={containedAnomalies.length} tone="text-emerald-300" />
-            <SCPStat label="Incidents" value={incidents.length} tone="text-amber-300" />
-          </div>
-
-          <SCPDropZone
-            zoneId={SCP_ACTIVE_ANOMALY_ZONE}
-            onPlay={(cardId) => {
-              // Drop fires the same first step the inline "Open" button does.
-              // Any follow-up flow (personnel assignment, protocol picker)
-              // is still driven by the chrome below.
-              void openDossier(cardId);
-            }}
-          >
-            <SCPSection title="Active Anomalies">
-              {activeAnomalies.length === 0 && <SCPEmpty label="No active anomalies" />}
-              {activeAnomalies.map((card) => (
-                <SCPCardPanel
-                  key={card.id}
-                  card={card}
-                  selected={selectedAnomaly?.id === card.id}
-                  onClick={() => setSelectedAnomalyId(card.id)}
-                >
-                  <ActionButton onClick={() => research(card.id, selectedStaffIds)} disabled={!canAct} tone="warn">
-                    Research ({selectedStaffCount})
-                  </ActionButton>
-                  <ActionButton onClick={() => contain(card.id, selectedStaffIds)} disabled={!canAct} tone="good">
-                    Contain ({selectedStaffCount})
-                  </ActionButton>
-                  <ActionButton onClick={() => suppress(card.id, selectedStaffIds)} disabled={!canAct}>
-                    Suppress ({selectedStaffCount})
-                  </ActionButton>
-                </SCPCardPanel>
-              ))}
-            </SCPSection>
-          </SCPDropZone>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <SCPSection title="Available Personnel">
-              {personnel.length === 0 && <SCPEmpty label="No active personnel" />}
-              {personnel.map((card) => (
-                <SCPCardPanel
-                  key={card.id}
-                  card={card}
-                  selected={selectedStaffIds.includes(card.id)}
-                  onClick={() => !card.scp_exhausted && toggleStaff(card)}
-                >
-                  <span className={`text-xs ${card.scp_exhausted ? 'text-red-300' : 'text-emerald-300'}`}>
-                    {card.scp_exhausted ? 'Exhausted' : selectedStaffIds.includes(card.id) ? 'Assigned' : 'Ready'}
-                  </span>
-                  <AbilityButtons card={card} onActivate={activateAbility} disabled={!canAct} />
-                </SCPCardPanel>
-              ))}
-            </SCPSection>
-
-            <SCPSection title="Protocols and Site Tools">
-              {selectedAnomaly ? (
-                <div className="space-y-3 border border-slate-700 bg-slate-900/80 p-3">
-                  <div className="text-sm font-medium text-slate-200">{selectedAnomaly.name}</div>
-                  <div className="flex flex-wrap gap-2">
-                    {PROTOCOLS.map((protocol) => (
-                      <ActionButton key={protocol} onClick={() => applyProtocol(activeId, protocol)} disabled={!canAct}>
-                        {formatLabel(protocol)}
-                      </ActionButton>
-                    ))}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {MOODS.map((mood) => (
-                      <ActionButton key={mood} onClick={() => shiftMood(activeId, mood)} disabled={!canAct}>
-                        {formatLabel(mood)}
-                      </ActionButton>
-                    ))}
-                  </div>
-                  <div className="flex gap-2">
-                    <select
-                      value={selectedContainedId}
-                      onChange={(event) => setSelectedContainedId(event.target.value)}
-                      className="min-w-0 flex-1 rounded border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-200"
-                    >
-                      <option value="">Contained countermeasure</option>
-                      {containedAnomalies.map((card) => <option key={card.id} value={card.id}>{card.name}</option>)}
-                    </select>
-                    <ActionButton
-                      onClick={() => crossContain(selectedContainedId, activeId)}
-                      disabled={!canAct || !selectedContainedId}
-                      tone="good"
-                    >
-                      Bind
-                    </ActionButton>
-                  </div>
-                </div>
-              ) : (
-                <SCPEmpty label="Select an active anomaly" />
-              )}
-
-              {incidents.length > 0 && (
-                <div className="space-y-2">
-                  {incidents.map((incident, index) => (
-                    <IncidentRow
-                      key={`${incident.name || 'incident'}-${index}`}
-                      incident={incident}
-                      index={index}
-                      onResolve={resolveIncident}
-                      disabled={!canAct}
-                    />
-                  ))}
-                </div>
-              )}
-            </SCPSection>
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <SCPSection title="Pending and Sealed Dossiers">
-              {myPending.length === 0 && <SCPEmpty label="No queued dossiers" />}
-              {myPending.map((card) => (
-                <SCPCardPanel key={card.id} card={card}>
-                  {card.scp_status === 'sealed' && (
-                    <ActionButton onClick={() => revealDossier(card.id)} disabled={!canAct} tone="warn">Reveal</ActionButton>
-                  )}
-                  <ActionButton onClick={() => memoryHole(card.id)} disabled={!canAct} tone="danger">Memory hole</ActionButton>
-                </SCPCardPanel>
-              ))}
-            </SCPSection>
-
-            <SCPDropZone
-              zoneId={SCP_CONTAINED_ZONE}
-              onPlay={(cardId) => {
-                // Seal lane — fires the same action as the inline "Seal"
-                // button (openDossier with sealed=true). Only anomaly hand
-                // cards list this zone in their validZones, so non-anomaly
-                // drops can't accidentally land here.
-                void openDossier(cardId, false, true);
-              }}
-            >
-              <SCPSection title="Contained Archive">
-                {containedAnomalies.length === 0 && <SCPEmpty label="No contained anomalies" />}
-                {containedAnomalies.map((card) => (
-                  <SCPCardPanel key={card.id} card={card}>
-                    <ActionButton onClick={() => memoryHole(card.id)} disabled={!canAct} tone="danger">Memory hole</ActionButton>
-                  </SCPCardPanel>
-                ))}
-              </SCPSection>
-            </SCPDropZone>
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-2">
-            <SCPSection title="Facilities">
-              {facilities.length === 0 && <SCPEmpty label="No facilities active" />}
-              {facilities.map((card) => <SCPCardPanel key={card.id} card={card} />)}
-            </SCPSection>
-            <SCPSection title="Mandates">
-              {mandates.length === 0 && <SCPEmpty label="No mandate active" />}
-              {mandates.map((card) => <SCPCardPanel key={card.id} card={card} />)}
-            </SCPSection>
-          </div>
-        </section>
-
-        <aside className="space-y-4">
-          <SCPSitePanel title={opponentPlayer?.name || 'Opposing Site'} site={opponentSite} />
-
-          <SCPSection title="Opposing Active Anomalies">
-            {opponentAnomalies.length === 0 && <SCPEmpty label="No public active anomalies" />}
-            {opponentAnomalies.map((card) => <SCPCardPanel key={card.id} card={card} />)}
-          </SCPSection>
-
-          <SCPSection title="Opposing Pending Dossiers">
-            {opponentPending.length === 0 && <SCPEmpty label="No public queued dossiers" />}
-            {opponentPending.map((card) => <SCPCardPanel key={card.id} card={card} />)}
-          </SCPSection>
-
-          <SCPSection title="Opposing Containment">
-            {opponentContained.length === 0 && <SCPEmpty label="No contained anomalies" />}
-            {opponentContained.map((card) => <SCPCardPanel key={card.id} card={card} />)}
-          </SCPSection>
-
-          <SCPSection title="Opposing Personnel">
-            {opponentPersonnel.length === 0 && <SCPEmpty label="No personnel active" />}
-            {opponentPersonnel.map((card) => <SCPCardPanel key={card.id} card={card} />)}
-          </SCPSection>
-        </aside>
-      </main>
-      {pendingChoice && (
-        <ChoiceModal
-          pendingChoice={pendingChoice}
-          battlefield={[]}
-          hand={[]}
-          graveyard={{}}
-          players={gameState.players}
-          onSubmit={handleChoiceSubmit}
-          isLoading={isSubmittingChoice}
-        />
+      {state.gameOver && (
+        <div className={[
+          'rounded-lg border px-4 py-2 text-sm',
+          iWon ? 'border-emerald-600/50 bg-emerald-950/30 text-emerald-200' : 'border-rose-600/50 bg-rose-950/30 text-rose-200',
+        ].join(' ')}>
+          {iWon ? 'You win' : 'You lose'} — {state.winReason}
+        </div>
       )}
+
+      {/* Opponent */}
+      {opp && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3 flex flex-col gap-2">
+          <SeatHeader seat={opp} label="Opponent" />
+          <SeatBoard seat={opp} mine={false} canAct={canAct && me.faction === 'insurgency'} onInfiltrate={infiltrateCell} />
+          {me.faction === 'insurgency' && canAct && (
+            <div className="flex gap-2">
+              {(['hq', 'research', 'archives'] as const).map((c) => (
+                <button key={c} onClick={() => dispatch({ type: 'INFILTRATE', target: ['central', c] })}
+                  className="text-[11px] px-2 py-1 rounded bg-rose-900/60 hover:bg-rose-800 text-rose-100 uppercase tracking-widest">
+                  raid {c} ▸
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Me */}
+      <div className="rounded-xl border border-slate-700 bg-slate-900/70 p-3 flex flex-col gap-3">
+        <SeatHeader seat={me} label="You" />
+        <SeatBoard seat={me} mine canAct={canAct}
+          onAdvance={(id) => dispatch({ type: 'ADVANCE', anomalyId: id })}
+          onContain={(id) => dispatch({ type: 'CONTAIN', anomalyId: id })} />
+
+        {/* Hand */}
+        <div className="flex flex-col gap-1">
+          <span className="text-[10px] uppercase tracking-widest text-slate-500">Hand</span>
+          <div className="flex flex-wrap gap-2">
+            {(me.hand ?? []).map((c) => (
+              <CardChip key={c.id} card={c} selected={selected === c.id}
+                onClick={canAct ? () => setSelected(selected === c.id ? null : c.id) : undefined} />
+            ))}
+            {(me.hand ?? []).length === 0 && <span className="text-[11px] text-slate-600 italic">empty</span>}
+          </div>
+        </div>
+
+        {/* Action bar */}
+        <div className="flex items-center gap-2 flex-wrap border-t border-slate-800 pt-3">
+          <button disabled={!canAct} onClick={() => dispatch({ type: 'GAIN' })}
+            className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-sm">Gain ⌑+2</button>
+          <button disabled={!canAct} onClick={() => dispatch({ type: 'DRAW' })}
+            className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-sm">Draw</button>
+          <button disabled={!canAct || !selectedCard} onClick={playSelected}
+            className="px-3 py-1.5 rounded bg-violet-800 hover:bg-violet-700 disabled:opacity-40 text-sm">
+            Play{selectedCard ? ` ${selectedCard.name}` : ''}
+          </button>
+          <div className="flex-1" />
+          <button disabled={!canAct} onClick={() => { setSelected(null); dispatch({ type: 'END_TURN' }); }}
+            className="px-4 py-1.5 rounded bg-emerald-800 hover:bg-emerald-700 disabled:opacity-40 text-sm font-semibold">End Turn ▸</button>
+        </div>
+      </div>
     </div>
-    </GameViewLayout>
   );
 }
 

@@ -31,7 +31,7 @@ from src.cards.clankers.CLAN import CLAN_CARDS
 from src.cards.finance import FINANCE_CARDS
 from src.cards.hearthstone import ALL_CARDS as HS_CARDS_LIST
 from src.cards.minecraft import MINECRAFT_CARDS
-from src.cards.scp2 import ALL_CARDS as SCP_CARDS
+from src.cards.scp import ALL_CARDS as SCP_CARDS
 from src.cards.pokemon.sv_starter import SV_STARTER_CARDS as POKEMON_CARDS
 from src.cards.yugioh import ALL_YGO_CARDS as YGO_CARDS
 
@@ -211,27 +211,27 @@ def _scp_extras(card_def: CardDefinition) -> dict[str, Any]:
     # The deckbuilder + card viewer read these to group by faction and show the
     # new card model (cost / containment threshold / liberation value / layer
     # strength / breaker type). Faction is derived from the card kind.
-    kind = getattr(card_def, "scp2_kind", None)
+    kind = getattr(card_def, "scp_kind", None)
     kind_name = kind.name if kind is not None else None
-    if kind_name in ("SCP2_ANOMALY", "SCP2_LAYER", "SCP2_ASSET", "SCP2_OPERATION"):
+    if kind_name in ("SCP_ANOMALY", "SCP_LAYER", "SCP_ASSET", "SCP_OPERATION"):
         faction = "foundation"
-    elif kind_name in ("SCP2_OPERATIVE", "SCP2_TOOL", "SCP2_EVENT"):
+    elif kind_name in ("SCP_OPERATIVE", "SCP_TOOL", "SCP_EVENT"):
         faction = "insurgency"
     else:
         faction = None  # identity / unclassified
     return {
         "scp_kind": kind_name,
         "scp_faction": faction,
-        "scp_cost": int(getattr(card_def, "scp2_cost", 0) or 0),
-        "scp_threshold": int(getattr(card_def, "scp2_threshold", 0) or 0),
-        "scp_value": int(getattr(card_def, "scp2_value", 0) or 0),
-        "scp_trap": bool(getattr(card_def, "scp2_trap", False)),
-        "scp_strength": int(getattr(card_def, "scp2_strength", 0) or 0),
-        "scp_rez": int(getattr(card_def, "scp2_rez", 0) or 0),
-        "scp_ltype": getattr(card_def, "scp2_ltype", None),
-        "scp_breaks": getattr(card_def, "scp2_breaks", None),
-        "scp_power": int(getattr(card_def, "scp2_power", 0) or 0),
-        "scp_boost": int(getattr(card_def, "scp2_boost", 0) or 0),
+        "scp_cost": int(getattr(card_def, "scp_cost", 0) or 0),
+        "scp_threshold": int(getattr(card_def, "scp_threshold", 0) or 0),
+        "scp_value": int(getattr(card_def, "scp_value", 0) or 0),
+        "scp_trap": bool(getattr(card_def, "scp_trap", False)),
+        "scp_strength": int(getattr(card_def, "scp_strength", 0) or 0),
+        "scp_rez": int(getattr(card_def, "scp_rez", 0) or 0),
+        "scp_ltype": getattr(card_def, "scp_ltype", None),
+        "scp_breaks": getattr(card_def, "scp_breaks", None),
+        "scp_power": int(getattr(card_def, "scp_power", 0) or 0),
+        "scp_boost": int(getattr(card_def, "scp_boost", 0) or 0),
     }
 
 
@@ -365,7 +365,7 @@ def _pkm_cost(card_def: CardDefinition) -> int:
 
 
 def _scp_cost(card_def: CardDefinition) -> int:
-    return int(getattr(card_def, "scp2_cost", 0) or 0)
+    return int(getattr(card_def, "scp_cost", 0) or 0)
 
 
 def _cats_cost(card_def: CardDefinition) -> int:
@@ -558,13 +558,13 @@ def compute_stats(game: str, mainboard: list[dict], sideboard: list[dict]) -> di
 
         if g == "scp":
             type_names = {t.name for t in chars.types}
-            if "SCP2_ANOMALY" in type_names:
+            if "SCP_ANOMALY" in type_names:
                 extras["anomaly_count"] += qty
-                if not getattr(card_def, "scp2_trap", False):
-                    extras["containment_value_total"] += int(getattr(card_def, "scp2_value", 0) or 0) * qty
-            elif "SCP2_LAYER" in type_names:
+                if not getattr(card_def, "scp_trap", False):
+                    extras["containment_value_total"] += int(getattr(card_def, "scp_value", 0) or 0) * qty
+            elif "SCP_LAYER" in type_names:
                 extras["layer_count"] += qty
-            elif "SCP2_OPERATIVE" in type_names:
+            elif "SCP_OPERATIVE" in type_names:
                 extras["operative_count"] += qty
 
     if g == "mtg" and extras["nonland_count"] > 0:

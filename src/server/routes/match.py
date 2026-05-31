@@ -666,17 +666,17 @@ async def create_match(
             else:
                 session.deck_id_by_player[pid] = deck_keys[idx % len(deck_keys)]
 
-    elif request.game_mode == "scp2":
-        # SCP2: asymmetric Foundation (seat 0) vs Chaos Insurgency (seat 1). Decks are
-        # (identity, builder) entries in the scp2 registries; the SCP2ModeAdapter.setup_game()
-        # reads session.deck_id_by_player and calls scp2.setup_scp2_game. This branch only
+    elif request.game_mode == "scp":
+        # SCP: asymmetric Foundation (seat 0) vs Chaos Insurgency (seat 1). Decks are
+        # (identity, builder) entries in the scp registries; the SCPModeAdapter.setup_game()
+        # reads session.deck_id_by_player and calls scp.setup_scp_game. This branch only
         # records a faction-appropriate deck id per seat (the adapter re-validates).
-        from src.cards.scp2.decks import SCP2_FOUNDATION_DECKS, SCP2_INSURGENCY_DECKS
+        from src.cards.scp.decks import SCP_FOUNDATION_DECKS, SCP_INSURGENCY_DECKS
 
-        fkeys = list(SCP2_FOUNDATION_DECKS)
-        ikeys = list(SCP2_INSURGENCY_DECKS)
+        fkeys = list(SCP_FOUNDATION_DECKS)
+        ikeys = list(SCP_INSURGENCY_DECKS)
         for idx, pid in enumerate(session.player_ids):
-            registry = SCP2_FOUNDATION_DECKS if idx == 0 else SCP2_INSURGENCY_DECKS
+            registry = SCP_FOUNDATION_DECKS if idx == 0 else SCP_INSURGENCY_DECKS
             fallback = (fkeys if idx == 0 else ikeys)[0]
             chosen = None
             if pid == human_id and request.player_deck_id in registry:

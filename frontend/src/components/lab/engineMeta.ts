@@ -120,19 +120,6 @@ const META: Record<GameModeId, Omit<LabEngineMeta, keyof GameModeMeta>> = {
       { k: 'SUBS', v: 'fleet' },
     ],
   },
-  scp: {
-    ix: 'E8',
-    subtitle: '7 archetypes · containment theme',
-    stat: 'archetype viewer',
-    completeness: 66,
-    leadEngine: false,
-    pickerStats: [
-      { k: '7', v: 'archetypes' },
-      { k: 'containment', v: 'theme' },
-      { k: 'arch.', v: 'viewer' },
-      { k: '312', v: 'cards' },
-    ],
-  },
   cats: {
     ix: 'E9',
     subtitle: 'trick-taking · pile-building · 9 rounds',
@@ -159,7 +146,7 @@ const META: Record<GameModeId, Omit<LabEngineMeta, keyof GameModeMeta>> = {
       { k: 'compute', v: 'pool' },
     ],
   },
-  scp2: {
+  scp: {
     ix: 'E11',
     subtitle: 'asymmetric · Netrunner-style · fog of war',
     stat: '2 factions · 4 decks',

@@ -851,26 +851,26 @@ class MinecraftModeAdapter(GameModeAdapter):
 # SCP Containment TCG
 # =============================================================================
 
-class SCP2ModeAdapter(GameModeAdapter):
+class SCPModeAdapter(GameModeAdapter):
     """SCP: SECURE / CONTAIN / SUBVERT — asymmetric Foundation-vs-Insurgency mode."""
-    mode: str = "scp2"
+    mode: str = "scp"
 
     def default_max_hand_size(self):
-        return 999  # scp2 enforces MAX_HAND itself at end of turn (scp2.discard_to_max)
+        return 999  # scp enforces MAX_HAND itself at end of turn (scp.discard_to_max)
 
     def create_mana_system(self, state):
         return None
 
     def create_turn_manager(self, state):
-        from .scp2_turn import SCP2TurnManager
-        return SCP2TurnManager(state)
+        from .scp_turn import SCPTurnManager
+        return SCPTurnManager(state)
 
     async def setup_starting_hands(self, game, player_ids):
-        # scp2's canonical setup is scp2.setup_scp2_game (factions + decks + hands).
+        # scp's canonical setup is scp.setup_scp_game (factions + decks + hands).
         return True
 
     def skips_turn_order_setup(self) -> bool:
-        # The server adapter's setup_game runs scp2.setup_scp2_game, which sets the
+        # The server adapter's setup_game runs scp.setup_scp_game, which sets the
         # foundation-first turn order and opening hands; game.start_game must not re-order
         # or run MTG mulligans (mirror YGO).
         return True
@@ -921,7 +921,7 @@ _REGISTRY: dict[str, GameModeAdapter] = {
     "pokemon": PokemonModeAdapter(),
     "yugioh": YugiohModeAdapter(),
     "minecraft": MinecraftModeAdapter(),
-    "scp2": SCP2ModeAdapter(),
+    "scp": SCPModeAdapter(),
     "depths": _build_depths_adapter(),
     "finance": _build_finance_adapter(),
     "cats": _build_cats_adapter(),

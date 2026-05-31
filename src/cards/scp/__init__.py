@@ -1,10 +1,10 @@
 """SCP: SECURE / CONTAIN / SUBVERT — card pool (asymmetric Foundation vs Chaos Insurgency).
 
-Engine lives in ``src/engine/scp2.py`` + ``scp2_turn.py``; design in
-``docs/design/scp2_rules.md``. This package holds the card definitions and starter decks.
+Engine lives in ``src/engine/scp.py`` + ``scp_turn.py``; design in
+``docs/design/scp_rules.md``. This package holds the card definitions and starter decks.
 
-    from src.cards.scp2 import FOUNDATION_CARDS, INSURGENCY_CARDS, ALL_CARDS
-    from src.cards.scp2 import SCP2_DECKS, SCP2_FOUNDATION_DECKS, SCP2_INSURGENCY_DECKS
+    from src.cards.scp import FOUNDATION_CARDS, INSURGENCY_CARDS, ALL_CARDS
+    from src.cards.scp import SCP_DECKS, SCP_FOUNDATION_DECKS, SCP_INSURGENCY_DECKS
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from .insurgency import (
     INSURGENCY_EVENTS, INSURGENCY_IDENTITIES, BLACK_QUEEN_CELL,
 )
 from .decks import (
-    SCP2_DECKS, SCP2_FOUNDATION_DECKS, SCP2_INSURGENCY_DECKS,
+    SCP_DECKS, SCP_FOUNDATION_DECKS, SCP_INSURGENCY_DECKS,
     site19_containment, blackfile_bait, black_queen_cell, containment_breach,
     anomaly_density, DECK_SIZE, MIN_ANOMALY_DENSITY,
 )
@@ -33,7 +33,7 @@ __all__ = [
     "INSURGENCY_EVENTS", "INSURGENCY_IDENTITIES",
     "SITE_19_COMMAND", "BLACK_QUEEN_CELL",
     "ALL_CARDS",
-    "SCP2_DECKS", "SCP2_FOUNDATION_DECKS", "SCP2_INSURGENCY_DECKS",
+    "SCP_DECKS", "SCP_FOUNDATION_DECKS", "SCP_INSURGENCY_DECKS",
     "site19_containment", "blackfile_bait", "black_queen_cell", "containment_breach",
     "anomaly_density", "DECK_SIZE", "MIN_ANOMALY_DENSITY",
 ]

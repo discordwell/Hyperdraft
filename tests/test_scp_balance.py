@@ -1,16 +1,16 @@
-"""Balance-regression guard for scp2 (Phase 4).
+"""Balance-regression guard for scp (Phase 4).
 
 run_tournament is deterministic (fixed per-game seeds), so this is stable, not flaky. It
 guards the Phase-4 result — a healthy Foundation/Insurgency split with all win paths live —
 against future AI/card/constant changes silently re-breaking balance (the 0%/100% bug this
 phase fixed). When you intentionally rebalance, update the band here to match.
 
-Run: HYPERDRAFT_STRICT=1 PYTHONPATH=. python3 -m pytest tests/test_scp2_balance.py -q
+Run: HYPERDRAFT_STRICT=1 PYTHONPATH=. python3 -m pytest tests/test_scp_balance.py -q
 """
 
 import pytest
 
-from scripts.play.scp2_tournament import run_tournament, summarize
+from scripts.play.scp_tournament import run_tournament, summarize
 
 GAMES_PER_PAIRING = 12  # 4 pairings → 48 games; deterministic seeds
 

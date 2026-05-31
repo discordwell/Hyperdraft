@@ -1,12 +1,205 @@
+/**
+ * useSCPGame — SCP: SECURE / CONTAIN / SUBVERT (asymmetric Foundation vs Chaos Insurgency).
+ *
+ * Subscribes to gameState via useSocket and projects the server's viewer-redacted
+ * `gameState.scp` payload (built by session.py:_serialize_scp_state) into the typed
+ * SCPState the board renders. Fog of war is enforced server-side: face-down identities
+ * arrive as `[FACE-DOWN]` with `hidden:true`, while advancement "heat" is always public.
+ *
+ * Action protocol (→ src/server/models.py SCP_* + PlayerActionRequest fields):
+ *   SCP_GAIN        {}                         — +2 credits (1 AP)
+ *   SCP_DRAW        {}                         — draw 1 (1 AP)
+ *   SCP_PLAY        { card_id, cell_id?, scp_target? }
+ *   SCP_ADVANCE     { anomaly_id }
+ *   SCP_CONTAIN     { anomaly_id }
+ *   SCP_INFILTRATE  { scp_target: ['cell','3'] | ['central','research'] }
+ *   SCP_ACTIVATE    { card_id, scp_target? }
+ *   SCP_END_TURN    {}
+ */
 import { useCallback, useMemo } from 'react';
 import { useGameStore } from '../stores/gameStore';
 import { useSocket } from './useSocket';
 import { matchAPI } from '../services/api';
-import type { ActionType, CardData, PlayerData, SCPIncident, SCPSiteState } from '../types';
+import type { ActionType, PlayerActionRequest } from '../types';
 
-const typeHas = (card: CardData, type: string) => card.types.includes(type);
+// ---------------------------------------------------------------------------
+// Types — mirror the _serialize_scp_state wire shape
+// ---------------------------------------------------------------------------
+export type SCPFaction = 'foundation' | 'insurgency';
+export type SCPKind =
+  | 'SCP_ANOMALY' | 'SCP_LAYER' | 'SCP_ASSET' | 'SCP_OPERATION'
+  | 'SCP_OPERATIVE' | 'SCP_TOOL' | 'SCP_EVENT' | 'SCP_IDENTITY' | null;
 
-export function useSCPGame() {
+export interface SCPCard {
+  id: string;
+  name: string;
+  hidden: boolean;
+  kind: SCPKind;
+  text?: string;
+  cost?: number;
+  // anomaly
+  threshold?: number;
+  value?: number;
+  trap?: boolean;
+  // layer
+  ltype?: 'barrier' | 'sentry' | 'sensor' | null;
+  strength?: number;
+  rez?: number;
+  rezzed?: boolean;
+  // operative
+  breaks?: 'barrier' | 'sentry' | 'sensor' | null;
+  power?: number;
+  boost?: number;
+}
+
+export interface SCPCellAnomaly {
+  id: string;
+  advancement: number;
+  name: string;
+  hidden: boolean;
+}
+export interface SCPCellLayer {
+  id: string;
+  name: string;
+  rezzed: boolean;
+  hidden: boolean;
+}
+export interface SCPCell {
+  id: number;
+  anomaly: SCPCellAnomaly | null;
+  layers: SCPCellLayer[];
+}
+
+export interface SCPSeat {
+  faction: SCPFaction;
+  credits: number;
+  ap: number;
+  containment_points: number;
+  liberation_points: number;
+  total_breach: number;
+  exposed: number;
+  cells: SCPCell[];
+  rig: SCPCard[];
+  assets: SCPCard[];
+  hand: SCPCard[] | null; // own hand only; null for opponent
+  hand_count: number;
+  deck_count: number;
+  discard_count: number;
+  identity: string | null;
+}
+
+export interface SCPTargets {
+  containment: number;
+  liberation: number;
+  breach: number;
+}
+
+export interface SCPState {
+  foundationId: string | null;
+  insurgencyId: string | null;
+  viewerFaction: SCPFaction | null;
+  yourTurn: boolean;
+  gameOver: boolean;
+  winner: string | null;
+  winReason: string | null;
+  targets: SCPTargets;
+  me: SCPSeat | null;
+  opponent: SCPSeat | null;
+}
+
+export type SCPAction =
+  | { type: 'GAIN' }
+  | { type: 'DRAW' }
+  | { type: 'PLAY'; cardId: string; cellId?: number; target?: string[] }
+  | { type: 'ADVANCE'; anomalyId: string }
+  | { type: 'CONTAIN'; anomalyId: string }
+  | { type: 'INFILTRATE'; target: string[] }
+  | { type: 'ACTIVATE'; cardId: string; target?: string[] }
+  | { type: 'END_TURN' };
+
+export interface UseSCPGameResult {
+  state: SCPState | null;
+  dispatch: (action: SCPAction) => void;
+  isLoading: boolean;
+  isConnected: boolean;
+  error: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Projector — the server shape is already clean; type it with safe defaults.
+// ---------------------------------------------------------------------------
+function projectSeat(raw: unknown): SCPSeat | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+  const n = (v: unknown): number => (typeof v === 'number' ? v : 0);
+  return {
+    faction: (r.faction as SCPFaction) ?? 'foundation',
+    credits: n(r.credits),
+    ap: n(r.ap),
+    containment_points: n(r.containment_points),
+    liberation_points: n(r.liberation_points),
+    total_breach: n(r.total_breach),
+    exposed: n(r.exposed),
+    cells: arr<SCPCell>(r.cells),
+    rig: arr<SCPCard>(r.rig),
+    assets: arr<SCPCard>(r.assets),
+    hand: Array.isArray(r.hand) ? (r.hand as SCPCard[]) : null,
+    hand_count: n(r.hand_count),
+    deck_count: n(r.deck_count),
+    discard_count: n(r.discard_count),
+    identity: (r.identity as string) ?? null,
+  };
+}
+
+export function projectSCPState(raw: Record<string, unknown>): SCPState {
+  const targets = (raw.targets as Record<string, number>) ?? {};
+  return {
+    foundationId: (raw.foundation_id as string) ?? null,
+    insurgencyId: (raw.insurgency_id as string) ?? null,
+    viewerFaction: (raw.viewer_faction as SCPFaction) ?? null,
+    yourTurn: Boolean(raw.your_turn),
+    gameOver: Boolean(raw.game_over),
+    winner: (raw.winner as string) ?? null,
+    winReason: (raw.win_reason as string) ?? null,
+    targets: {
+      containment: targets.containment ?? 6,
+      liberation: targets.liberation ?? 7,
+      breach: targets.breach ?? 14,
+    },
+    me: projectSeat(raw.me),
+    opponent: projectSeat(raw.opponent),
+  };
+}
+
+function buildWireRequest(action: SCPAction, playerId: string): PlayerActionRequest | null {
+  const base = { player_id: playerId };
+  switch (action.type) {
+    case 'GAIN':
+      return { ...base, action_type: 'SCP_GAIN' as ActionType };
+    case 'DRAW':
+      return { ...base, action_type: 'SCP_DRAW' as ActionType };
+    case 'PLAY':
+      return {
+        ...base, action_type: 'SCP_PLAY' as ActionType, card_id: action.cardId,
+        cell_id: action.cellId, scp_target: action.target,
+      };
+    case 'ADVANCE':
+      return { ...base, action_type: 'SCP_ADVANCE' as ActionType, anomaly_id: action.anomalyId };
+    case 'CONTAIN':
+      return { ...base, action_type: 'SCP_CONTAIN' as ActionType, anomaly_id: action.anomalyId };
+    case 'INFILTRATE':
+      return { ...base, action_type: 'SCP_INFILTRATE' as ActionType, scp_target: action.target };
+    case 'ACTIVATE':
+      return { ...base, action_type: 'SCP_ACTIVATE' as ActionType, card_id: action.cardId, scp_target: action.target };
+    case 'END_TURN':
+      return { ...base, action_type: 'SCP_END_TURN' as ActionType };
+    default:
+      return null;
+  }
+}
+
+export function useSCPGame(): UseSCPGameResult {
   const store = useGameStore();
   const { matchId, playerId, gameState, setGameState, setError } = store;
 
@@ -17,158 +210,33 @@ export function useSCPGame() {
     onError: (msg) => setError(msg),
   });
 
-  const sendSCPAction = useCallback(async (
-    actionType: ActionType,
-    opts: {
-      cardId?: string;
-      sourceId?: string;
-      anomalyId?: string;
-      staffIds?: string[];
-      containedId?: string;
-      activeId?: string;
-      mood?: string;
-      protocol?: string;
-      actionKind?: string;
-      index?: number;
-      amount?: number;
-      abilityIndex?: number;
-      fastTrack?: boolean;
-      sealed?: boolean;
-    } = {},
-  ) => {
-    if (!playerId || !matchId) return;
-    try {
-      const result = await matchAPI.submitAction(matchId, {
-        action_type: actionType,
-        player_id: playerId,
-        card_id: opts.cardId,
-        source_id: opts.sourceId,
-        anomaly_id: opts.anomalyId,
-        staff_ids: opts.staffIds || [],
-        contained_id: opts.containedId,
-        active_id: opts.activeId,
-        mood: opts.mood,
-        protocol: opts.protocol,
-        action_kind: opts.actionKind,
-        index: opts.index,
-        amount: opts.amount,
-        ability_index: opts.abilityIndex,
-        fast_track: Boolean(opts.fastTrack),
-        sealed: Boolean(opts.sealed),
-      });
-      if (result.success && result.new_state) {
-        setGameState(result.new_state);
-        setError(null);
-      } else if (!result.success) {
-        setError(result.message);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed');
+  const state = useMemo<SCPState | null>(() => {
+    if (gameState) {
+      const raw = (gameState as unknown as { scp?: Record<string, unknown> | null }).scp;
+      if (raw) return projectSCPState(raw);
     }
-  }, [playerId, matchId, setGameState, setError]);
+    return null;
+  }, [gameState]);
 
-  const isMyTurn = useCallback(
-    () => !!gameState && !!playerId && gameState.active_player === playerId,
-    [gameState, playerId],
+  const dispatch = useCallback(
+    async (action: SCPAction) => {
+      if (!matchId || !playerId) {
+        // eslint-disable-next-line no-console
+        console.log('[scp] dispatch ignored (no match)', action);
+        return;
+      }
+      const request = buildWireRequest(action, playerId);
+      if (!request) return;
+      try {
+        const result = await matchAPI.submitAction(matchId, request);
+        if (result.success && result.new_state) setGameState(result.new_state);
+        else if (!result.success) setError(result.message);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Action failed');
+      }
+    },
+    [matchId, playerId, setGameState, setError],
   );
 
-  const myPlayer = useMemo<PlayerData | null>(() => {
-    if (!gameState || !playerId) return null;
-    return gameState.players[playerId] || null;
-  }, [gameState, playerId]);
-
-  const opponentId = useMemo(() => {
-    if (!gameState || !playerId) return null;
-    return Object.keys(gameState.players).find((id) => id !== playerId) || null;
-  }, [gameState, playerId]);
-
-  const opponentPlayer = useMemo<PlayerData | null>(() => {
-    if (!gameState || !opponentId) return null;
-    return gameState.players[opponentId] || null;
-  }, [gameState, opponentId]);
-
-  const mySite = useMemo<SCPSiteState>(() => (
-    (playerId && gameState?.scp_sites?.[playerId]) || {}
-  ), [gameState?.scp_sites, playerId]);
-
-  const opponentSite = useMemo<SCPSiteState>(() => (
-    (opponentId && gameState?.scp_sites?.[opponentId]) || {}
-  ), [gameState?.scp_sites, opponentId]);
-
-  const myDossiers = useMemo(() => (
-    (gameState?.battlefield || []).filter((card) => card.controller === playerId && card.types.some((t) => t.startsWith('SCP_')))
-  ), [gameState?.battlefield, playerId]);
-
-  const opponentDossiers = useMemo(() => (
-    (gameState?.battlefield || []).filter((card) => card.controller === opponentId && card.types.some((t) => t.startsWith('SCP_')))
-  ), [gameState?.battlefield, opponentId]);
-
-  const myPending = useMemo(
-    () => myDossiers.filter((card) => card.scp_status === 'pending' || card.scp_status === 'sealed'),
-    [myDossiers],
-  );
-
-  const opponentPending = useMemo(
-    () => opponentDossiers.filter((card) => card.scp_status === 'pending' || card.scp_status === 'sealed'),
-    [opponentDossiers],
-  );
-
-  const activeAnomalies = gameState?.scp_anomalies?.[playerId || ''] || [];
-  const containedAnomalies = gameState?.scp_contained?.[playerId || ''] || [];
-  const personnel = gameState?.scp_personnel?.[playerId || ''] || [];
-  const facilities = gameState?.scp_facilities?.[playerId || ''] || [];
-  const mandates = gameState?.scp_mandates?.[playerId || ''] || [];
-  const opponentAnomalies = gameState?.scp_anomalies?.[opponentId || ''] || [];
-  const opponentContained = gameState?.scp_contained?.[opponentId || ''] || [];
-  const opponentPersonnel = gameState?.scp_personnel?.[opponentId || ''] || [];
-  const incidents = gameState?.scp_incidents?.[playerId || ''] || [];
-  const assignmentSlots = playerId ? gameState?.scp_assignment_slots?.[playerId] ?? 0 : 0;
-
-  const hand = useMemo(() => gameState?.hand || [], [gameState?.hand]);
-
-  return {
-    gameState,
-    matchId,
-    playerId,
-    isConnected,
-    myPlayer,
-    opponentId,
-    opponentPlayer,
-    mySite,
-    opponentSite,
-    hand,
-    myPending,
-    opponentPending,
-    activeAnomalies,
-    containedAnomalies,
-    personnel,
-    facilities,
-    mandates,
-    opponentAnomalies,
-    opponentContained,
-    opponentPersonnel,
-    incidents: incidents as SCPIncident[],
-    assignmentSlots,
-    isMyTurn,
-    isAnomaly: (card: CardData) => typeHas(card, 'SCP_ANOMALY'),
-    openDossier: (cardId: string, fastTrack = false, sealed = false) => (
-      sendSCPAction('SCP_OPEN_DOSSIER', { cardId, fastTrack, sealed })
-    ),
-    revealDossier: (sourceId: string) => sendSCPAction('SCP_REVEAL_DOSSIER', { sourceId }),
-    research: (anomalyId: string, staffIds: string[]) => sendSCPAction('SCP_RESEARCH', { anomalyId, staffIds }),
-    contain: (anomalyId: string, staffIds: string[]) => sendSCPAction('SCP_CONTAIN', { anomalyId, staffIds }),
-    suppress: (anomalyId: string, staffIds: string[]) => sendSCPAction('SCP_SUPPRESS', { anomalyId, staffIds }),
-    spendEthics: (amount = 2, mode = 'buy_clearance') => sendSCPAction('SCP_SPEND_ETHICS', { amount, actionKind: mode }),
-    shiftMood: (anomalyId: string, mood: string) => sendSCPAction('SCP_SHIFT_MOOD', { anomalyId, mood }),
-    crossContain: (containedId: string, activeId: string) => sendSCPAction('SCP_CROSS_CONTAIN', { containedId, activeId }),
-    memoryHole: (sourceId: string) => sendSCPAction('SCP_MEMORY_HOLE', { sourceId }),
-    applyProtocol: (anomalyId: string, protocol: string) => sendSCPAction('SCP_APPLY_PROTOCOL', { anomalyId, protocol }),
-    resolveIncident: (index: number) => sendSCPAction('SCP_RESOLVE_INCIDENT', { index }),
-    activateAbility: (sourceId: string, abilityIndex: number) => (
-      sendSCPAction('SCP_ACTIVATE_ABILITY', { sourceId, abilityIndex })
-    ),
-    endTurn: () => sendSCPAction('SCP_END_TURN'),
-    setError,
-    error: store.ui.error,
-  };
+  return { state, dispatch, isLoading: !state, isConnected, error: store.ui?.error ?? null };
 }

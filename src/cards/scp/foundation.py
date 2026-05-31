@@ -5,12 +5,12 @@ containment for points (primary win), and can soft-kill the Insurgency by exposi
 attritioning their rig (secondary win). Card types: ANOMALY (agenda), LAYER (ICE),
 ASSET (persistent econ/utility), OPERATION (one-shot), IDENTITY.
 
-Every card here is exercised end-to-end by tests/test_scp2_cards.py (the effect gate for
+Every card here is exercised end-to-end by tests/test_scp_cards.py (the effect gate for
 this engine — /test-interceptors only understands MTG-style interceptor cards, not the
-scp2 effect-callback model). Art/lore reuse from frontend/public/scp-art/ is wired in
+scp effect-callback model). Art/lore reuse from frontend/public/scp-art/ is wired in
 Phase 5 (the frontend serializer); this module is mechanics only.
 
-Effect-callback signatures (see src/engine/scp2.py):
+Effect-callback signatures (see src/engine/scp.py):
   on_contain(game, pid, obj)      on_free(game, insurgent_id, anomaly)
   on_access(game, insurgent_id, anomaly)   on_install(game, pid, obj)
   on_turn_start(game, pid, obj)   ability(game, pid, obj, target)
@@ -19,8 +19,8 @@ Effect-callback signatures (see src/engine/scp2.py):
 
 from __future__ import annotations
 
-from src.engine import scp2
-from src.engine.scp2 import (
+from src.engine import scp
+from src.engine.scp import (
     make_anomaly, make_layer, make_asset, make_operation, make_identity,
 )
 
@@ -30,47 +30,47 @@ from src.engine.scp2 import (
 # ===========================================================================
 def _gain_funding(n):
     def _f(game, pid, obj):
-        return scp2.add_credits(game.state, pid, n)
+        return scp.add_credits(game.state, pid, n)
     return _f
 
 
 def _draw_on_contain(n):
     def _f(game, pid, obj):
-        return scp2.draw_cards(game, pid, n)
+        return scp.draw_cards(game, pid, n)
     return _f
 
 
 def _expose_on_contain(game, pid, obj):
     # "Memetic Archive": locking it forces the Insurgency into the open.
-    return scp2.expose(game, 1)
+    return scp.expose(game, 1)
 
 
 def _trap_expose_and_trash(game, insurgent_id, anomaly):
     # "Cerebral Relay": a bait file — accessing it tags the cell and fries a tool.
-    return scp2.expose(game, 1) + scp2.trash_a_tool(game)
+    return scp.expose(game, 1) + scp.trash_a_tool(game)
 
 
 def _trap_heavy_bite(game, insurgent_id, anomaly):
     # "Honeypot Cell": dressed up as a fat Euclid; punishes the greedy run hard.
-    return scp2.deal_damage(game, insurgent_id, 3)
+    return scp.deal_damage(game, insurgent_id, 3)
 
 
 # --- asset start-of-turn drips ---
 def _turn_funding(n):
     def _f(game, pid, obj):
-        return scp2.add_credits(game.state, pid, n)
+        return scp.add_credits(game.state, pid, n)
     return _f
 
 
 # --- asset activated abilities ---
 def _ability_expose(game, pid, obj, target):
     # "Mobile Task Force": trace → tag the Insurgency.
-    return scp2.expose(game, 1)
+    return scp.expose(game, 1)
 
 
 def _ability_draw(n):
     def _f(game, pid, obj, target):
-        return scp2.draw_cards(game, pid, n)
+        return scp.draw_cards(game, pid, n)
     return _f
 
 
@@ -78,45 +78,45 @@ def _ability_draw(n):
 def _op_reinforce_all(amount):
     def _f(game, pid):
         events = []
-        r = scp2.ensure_scp2_state(game.state, pid)
+        r = scp.ensure_scp_state(game.state, pid)
         for cell in r["cells"]:
             for lid in cell["layers"]:
                 layer = game.state.objects.get(lid)
                 if layer is not None:
-                    events.extend(scp2.reinforce(game.state, layer, amount))
+                    events.extend(scp.reinforce(game.state, layer, amount))
         for stack in r["centrals"].values():
             for lid in stack:
                 layer = game.state.objects.get(lid)
                 if layer is not None:
-                    events.extend(scp2.reinforce(game.state, layer, amount))
+                    events.extend(scp.reinforce(game.state, layer, amount))
         return events
     return _f
 
 
 def _op_redaction(game, pid):
     # If the Insurgency is exposed, fry a tool; otherwise expose them (set up next time).
-    iid = scp2.insurgency_id(game.state)
-    ir = scp2.ensure_scp2_state(game.state, iid) if iid else {}
+    iid = scp.insurgency_id(game.state)
+    ir = scp.ensure_scp_state(game.state, iid) if iid else {}
     if int(ir.get("exposed", 0)) > 0:
-        return scp2.trash_a_tool(game)
-    return scp2.expose(game, 1)
+        return scp.trash_a_tool(game)
+    return scp.expose(game, 1)
 
 
 def _op_amnestics(game, pid):
-    iid = scp2.insurgency_id(game.state)
-    return scp2.deal_damage(game, iid, 1) if iid else []
+    iid = scp.insurgency_id(game.state)
+    return scp.deal_damage(game, iid, 1) if iid else []
 
 
 def _op_draw(n):
     def _f(game, pid):
-        return scp2.draw_cards(game, pid, n)
+        return scp.draw_cards(game, pid, n)
     return _f
 
 
 # --- identity passive ---
 def _site19_passive(game, pid, obj):
     # Site-19 Command: a bigger ops room — max hand 6 instead of 5.
-    scp2.ensure_scp2_state(game.state, pid)["max_hand"] = 6
+    scp.ensure_scp_state(game.state, pid)["max_hand"] = 6
     return []
 
 
@@ -257,7 +257,7 @@ MANDATORY_AUDIT = make_operation(
 # IDENTITY
 # ===========================================================================
 SITE_19_COMMAND = make_identity(
-    "Site-19 Command", scp2.FOUNDATION,
+    "Site-19 Command", scp.FOUNDATION,
     text="Identity. Your maximum hand size is 6.",
     passive=_site19_passive)
 

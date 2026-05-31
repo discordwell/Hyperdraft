@@ -364,18 +364,18 @@ async def start_bot_game(
                 # same seat the engine assigned).
                 session.deck_id_by_player[pid] = deck_blurb_id
 
-    elif request.mode == "scp2":
-        # SCP2 bot-vs-bot: asymmetric Foundation (seat 0) vs Chaos Insurgency
+    elif request.mode == "scp":
+        # SCP bot-vs-bot: asymmetric Foundation (seat 0) vs Chaos Insurgency
         # (seat 1). Record a faction-appropriate deck id per seat; the actual
-        # scp2.setup_scp2_game call is deferred to SCP2ModeAdapter.setup_game(),
+        # scp.setup_scp_game call is deferred to SCPModeAdapter.setup_game(),
         # which reads session.deck_id_by_player.
-        from src.cards.scp2.decks import SCP2_FOUNDATION_DECKS, SCP2_INSURGENCY_DECKS
+        from src.cards.scp.decks import SCP_FOUNDATION_DECKS, SCP_INSURGENCY_DECKS
         import random
 
-        fkeys = list(SCP2_FOUNDATION_DECKS)
-        ikeys = list(SCP2_INSURGENCY_DECKS)
-        b1_key = request.bot1_deck_id if request.bot1_deck_id in SCP2_FOUNDATION_DECKS else random.choice(fkeys)
-        b2_key = request.bot2_deck_id if request.bot2_deck_id in SCP2_INSURGENCY_DECKS else random.choice(ikeys)
+        fkeys = list(SCP_FOUNDATION_DECKS)
+        ikeys = list(SCP_INSURGENCY_DECKS)
+        b1_key = request.bot1_deck_id if request.bot1_deck_id in SCP_FOUNDATION_DECKS else random.choice(fkeys)
+        b2_key = request.bot2_deck_id if request.bot2_deck_id in SCP_INSURGENCY_DECKS else random.choice(ikeys)
 
         player_ids = list(session.game.state.players.keys())
         if len(player_ids) >= 1:

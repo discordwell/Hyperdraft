@@ -8,13 +8,13 @@ acting on the Foundation. Card types: OPERATIVE (breaker), TOOL (persistent), EV
 
 The run itself is the Infiltrate *action* (engine verb), not a card; events here feed it
 (econ, breach, intel) rather than triggering runs, so AP accounting stays honest. Every
-card is exercised by tests/test_scp2_cards.py (the effect gate).
+card is exercised by tests/test_scp_cards.py (the effect gate).
 """
 
 from __future__ import annotations
 
-from src.engine import scp2
-from src.engine.scp2 import make_operative, make_tool, make_event, make_identity
+from src.engine import scp
+from src.engine.scp import make_operative, make_tool, make_event, make_identity
 
 
 # ===========================================================================
@@ -22,68 +22,68 @@ from src.engine.scp2 import make_operative, make_tool, make_event, make_identity
 # ===========================================================================
 def _gain_cells_event(n):
     def _f(game, pid):
-        return scp2.add_credits(game.state, pid, n)
+        return scp.add_credits(game.state, pid, n)
     return _f
 
 
 def _draw_event(n):
     def _f(game, pid):
-        return scp2.draw_cards(game, pid, n)
+        return scp.draw_cards(game, pid, n)
     return _f
 
 
 def _mill_foundation(n):
     def _f(game, pid):
-        fid = scp2.foundation_id(game.state)
-        return scp2.mill(game, fid, n) if fid else []
+        fid = scp.foundation_id(game.state)
+        return scp.mill(game, fid, n) if fid else []
     return _f
 
 
 def _data_heist(game, pid):
-    fid = scp2.foundation_id(game.state)
-    events = scp2.mill(game, fid, 2) if fid else []
-    events.extend(scp2.draw_cards(game, pid, 1))
+    fid = scp.foundation_id(game.state)
+    events = scp.mill(game, fid, 2) if fid else []
+    events.extend(scp.draw_cards(game, pid, 1))
     return events
 
 
 def _leak_to_press(game, pid):
-    return scp2.add_breach(game, 2)
+    return scp.add_breach(game, 2)
 
 
 def _anonymous_tip(game, pid):
-    events = scp2.add_breach(game, 1)
-    events.extend(scp2.draw_cards(game, pid, 1))
+    events = scp.add_breach(game, 1)
+    events.extend(scp.draw_cards(game, pid, 1))
     return events
 
 
 def _wetwork(game, pid):
-    return scp2.add_breach(game, 3)
+    return scp.add_breach(game, 3)
 
 
 # --- tool abilities / installs ---
 def _tool_gain_cells(n):
     def _f(game, pid, obj, target):
-        return scp2.add_credits(game.state, pid, n)
+        return scp.add_credits(game.state, pid, n)
     return _f
 
 
 def _tool_draw(n):
     def _f(game, pid, obj, target):
-        return scp2.draw_cards(game, pid, n)
+        return scp.draw_cards(game, pid, n)
     return _f
 
 
 def _stolen_credentials_install(game, pid, obj):
-    return scp2.add_credits(game.state, pid, 2)
+    return scp.add_credits(game.state, pid, 2)
 
 
 # --- identity passive ---
 def _black_queen_passive(game, pid, obj):
     # Black Queen Cell: the steal-engine identity. A well-funded cell that turns every
     # liberation into extra Liberation — makes the steal-tempo axis a real win path.
-    r = scp2.ensure_scp2_state(game.state, pid)
+    r = scp.ensure_scp_state(game.state, pid)
     r["free_bonus_lib"] = 1
-    return scp2.add_credits(game.state, pid, 2)
+    return scp.add_credits(game.state, pid, 2)
 
 
 # ===========================================================================
@@ -157,7 +157,7 @@ WETWORK = make_event("Wetwork", cost=2,
 # IDENTITY
 # ===========================================================================
 BLACK_QUEEN_CELL = make_identity(
-    "Black Queen Cell", scp2.INSURGENCY,
+    "Black Queen Cell", scp.INSURGENCY,
     text="Identity. Begin with 2 extra Cells; each anomaly you free banks +1 bonus Liberation.",
     passive=_black_queen_passive)
 

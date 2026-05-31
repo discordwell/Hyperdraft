@@ -35,7 +35,6 @@ const PublicMatch = lazy(() => import('./pages/PublicMatch'));
 const RulesDiff = lazy(() => import('./pages/RulesDiff'));
 const CatsGameView = lazy(() => import('./pages/CatsGameView').then(m => ({ default: m.CatsGameView })));
 const ClankersGameView = lazy(() => import('./pages/ClankersGameView').then(m => ({ default: m.ClankersGameView })));
-const SCP2GameView = lazy(() => import('./pages/SCP2GameView').then(m => ({ default: m.SCP2GameView })));
 
 function LoadingFallback() {
   return (
@@ -86,8 +85,7 @@ export function App() {
           <Route path="/game/:matchId/cats" element={<CatsGameView />} />
           <Route path="/clankers" element={<ClankersGameView />} />
           <Route path="/game/:matchId/clankers" element={<ClankersGameView />} />
-          <Route path="/scp2" element={<SCP2GameView />} />
-          <Route path="/game/:matchId/scp2" element={<SCP2GameView />} />
+          <Route path="/scp" element={<SCPGameView />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

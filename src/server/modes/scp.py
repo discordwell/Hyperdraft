@@ -1,14 +1,14 @@
-"""Server-side SCP2 mode adapter (asymmetric Foundation vs Chaos Insurgency).
+"""Server-side SCP mode adapter (asymmetric Foundation vs Chaos Insurgency).
 
-scp2 is a strict-alternation two-player game: each seat gets AP per turn and spends it on
+scp is a strict-alternation two-player game: each seat gets AP per turn and spends it on
 verbs (gain / draw / play / advance / contain / infiltrate / activate). Like cats and
-clankers, the human seat is driven *transactionally* — each ``SCP2_*`` action mutates state
+clankers, the human seat is driven *transactionally* — each ``SCP_*`` action mutates state
 via the turn manager's ``execute_action`` — while the bot seat's full turn is driven by
 ``turn_manager.run_turn`` when the human ends their turn.
 
 Faction by seat: ``player_ids[0]`` is the Foundation (goes first), ``player_ids[1]`` the
-Insurgency. Decks/identities are resolved from the scp2 deck registry (deterministic
-fallback). Fog of war is enforced by the per-viewer serializer (``_serialize_scp2_state``).
+Insurgency. Decks/identities are resolved from the scp deck registry (deterministic
+fallback). Fog of war is enforced by the per-viewer serializer (``_serialize_scp_state``).
 """
 
 from __future__ import annotations
@@ -38,14 +38,14 @@ def _coerce_target(t) -> Optional[tuple]:
     return tuple(parts)
 
 
-class SCP2ModeAdapter(ModeAdapter):
-    """SCP2 server adapter — per-action transactional, strict alternation, AI opponent."""
+class SCPModeAdapter(ModeAdapter):
+    """SCP server adapter — per-action transactional, strict alternation, AI opponent."""
 
     # ─── Setup ──────────────────────────────────────────────────────────
     async def setup_game(self, session: "GameSession") -> None:
-        from src.engine import scp2
-        from src.ai.scp2_adapter import SCP2AIAdapter
-        from src.cards.scp2.decks import SCP2_FOUNDATION_DECKS, SCP2_INSURGENCY_DECKS
+        from src.engine import scp
+        from src.ai.scp_adapter import SCPAIAdapter
+        from src.cards.scp.decks import SCP_FOUNDATION_DECKS, SCP_INSURGENCY_DECKS
 
         game = session.game
         pids = list(session.player_ids)
@@ -53,22 +53,22 @@ class SCP2ModeAdapter(ModeAdapter):
             return
         foundation_seat, insurgency_seat = pids[0], pids[1]
 
-        fkeys, ikeys = list(SCP2_FOUNDATION_DECKS), list(SCP2_INSURGENCY_DECKS)
+        fkeys, ikeys = list(SCP_FOUNDATION_DECKS), list(SCP_INSURGENCY_DECKS)
         fkey = session.deck_id_by_player.get(foundation_seat)
-        fkey = fkey if fkey in SCP2_FOUNDATION_DECKS else fkeys[0]
+        fkey = fkey if fkey in SCP_FOUNDATION_DECKS else fkeys[0]
         ikey = session.deck_id_by_player.get(insurgency_seat)
-        ikey = ikey if ikey in SCP2_INSURGENCY_DECKS else ikeys[0]
+        ikey = ikey if ikey in SCP_INSURGENCY_DECKS else ikeys[0]
         session.deck_id_by_player[foundation_seat] = fkey
         session.deck_id_by_player[insurgency_seat] = ikey
-        fident, fbuild = SCP2_FOUNDATION_DECKS[fkey]
-        iident, ibuild = SCP2_INSURGENCY_DECKS[ikey]
+        fident, fbuild = SCP_FOUNDATION_DECKS[fkey]
+        iident, ibuild = SCP_INSURGENCY_DECKS[ikey]
 
-        scp2.setup_scp2_game(
+        scp.setup_scp_game(
             game, game.state.players[foundation_seat], game.state.players[insurgency_seat],
             foundation_deck=fbuild(), insurgency_deck=ibuild(),
             foundation_identity=fident, insurgency_identity=iident,
         )
-        game.state.game_mode = "scp2"
+        game.state.game_mode = "scp"
 
         # Resolve difficulty (ultra → hard for the in-process heuristic).
         difficulty = session.ai_difficulty or "medium"
@@ -80,7 +80,7 @@ class SCP2ModeAdapter(ModeAdapter):
 
         tm = game.turn_manager
         if hasattr(tm, "set_ai_handler"):
-            tm.set_ai_handler(SCP2AIAdapter(difficulty))
+            tm.set_ai_handler(SCPAIAdapter(difficulty))
         for pid in pids:
             if pid not in session.human_players and hasattr(tm, "set_ai_player"):
                 tm.set_ai_player(pid)
@@ -105,7 +105,7 @@ class SCP2ModeAdapter(ModeAdapter):
                 try:
                     await tm.run_turn()
                 except Exception as e:  # noqa: BLE001
-                    print(f"[scp2] run_turn failed: {e}")
+                    print(f"[scp] run_turn failed: {e}")
                     break
                 turns += 1
                 if self._finish_if_over(session):
@@ -117,14 +117,14 @@ class SCP2ModeAdapter(ModeAdapter):
         await self._broadcast(session)
 
     async def get_human_action(self, session: "GameSession", player_id, game_state) -> dict:
-        """Unused — scp2 uses the transactional per-action path."""
-        return {"action_type": "SCP2_END_TURN"}
+        """Unused — scp uses the transactional per-action path."""
+        return {"action_type": "SCP_END_TURN"}
 
     # ─── Action dispatch ────────────────────────────────────────────────
     async def handle_action(
         self, session: "GameSession", request: "PlayerActionRequest",
     ) -> tuple[bool, str]:
-        from src.engine import scp2
+        from src.engine import scp
 
         game = session.game
         tm = game.turn_manager
@@ -138,9 +138,9 @@ class SCP2ModeAdapter(ModeAdapter):
         if game.is_game_over():
             return False, "Game is over"
 
-        if atype == "SCP2_END_TURN":
-            scp2.discard_to_max(game, pid)
-            scp2.check_scp2_win(game)
+        if atype == "SCP_END_TURN":
+            scp.discard_to_max(game, pid)
+            scp.check_scp_win(game)
             if self._finish_if_over(session):
                 self._log(session, pid, "ended turn")
                 await self._broadcast(session)
@@ -164,32 +164,32 @@ class SCP2ModeAdapter(ModeAdapter):
 
         # State-mutating verbs → turn manager's execute_action.
         action: dict[str, Any] = {"action_type": atype}
-        if atype == "SCP2_PLAY":
+        if atype == "SCP_PLAY":
             if not request.card_id:
-                return False, "SCP2_PLAY requires card_id"
+                return False, "SCP_PLAY requires card_id"
             action["card_id"] = request.card_id
             action["cell_id"] = request.cell_id
-            tgt = _coerce_target(request.scp2_target)
+            tgt = _coerce_target(request.scp_target)
             if tgt:
                 action["target"] = tgt
-        elif atype in ("SCP2_ADVANCE", "SCP2_CONTAIN"):
+        elif atype in ("SCP_ADVANCE", "SCP_CONTAIN"):
             action["anomaly_id"] = request.anomaly_id or request.card_id
-        elif atype == "SCP2_INFILTRATE":
-            tgt = _coerce_target(request.scp2_target)
+        elif atype == "SCP_INFILTRATE":
+            tgt = _coerce_target(request.scp_target)
             if tgt:
                 action["target"] = tgt
-        elif atype == "SCP2_ACTIVATE":
+        elif atype == "SCP_ACTIVATE":
             if not request.card_id:
-                return False, "SCP2_ACTIVATE requires card_id"
+                return False, "SCP_ACTIVATE requires card_id"
             action["card_id"] = request.card_id
-            tgt = _coerce_target(request.scp2_target)
+            tgt = _coerce_target(request.scp_target)
             if tgt:
                 action["target"] = tgt
 
         try:
             ok, msg, _events = tm.execute_action(pid, action)
         except Exception as e:  # noqa: BLE001
-            return False, f"scp2 action failed: {e}"
+            return False, f"scp action failed: {e}"
         if ok:
             self._log(session, pid, self._describe(state, atype, request))
             if self._finish_if_over(session):
@@ -202,8 +202,8 @@ class SCP2ModeAdapter(ModeAdapter):
     # ─── Turn helpers ───────────────────────────────────────────────────
     def _open_turn(self, session: "GameSession", pid: str) -> None:
         """Start ``pid``'s turn: refresh AP, fire start-of-turn assets, draw 1. Mirrors the
-        opening of SCP2TurnManager.run_turn without the AI/human dispatch + end-of-turn."""
-        from src.engine import scp2
+        opening of SCPTurnManager.run_turn without the AI/human dispatch + end-of-turn."""
+        from src.engine import scp
 
         game = session.game
         tm = game.turn_manager
@@ -215,17 +215,17 @@ class SCP2ModeAdapter(ModeAdapter):
             state.turn_number = tm.turn_state.turn_number
         if tm.turn_order and pid in tm.turn_order:
             tm.current_player_index = tm.turn_order.index(pid)
-        scp2.ensure_scp2_state(state, pid)
-        scp2.reset_turn_resources(state, pid)
-        scp2.fire_turn_start_assets(game, pid)
-        scp2.draw_cards(game, pid, scp2.DRAW_PER_TURN)
+        scp.ensure_scp_state(state, pid)
+        scp.reset_turn_resources(state, pid)
+        scp.fire_turn_start_assets(game, pid)
+        scp.draw_cards(game, pid, scp.DRAW_PER_TURN)
 
     async def _run_ai_turn(self, session: "GameSession", pid: str) -> None:
         tm = session.game.turn_manager
         try:
             await tm.run_turn(pid)
         except Exception as e:  # noqa: BLE001
-            print(f"[scp2] AI run_turn failed: {e}")
+            print(f"[scp] AI run_turn failed: {e}")
 
     def _finish_if_over(self, session: "GameSession") -> bool:
         state = session.game.state
@@ -247,11 +247,11 @@ class SCP2ModeAdapter(ModeAdapter):
         return None
 
     def _describe(self, state, atype: str, request) -> str:
-        verb = atype.replace("SCP2_", "").lower()
+        verb = atype.replace("SCP_", "").lower()
         if request.card_id and request.card_id in state.objects:
             return f"{verb} {state.objects[request.card_id].name}"
-        if atype == "SCP2_INFILTRATE" and request.scp2_target:
-            return f"infiltrate {'/'.join(str(x) for x in request.scp2_target)}"
+        if atype == "SCP_INFILTRATE" and request.scp_target:
+            return f"infiltrate {'/'.join(str(x) for x in request.scp_target)}"
         return verb
 
     def _log(self, session: "GameSession", player: Optional[str], text: str) -> None:
@@ -260,7 +260,7 @@ class SCP2ModeAdapter(ModeAdapter):
         name = session.player_names.get(player, "AI") if player else ""
         session._game_log.append(GameLogEntry(
             turn=turn, text=(f"{name}: {text}" if name else text),
-            event_type="scp2_action", player=player, timestamp=time.time(),
+            event_type="scp_action", player=player, timestamp=time.time(),
         ))
 
     async def _broadcast(self, session: "GameSession") -> None:
