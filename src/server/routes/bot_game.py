@@ -364,41 +364,24 @@ async def start_bot_game(
                 # same seat the engine assigned).
                 session.deck_id_by_player[pid] = deck_blurb_id
 
-    elif request.mode == "scp":
-        # SCP bot-vs-bot: mirror match.py's scp branch. Each seat needs
-        # ``setup_scp_player`` (zeroes life/max_life so SCP loss is breach-
-        # based, not damage-based; seeds scp_sites/scp_facilities/scp_mandates
-        # state). Without this branch the route fell through to the MTG/HS
-        # else block, which left players at life=20 with no SCP state — the
-        # turn manager then ran against empty scp_sites dicts and the match
-        # never advanced toward a real win condition.
-        from src.cards.scp import SCP_STARTER_DECKS
+    elif request.mode == "scp2":
+        # SCP2 bot-vs-bot: asymmetric Foundation (seat 0) vs Chaos Insurgency
+        # (seat 1). Record a faction-appropriate deck id per seat; the actual
+        # scp2.setup_scp2_game call is deferred to SCP2ModeAdapter.setup_game(),
+        # which reads session.deck_id_by_player.
+        from src.cards.scp2.decks import SCP2_FOUNDATION_DECKS, SCP2_INSURGENCY_DECKS
         import random
-        scp_deck_keys = list(SCP_STARTER_DECKS.keys())
-        b1_key = (
-            request.bot1_deck_id if request.bot1_deck_id in SCP_STARTER_DECKS
-            else random.choice(scp_deck_keys)
-        )
-        b2_key = (
-            request.bot2_deck_id if request.bot2_deck_id in SCP_STARTER_DECKS
-            else random.choice([k for k in scp_deck_keys if k != b1_key] or scp_deck_keys)
-        )
+
+        fkeys = list(SCP2_FOUNDATION_DECKS)
+        ikeys = list(SCP2_INSURGENCY_DECKS)
+        b1_key = request.bot1_deck_id if request.bot1_deck_id in SCP2_FOUNDATION_DECKS else random.choice(fkeys)
+        b2_key = request.bot2_deck_id if request.bot2_deck_id in SCP2_INSURGENCY_DECKS else random.choice(ikeys)
 
         player_ids = list(session.game.state.players.keys())
-        deck_keys_by_seat = {player_ids[0]: b1_key}
+        if len(player_ids) >= 1:
+            session.deck_id_by_player[player_ids[0]] = b1_key
         if len(player_ids) >= 2:
-            deck_keys_by_seat[player_ids[1]] = b2_key
-
-        for pid in player_ids[:2]:
-            player = session.game.state.players.get(pid)
-            if player is None:
-                continue
-            session.game.setup_scp_player(player, [])
-
-        for pid in player_ids[:2]:
-            deck = SCP_STARTER_DECKS[deck_keys_by_seat[pid]]()
-            session.add_cards_to_deck(pid, deck)
-            session.deck_id_by_player[pid] = deck_keys_by_seat[pid]
+            session.deck_id_by_player[player_ids[1]] = b2_key
 
     elif request.mode == "clankers":
         # Clankers bot-vs-bot: pick (Core, 60-card deck) for each seat from

@@ -425,30 +425,6 @@ async def create_match(
             if ai2_id:
                 session.add_cards_to_deck(ai2_id, MINECRAFT_STARTER_DECKS[ai_deck_id]())
 
-    elif request.game_mode == "scp":
-        from src.cards.scp import SCP_STARTER_DECKS
-        import random
-
-        deck_keys = ["secure_contain_research", "keter_risk", "veil_control"]
-        human_deck_id = request.player_deck_id if request.player_deck_id in SCP_STARTER_DECKS else "secure_contain_research"
-        ai_deck_id = request.ai_deck_id if request.ai_deck_id in SCP_STARTER_DECKS else "keter_risk"
-        if request.mode == "bot_vs_bot":
-            random.shuffle(deck_keys)
-            human_deck_id, ai_deck_id = deck_keys[0], deck_keys[1]
-
-        for pid in session.player_ids:
-            player = session.game.state.players.get(pid)
-            if player:
-                session.game.setup_scp_player(player, [])
-
-        session.add_cards_to_deck(human_id, SCP_STARTER_DECKS[human_deck_id]())
-        if request.mode == "human_vs_bot" and ai_id:
-            session.add_cards_to_deck(ai_id, SCP_STARTER_DECKS[ai_deck_id]())
-        elif request.mode == "bot_vs_bot":
-            session.add_cards_to_deck(ai_id, SCP_STARTER_DECKS[human_deck_id]())
-            if ai2_id:
-                session.add_cards_to_deck(ai2_id, SCP_STARTER_DECKS[ai_deck_id]())
-
     elif request.game_mode == "yugioh":
         # Yu-Gi-Oh! mode - support deck selection via deck IDs
         from src.cards.yugioh.ygo_classic import (

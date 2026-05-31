@@ -637,41 +637,6 @@ class EventType(Enum):
     FIN_CAPITAL_CALL = auto()    # Capital Reserve damage from a non-combat source
     FIN_BANKRUPTCY = auto()      # Player's Capital Reserve reached 0
 
-    # ------------------------------------------------------------------
-    # SCP Containment TCG events — see src/engine/scp.py.
-    # ------------------------------------------------------------------
-    SCP_OPEN_DOSSIER = auto()      # Card moved from hand into the paperwork queue / active site
-    SCP_FAST_TRACK = auto()        # Red tape bypassed by taking exposure
-    SCP_PAPERWORK_TICK = auto()    # Pending dossier lost paperwork counters
-    SCP_ACTIVATE_DOSSIER = auto()  # Pending dossier became active
-    SCP_ANOMALY_REVEALED = auto()  # Active anomaly began exerting hazard
-    SCP_SEAL_DOSSIER = auto()      # Anomaly opened face-down/sealed instead of active
-    SCP_REVEAL_DOSSIER = auto()    # Sealed anomaly was revealed and activated
-    SCP_ASSIGN_STAFF = auto()      # Personnel committed to a containment/research/suppression action
-    SCP_TEST_RUN = auto()          # Research test attempted against an anomaly
-    SCP_CONTAINMENT_ATTEMPT = auto() # Containment attempt attempted against an anomaly
-    SCP_CONTAINED = auto()         # Anomaly successfully contained
-    SCP_BREACH_TICK = auto()       # Active anomalies advanced breach/exposure clocks
-    SCP_INCIDENT = auto()          # Breach fallout incident changed the Site state
-    SCP_MOOD_SHIFT = auto()        # Anomaly mood changed its risk/research profile
-    SCP_CROSS_CONTAINMENT = auto() # Contained anomaly suppresses or reframes another
-    SCP_MEMORY_HOLE = auto()       # Card or dossier was redacted from normal records
-    SCP_PROTOCOL_APPLIED = auto()  # Special containment protocol rewrote anomaly math
-    SCP_GOI_RAID = auto()          # External group interfered with a Site
-    SCP_INCIDENT_RESOLVED = auto() # Persistent incident record cleared
-    SCP_AUDIT = auto()             # Cross-site audit / whistleblower interference
-    SCP_ETHICS_SPENT = auto()      # Ethics debt used as a strategic resource
-    SCP_ARCHIVE_GAINED = auto()    # Player gained archive progress
-    SCP_SITE_LOST = auto()         # Player lost to breach, exposure, or ethics collapse
-    # MNR (Mnestic Reset) verbs.
-    SCP_FORGET = auto()            # Antimeme anomaly removed-from-history into scp_forgotten
-    SCP_MNESTIC_ACTIVE = auto()    # Personnel gained the Mnestic tag via Mnestic Wake
-    SCP_REDACT = auto()            # Redact procedure resolved (opponent discard + event tag)
-    SCP_COG_HAZARD_TICK = auto()   # Cognitive Hazard drained N cards from opposing hand
-    # FBN (Foundations Beyond) verbs. Both inert — used for analytics + frontend hooks.
-    SCP_CONTROL_SWAP = auto()              # Compleation Vector flipped a personnel's controller
-    SCP_PHYLACTERY_AUDIT_OFFER = auto()    # Phylactery Audit auto-accept / reject decision
-    SCP_ABILITY_ACTIVATED = auto()         # An SCP-native activated/modal ability resolved
 
     # ------------------------------------------------------------------
     # Cats — trick-taking + pile-building card game. See src/engine/cats.py.
@@ -889,12 +854,6 @@ class CardType(Enum):
     FIN_DERIVATIVE = auto()  # Enchantment-on-a-Trader; stages to Derivatives Desk before attaching
     FIN_STRUCTURE = auto()   # Building; max 3 per player on Trading Floor; tap-to-activate
 
-    # SCP Containment TCG card types — see src/engine/scp.py.
-    SCP_ANOMALY = auto()      # Hazardous object/entity/event to study or contain
-    SCP_PERSONNEL = auto()    # Staff assigned to contain/research/suppress anomalies
-    SCP_FACILITY = auto()     # Site wing, machine, policy, or standing infrastructure
-    SCP_PROCEDURE = auto()    # One-shot protocol; usually modifies clocks or dossiers
-    SCP_MANDATE = auto()      # Alternate directive / win-condition modifier
 
     # Cats card types — see src/engine/cats.py.
     CATS_CAT = auto()         # Core unit. Numeric Value (1-10) + one Category (Sleek/Fluffy/Scrappy/Sneaky).
@@ -1103,30 +1062,6 @@ class ObjectState:
     mc_last_blocked_attacker: Optional[str] = None   # When blocking, the attacker id
     death_triggered: bool = False                    # Once-only deathrattle/on_death guard
 
-    # SCP-specific (optional, unused in other modes)
-    scp_status: Optional[str] = None       # pending | active | contained | expunged
-    scp_paperwork: int = 0                 # Turns/actions before a dossier becomes active
-    scp_exhausted: bool = False            # Personnel used this turn/action window
-    scp_researched: int = 0                # Successful research tests run on this anomaly
-    scp_suppressed: int = 0                # Temporary suppression total for next breach tick
-    scp_mood: Optional[str] = None         # docile | agitated | cryptic | cooperative
-    scp_bound_to: Optional[str] = None      # Cross-containment pairing source
-    scp_protocols: list[str] = field(default_factory=list) # Special containment protocol labels
-    # MNR (Mnestic Reset) per-object state.
-    # ``scp_forget_counters`` accumulates each end-of-turn an antimeme anomaly
-    # sits on the battlefield without a Mnestic personnel covering it. When
-    # the counter reaches the card_def's ``scp_antimeme`` threshold the
-    # anomaly is moved to the ``state.scp_forgotten`` zone (removed-from-history,
-    # NOT destroyed — leaves-battlefield triggers do not fire).
-    # ``scp_mnestic_gained`` is set by the Mnestic Wake activated ability so a
-    # non-Mnestic personnel can become permanently Mnestic mid-game.
-    scp_forget_counters: int = 0
-    scp_mnestic_gained: bool = False
-    # FBN (Foundations Beyond) per-object state. ``scp_compleation`` accumulates
-    # Compleation Vector counters placed at end-of-turn by opposing Phyrexian
-    # Strain anomalies. At >=3 counters the personnel flips controller via the
-    # SCP_CONTROL_SWAP event (Mnestic personnel are skipped entirely).
-    scp_compleation: int = 0
 
     # Depths-specific (optional, unused in other modes). depth_band stores
     # an Enum from src/engine/depths.py (DepthBand). It's stored as a plain
@@ -1695,22 +1630,6 @@ class GameState:
     minecraft_grid: dict[str, list[list[Optional[str]]]] = field(default_factory=dict)
     minecraft_combat: dict[str, Any] = field(default_factory=dict)
 
-    # SCP Containment TCG mode state.
-    # Each player is a Site racing to build classified Archives while avoiding
-    # breach, exposure, and ethics-collapse clocks. Card objects still live in
-    # normal zones; these indexes make the non-combat board fast to query.
-    scp_sites: dict[str, dict[str, Any]] = field(default_factory=dict)
-    scp_anomalies: dict[str, list[str]] = field(default_factory=dict)
-    scp_contained: dict[str, list[str]] = field(default_factory=dict)
-    scp_personnel: dict[str, list[str]] = field(default_factory=dict)
-    scp_facilities: dict[str, list[str]] = field(default_factory=dict)
-    scp_mandates: dict[str, list[str]] = field(default_factory=dict)
-    scp_incidents: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
-    # MNR forgotten zone: anomalies removed-from-history by the Antimeme decay
-    # clock. Keyed by player_id. Forgotten anomalies do NOT count for thaumiel
-    # / contained-based win conditions and do NOT fire leaves-battlefield
-    # triggers — the engine treats them as if they never existed.
-    scp_forgotten: dict[str, list[str]] = field(default_factory=dict)
 
     # SCP2 (Foundation vs Insurgency rebuild): one record per player holding
     # faction, resources (credits/AP), win counters (containment/liberation),
