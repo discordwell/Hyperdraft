@@ -690,6 +690,25 @@ async def create_match(
             else:
                 session.deck_id_by_player[pid] = deck_keys[idx % len(deck_keys)]
 
+    elif request.game_mode == "scp2":
+        # SCP2: asymmetric Foundation (seat 0) vs Chaos Insurgency (seat 1). Decks are
+        # (identity, builder) entries in the scp2 registries; the SCP2ModeAdapter.setup_game()
+        # reads session.deck_id_by_player and calls scp2.setup_scp2_game. This branch only
+        # records a faction-appropriate deck id per seat (the adapter re-validates).
+        from src.cards.scp2.decks import SCP2_FOUNDATION_DECKS, SCP2_INSURGENCY_DECKS
+
+        fkeys = list(SCP2_FOUNDATION_DECKS)
+        ikeys = list(SCP2_INSURGENCY_DECKS)
+        for idx, pid in enumerate(session.player_ids):
+            registry = SCP2_FOUNDATION_DECKS if idx == 0 else SCP2_INSURGENCY_DECKS
+            fallback = (fkeys if idx == 0 else ikeys)[0]
+            chosen = None
+            if pid == human_id and request.player_deck_id in registry:
+                chosen = request.player_deck_id
+            elif request.ai_deck_id in registry:
+                chosen = request.ai_deck_id
+            session.deck_id_by_player[pid] = chosen or fallback
+
     elif request.game_mode == "cats":
         # Cats: trick-taking + pile-building. Decks are 30-card commander+main
         # tuples in CATS_DECKS. The cats engine uses its own setup_cats_player

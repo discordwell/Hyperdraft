@@ -130,6 +130,15 @@ class ActionType(str, Enum):
     CLANKERS_DECLARE_BLOCKERS = "CLANKERS_DECLARE_BLOCKERS"
     CLANKERS_REFILL_DECISION = "CLANKERS_REFILL_DECISION"
     CLANKERS_END_PHASE = "CLANKERS_END_PHASE"
+    # SCP2 (asymmetric Foundation vs Chaos Insurgency) action types
+    SCP2_GAIN = "SCP2_GAIN"
+    SCP2_DRAW = "SCP2_DRAW"
+    SCP2_PLAY = "SCP2_PLAY"
+    SCP2_ADVANCE = "SCP2_ADVANCE"
+    SCP2_CONTAIN = "SCP2_CONTAIN"
+    SCP2_INFILTRATE = "SCP2_INFILTRATE"
+    SCP2_ACTIVATE = "SCP2_ACTIVATE"
+    SCP2_END_TURN = "SCP2_END_TURN"
 
 
 class ChoiceType(str, Enum):
@@ -152,7 +161,7 @@ class ChoiceType(str, Enum):
 class CreateMatchRequest(BaseModel):
     """Request to create a new match."""
     mode: MatchMode = MatchMode.HUMAN_VS_BOT
-    game_mode: Literal["mtg", "hearthstone", "pokemon", "yugioh", "minecraft", "finance", "depths", "scp", "cats", "clankers"] = Field(
+    game_mode: Literal["mtg", "hearthstone", "pokemon", "yugioh", "minecraft", "finance", "depths", "scp", "scp2", "cats", "clankers"] = Field(
         default="mtg",
         description="Rules engine: 'mtg', 'hearthstone', 'pokemon', 'yugioh', 'minecraft', 'finance', 'depths', 'scp', 'cats', or 'clankers'"
     )
@@ -214,6 +223,8 @@ class PlayerActionRequest(BaseModel):
     blocker_pairs: dict[str, str] = Field(default_factory=dict, description="Clankers blocker mapping {attacker_id: blocker_id}")
     refill_decision: Optional[bool] = Field(default=None, description="Clankers Allocate-phase may-refill choice (True=take, False=decline)")
     phase: Optional[str] = Field(default=None, description="Clankers phase label for CLANKERS_END_PHASE (assemble/reassemble/combat)")
+    cell_id: Optional[int] = Field(default=None, description="SCP2 containment cell id for install/advance/contain (None = new cell)")
+    scp2_target: Optional[list[str]] = Field(default=None, description="SCP2 target tuple: ['cell','3'] or ['central','research'] for layer install / infiltrate")
     # Ultra-agent telemetry — when the LLM pilot sends a structured rationale
     # along with its action POST, we capture it into the per-match decisions
     # JSONL. Optional; absent for human / heuristic-AI submissions.
@@ -593,6 +604,7 @@ class GameStateResponse(BaseModel):
     # `clankers` as a single nested object so its viewer can project workshop /
     # compute / scrap / floor data without flattening into top-level fields.
     clankers: Optional[dict] = Field(default=None, description="Nested clankers engine state (phases/floor/workshop/compute/scrap)")
+    scp2: Optional[dict] = Field(default=None, description="Nested scp2 engine state (factions/cells/rig/banks/hand, viewer-redacted)")
     # Game log
     game_log: list[GameLogEntry] = Field(default_factory=list)
 

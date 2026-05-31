@@ -49,7 +49,7 @@ FOIL_RATE = 0.10
 
 
 # Action type prefixes handled by specific mode adapters.
-_MODE_ACTION_PREFIXES = {"pokemon": "PKM", "hearthstone": "HS", "yugioh": "YGO", "minecraft": "MC", "finance": "FIN", "depths": "DEPTHS", "scp": "SCP", "cats": "CATS", "clankers": "CLANKERS"}
+_MODE_ACTION_PREFIXES = {"pokemon": "PKM", "hearthstone": "HS", "yugioh": "YGO", "minecraft": "MC", "finance": "FIN", "depths": "DEPTHS", "scp": "SCP", "scp2": "SCP2", "cats": "CATS", "clankers": "CLANKERS"}
 
 _HS_ACTION_TYPES = frozenset({
     "HS_PLAY_CARD", "HS_ATTUNE_CARD", "HS_ATTACK", "HS_HERO_POWER", "HS_END_TURN",
@@ -102,6 +102,11 @@ _CLANKERS_ACTION_TYPES = frozenset({
     "CLANKERS_PLAY_CARD", "CLANKERS_ATTACH_PART", "CLANKERS_ACTIVATE_ABILITY",
     "CLANKERS_DECLARE_ATTACKERS", "CLANKERS_DECLARE_BLOCKERS",
     "CLANKERS_REFILL_DECISION", "CLANKERS_END_PHASE",
+})
+
+_SCP2_ACTION_TYPES = frozenset({
+    "SCP2_GAIN", "SCP2_DRAW", "SCP2_PLAY", "SCP2_ADVANCE",
+    "SCP2_CONTAIN", "SCP2_INFILTRATE", "SCP2_ACTIVATE", "SCP2_END_TURN",
 })
 
 
@@ -890,6 +895,11 @@ class GameSession:
         if game_state.game_mode == "clankers":
             clankers_state_data = self._serialize_clankers_state(game_state, player_id)
 
+        # SCP2-specific state — viewer-redacted (fog of war) nested dict consumed by useSCP2Game.ts
+        scp2_state_data: Optional[dict] = None
+        if game_state.game_mode == "scp2":
+            scp2_state_data = self._serialize_scp2_state(game_state, player_id)
+
         # Depths-specific state
         depths_phase_val = None
         depths_combat_val: dict = {}
@@ -962,6 +972,7 @@ class GameSession:
             scp_assignment_slots=scp_assignment_slots,
             cats=cats_state_data,
             clankers=clankers_state_data,
+            scp2=scp2_state_data,
         )
 
     async def handle_action(self, request: PlayerActionRequest) -> tuple[bool, str]:
@@ -1100,6 +1111,8 @@ class GameSession:
             return await get_server_mode_adapter("cats").handle_action(self, request)
         if request.action_type in _CLANKERS_ACTION_TYPES:
             return await get_server_mode_adapter("clankers").handle_action(self, request)
+        if request.action_type in _SCP2_ACTION_TYPES:
+            return await get_server_mode_adapter("scp2").handle_action(self, request)
 
         # Combat declarations are not wired through the priority action loop yet.
         if request.action_type in ("DECLARE_ATTACKERS", "DECLARE_BLOCKERS"):
@@ -2556,6 +2569,101 @@ class GameSession:
             requires_targets=action.requires_targets,
             requires_mana=action.requires_mana
         )
+
+    def _serialize_scp2_state(self, game_state, viewer_id: Optional[str]) -> dict:
+        """Serialize scp2 state into the viewer-redacted shape consumed by useSCP2Game.ts.
+
+        Fog of war: the cell board comes from ``scp2.public_board`` (Phase-1-tested redaction —
+        face-down anomaly/layer identities are ``[FACE-DOWN]`` to the non-owner, but advancement
+        'heat' stays public). Hands reveal only the viewer's own cards; the opponent exposes a
+        count. The Insurgency rig is public (breakers install face-up); Foundation assets install
+        face-down, so they're redacted to the opponent.
+        """
+        from src.engine import scp2
+        from src.engine.types import CardType
+
+        board = scp2.public_board(game_state, viewer_id)
+        fid = scp2.foundation_id(game_state)
+        iid = scp2.insurgency_id(game_state)
+        active = getattr(game_state, "active_player", None)
+
+        def _card_dto(obj_id: str, reveal: bool) -> dict:
+            obj = game_state.objects.get(obj_id)
+            if obj is None:
+                return {"id": obj_id, "name": "?", "kind": None, "hidden": True}
+            cd = obj.card_def
+            kind = getattr(cd, "scp2_kind", None)
+            if not reveal:
+                return {"id": obj_id, "name": "[REDACTED]", "kind": None, "hidden": True}
+            dto = {
+                "id": obj_id, "name": obj.name, "hidden": False,
+                "kind": kind.name if kind else None,
+                "text": (cd.text or "") if cd else "",
+                "cost": int(getattr(cd, "scp2_cost", 0) or 0),
+            }
+            if kind == CardType.SCP2_ANOMALY:
+                dto.update(threshold=int(getattr(cd, "scp2_threshold", 0) or 0),
+                           value=int(getattr(cd, "scp2_value", 0) or 0),
+                           trap=bool(getattr(cd, "scp2_trap", False)))
+            elif kind == CardType.SCP2_LAYER:
+                dto.update(ltype=getattr(cd, "scp2_ltype", None),
+                           strength=scp2._effective_strength(game_state, obj),
+                           rez=int(getattr(cd, "scp2_rez", 0) or 0),
+                           rezzed=bool(getattr(obj.state, "scp2_rezzed", False)))
+            elif kind == CardType.SCP2_OPERATIVE:
+                dto.update(breaks=getattr(cd, "scp2_breaks", None),
+                           power=int(getattr(cd, "scp2_power", 0) or 0),
+                           boost=int(getattr(cd, "scp2_boost", 1) or 1))
+            return dto
+
+        def _seat(pid):
+            if pid is None:
+                return None
+            rec = dict(board["players"].get(pid, {}))  # faction, credits, ap, counters, cells (redacted)
+            r = scp2.ensure_scp2_state(game_state, pid)
+            is_me = (pid == viewer_id)
+            hand = scp2.hand_ids(game_state, pid)
+            rec["hand"] = [_card_dto(h, reveal=True) for h in hand] if is_me else None
+            rec["hand_count"] = len(hand)
+            rec["deck_count"] = len(scp2.deck_ids(game_state, pid))
+            rec["discard_count"] = len(scp2.discard_ids(game_state, pid))
+            rec["rig"] = [_card_dto(o, reveal=True) for o in r.get("rig", []) if o in game_state.objects]
+            rec["assets"] = [
+                _card_dto(o, reveal=not scp2.card_hidden_from(game_state, game_state.objects[o], viewer_id))
+                for o in r.get("assets", []) if o in game_state.objects
+            ]
+            ident_id = r.get("identity")
+            rec["identity"] = game_state.objects[ident_id].name if (ident_id and ident_id in game_state.objects) else None
+            return rec
+
+        losers = [pid for pid, p in game_state.players.items() if getattr(p, "has_lost", False)]
+        game_over = bool(losers)
+        winner = reason = None
+        if game_over and fid and iid:
+            winner = fid if losers[0] == iid else iid
+            f = scp2.ensure_scp2_state(game_state, fid)
+            i = scp2.ensure_scp2_state(game_state, iid)
+            if f["containment_points"] >= scp2.CONTAINMENT_TARGET:
+                reason = "containment"
+            elif i.get("burned_out"):
+                reason = "burnout"
+            elif i["liberation_points"] >= scp2.LIBERATION_TARGET:
+                reason = "liberation"
+            elif f["total_breach"] >= scp2.BREACH_CATASTROPHE:
+                reason = "total_breach"
+
+        return {
+            "foundation_id": fid, "insurgency_id": iid,
+            "viewer_faction": (scp2.faction_of(game_state, viewer_id) if viewer_id else None),
+            "active_player": active,
+            "your_turn": bool(viewer_id is not None and viewer_id == active),
+            "game_over": game_over, "winner": winner, "win_reason": reason,
+            "targets": {"containment": scp2.CONTAINMENT_TARGET,
+                        "liberation": scp2.LIBERATION_TARGET,
+                        "breach": scp2.BREACH_CATASTROPHE},
+            "me": _seat(viewer_id) if viewer_id else None,
+            "opponent": _seat(scp2.opponent_of(game_state, viewer_id)) if viewer_id else None,
+        }
 
     def _serialize_cats_state(self, game_state, viewer_id: Optional[str]) -> dict:
         """Serialize the cats engine state into the shape expected by useCatsGame.ts.

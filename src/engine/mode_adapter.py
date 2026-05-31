@@ -896,6 +896,12 @@ class SCP2ModeAdapter(GameModeAdapter):
         # scp2's canonical setup is scp2.setup_scp2_game (factions + decks + hands).
         return True
 
+    def skips_turn_order_setup(self) -> bool:
+        # The server adapter's setup_game runs scp2.setup_scp2_game, which sets the
+        # foundation-first turn order and opening hands; game.start_game must not re-order
+        # or run MTG mulligans (mirror YGO).
+        return True
+
     def register_ai_player(self, game, player_id):
         if hasattr(game.turn_manager, "set_ai_player"):
             game.turn_manager.set_ai_player(player_id)
