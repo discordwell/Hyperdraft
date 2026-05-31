@@ -41,15 +41,20 @@ from .types import (
 FOUNDATION = "foundation"
 INSURGENCY = "insurgency"
 
-AP_PER_TURN = 3
+AP_PER_TURN = 4             # Phase-4 tuned 3→4: the Foundation's plan is action-heavy
 STARTING_CREDITS = 5
 GAIN_AMOUNT = 2
 DRAW_PER_TURN = 1
 MAX_HAND = 5
 
-CONTAINMENT_TARGET = 7      # Foundation primary win
+CONTAINMENT_TARGET = 6      # Foundation primary win (Phase-4 tuned 7→6)
 LIBERATION_TARGET = 7       # Insurgency primary win
-BREACH_CATASTROPHE = 10     # Insurgency secondary win ("unleash")
+BREACH_CATASTROPHE = 14     # Insurgency secondary win, "unleash" (Phase-4 tuned 10→14)
+# How much of a freed anomaly's value (or its breach_on_free override) flows into the shared
+# Total Breach clock. 1.0 = full (a freed anomaly's Value is also its Breach). A balance knob
+# (Phase 4): freeing already banks Liberation, so the Breach contribution can be < 1.0 to keep
+# the Foundation's advance-in-the-open from feeding its own loss-con too hard.
+BREACH_FREE_MULTIPLIER = 1.0
 
 LAYER_TYPES = ("barrier", "sentry", "sensor")
 CENTRALS = ("hq", "research", "archives")
@@ -808,6 +813,7 @@ def _free_anomaly(game, insurgent_id: str, anomaly: GameObject, cell: dict) -> l
     ir["liberation_points"] += value
     breach = getattr(cd, "scp2_breach_on_free", None)
     breach = value if breach is None else int(breach)
+    breach = int(round(breach * BREACH_FREE_MULTIPLIER))
     fr["total_breach"] += breach
     cell["anomaly"] = None
     events = _emit(game, EventType.SCP2_FREE, controller=insurgent_id,

@@ -22,7 +22,7 @@ breaching *himself* out). This rebuild makes the two players actually fight.
 | Fantasy | Secure, Contain, Protect | Steal, Free, Weaponize |
 | Plays | builds a board of hidden, defended sites; advances anomalies into containment | builds a "rig" of operatives & tools; infiltrates the Foundation's sites |
 | Owns | the **primary win & lose con** | nothing self-destructs; everything is earned by acting on the Foundation |
-| Wins by | **Containment** points ≥ 7 (primary); burning out the Insurgency (soft kill, secondary) | **Liberation** points ≥ 7 (primary); **Total Breach** ≥ 10 (secondary) |
+| Wins by | **Containment** points ≥ 6 (primary); burning out the Insurgency (soft kill, secondary) | **Liberation** points ≥ 7 (primary); **Total Breach** ≥ 14 (secondary) |
 
 Each side's win is the other's loss. There is no self-inflicted loss — the old engine's core sin.
 
@@ -30,7 +30,8 @@ Each side's win is the other's loss. There is no self-inflicted loss — the old
 
 ## 2. Shared core (economy & turn)
 
-- **Actions (AP):** 3 per turn. Spent on the verbs in §4–5. (Netrunner "clicks".)
+- **Actions (AP):** 4 per turn. Spent on the verbs in §4–5. (Netrunner "clicks"; Phase-4
+  tuned 3→4 — the Foundation's plan is action-heavy and was starved at 3.)
 - **Credits:** Foundation pool = **Funding**; Insurgency pool = **Cells**. Start at 5. A *gain*
   action grants **+2**. Cards cost credits to play; runs/advances/rezzes cost credits.
 - **Hand / deck / discard:** per-faction deck. **Hand is hidden** from the opponent. Start of turn:
@@ -163,10 +164,10 @@ under-defend a real anomaly and dare the Insurgency to commit. Hidden installs +
 
 | Trigger | Result |
 |---|---|
-| Foundation Containment points ≥ **7** | **Foundation wins** (primary) |
+| Foundation Containment points ≥ **6** | **Foundation wins** (primary) |
 | Insurgency burned out (damage vs empty hand) | **Foundation wins** (soft kill, secondary) |
 | Insurgency Liberation points ≥ **7** | **Insurgency wins** (primary) |
-| Total Breach ≥ **10** | **Insurgency wins** (secondary — "unleash") |
+| Total Breach ≥ **14** | **Insurgency wins** (secondary — "unleash") |
 
 No self-inflicted loss exists. Checked after every state-changing action (a single
 `check_scp2_win(game)` analogous to `check_scp_victory`, but symmetric across the two win axes).
@@ -237,11 +238,26 @@ Two archetypes per side keeps the Phase-4 matrix honest (no single dominant line
 
 ---
 
-## 10. Initial numbers (all tunable in Phase 4)
-AP 3 · start credits 5 · gain +2 · draw 1/turn · max hand 5 · deck 40 · anomaly density ≥18 ·
-Containment target 7 · Liberation target 7 · Total Breach catastrophe 10 · anomaly lines 3/1, 4/2,
-5/3 · layer strength 1–6 · breaker power 1–2 + boost. **Phase-4 goal:** a healthy split where
-neither faction wins >~55%, and games are decided by play, not by which seat you were dealt.
+## 10. Numbers (Phase-4 tuned)
+AP **4** · start credits 5 · gain +2 · draw 1/turn · max hand 5 · deck 40 · anomaly density ≥18 ·
+Containment target **6** · Liberation target 7 · Total Breach catastrophe **14** · anomaly lines
+3/1, 4/2, 5/3 · layer strength 1–6 · breaker power 1–2 + boost. (Engine constants in
+`src/engine/scp2.py`; `BREACH_FREE_MULTIPLIER` left at 1.0.)
+
+**Phase-4 result.** Baseline self-play was a 0%/100% Foundation/Insurgency sweep (breach
+arrived in ~8 turns while containment needed ~3-4 locks). A runtime-probe sweep
+(`scripts/play/scp2_tournament.py`) showed the imbalance was multi-causal — single levers
+barely moved it (removing breach-from-freeing entirely still lost 4%/96% as the Insurgency
+pivoted to liberation). The adopted fix is **buff-leaning** (per the buff-before-nerf
+principle): AP 3→4, containment target 7→6, breach catastrophe 10→14, *no* nerf to the value
+of freeing. Result over 100 games: **51% / 49%**, all four win conditions live (containment
+50, total_breach 42, liberation 7, burnout 1), avg ~21 turns, zero stalls. Guarded by
+`tests/test_scp2_balance.py`.
+
+**Known follow-up (deck-pinnacle pass, not faction balance):** the Insurgency *Containment
+Breach* (breach-rush) deck beats both Foundation decks; *Black Queen Cell* (liberation/tempo)
+loses to both — the liberation axis is underpowered (only 7/100 wins). Buff the liberation
+path / Black Queen Cell before shipping it as a pinnacle.
 
 ---
 
