@@ -245,6 +245,12 @@ export function GameView() {
     }
   }, [gameState?.game_mode, matchId, navigate]);
 
+  useEffect(() => {
+    if (gameState?.game_mode === 'scp2' && matchId) {
+      navigate(`/game/${matchId}/scp2`, { replace: true });
+    }
+  }, [gameState?.game_mode, matchId, navigate]);
+
   // Handle card clicks
   const handleCardClick = useCallback(
     (card: CardData, zone: 'hand' | 'battlefield') => {

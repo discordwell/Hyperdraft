@@ -903,6 +903,7 @@ def public_board(state: GameState, viewer_id: Optional[str]) -> dict:
             if anomaly is not None:
                 hidden = card_hidden_from(state, anomaly, viewer_id)
                 anomaly_view = {
+                    "id": anomaly.id,  # opaque object id (not a fog leak — needed to advance/contain)
                     "advancement": int(getattr(anomaly.state, "scp2_advancement", 0)),  # public
                     "name": ("[FACE-DOWN]" if hidden else anomaly.name),
                     "hidden": hidden,
@@ -914,6 +915,7 @@ def public_board(state: GameState, viewer_id: Optional[str]) -> dict:
                     continue
                 hidden = card_hidden_from(state, layer, viewer_id)
                 layers_out.append({
+                    "id": layer.id,
                     "name": ("[FACE-DOWN]" if hidden else layer.name),
                     "rezzed": bool(getattr(layer.state, "scp2_rezzed", False)),
                     "hidden": hidden,

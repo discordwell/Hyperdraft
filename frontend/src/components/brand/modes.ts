@@ -15,6 +15,7 @@ export type GameModeId =
   | 'finance'
   | 'depths'
   | 'scp'
+  | 'scp2'
   | 'cats'
   | 'clankers';
 
@@ -43,6 +44,7 @@ export interface GameModeMeta {
     | '/fin'
     | '/depths'
     | '/scp'
+    | '/scp2'
     | '/cats'
     | '/clankers';
 }
@@ -137,6 +139,15 @@ export const GAME_MODES: GameModeMeta[] = [
     blurb: 'Newly-sentient AIs build battle robots from chassis + parts.',
     accent: 'violet',
     gameViewSuffix: '/clankers',
+  },
+  {
+    id: 'scp2',
+    code: 'SCP2',
+    name: 'SCP: Subvert',
+    title: 'SCP: Secure / Contain / Subvert',
+    blurb: 'Asymmetric. Foundation contains anomalies; Chaos Insurgency breaks them loose.',
+    accent: 'violet',
+    gameViewSuffix: '/scp2',
   },
 ];
 

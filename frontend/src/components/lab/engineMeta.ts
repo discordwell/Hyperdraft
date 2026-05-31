@@ -159,6 +159,19 @@ const META: Record<GameModeId, Omit<LabEngineMeta, keyof GameModeMeta>> = {
       { k: 'compute', v: 'pool' },
     ],
   },
+  scp2: {
+    ix: 'E11',
+    subtitle: 'asymmetric · Netrunner-style · fog of war',
+    stat: '2 factions · 4 decks',
+    completeness: 55,
+    leadEngine: false,
+    pickerStats: [
+      { k: '2', v: 'factions' },
+      { k: '4', v: 'decks' },
+      { k: 'contain', v: 'vs subvert' },
+      { k: 'fog', v: 'of war' },
+    ],
+  },
 };
 
 export const LAB_ENGINES: LabEngineMeta[] = GAME_MODES.map((m) => ({
