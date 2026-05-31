@@ -180,9 +180,13 @@ def make_layer(name: str, ltype: str, strength: int, rez: int, *,
 def make_asset(name: str, *, cost: int = 0, text: str = "",
                on_install: Optional[Callable] = None,
                on_turn_start: Optional[Callable] = None,
-               ability: Optional[Callable] = None) -> CardDefinition:
+               ability: Optional[Callable] = None,
+               ability_cost: int = 0, ability_ap: int = 1) -> CardDefinition:
+    """Foundation persistent. ``ability(game, pid, obj, target)`` is an activated ability
+    costing ``ability_ap`` AP + ``ability_cost`` Funding (fired via ``activate_ability``)."""
     return _card(name, CardType.SCP2_ASSET, text, cost=cost, on_install=on_install,
-                 on_turn_start=on_turn_start, ability=ability)
+                 on_turn_start=on_turn_start, ability=ability,
+                 ability_cost=ability_cost, ability_ap=ability_ap)
 
 
 def make_operation(name: str, *, cost: int = 0, text: str = "",
@@ -201,9 +205,12 @@ def make_operative(name: str, breaks: str, power: int, *, boost: int = 1,
 
 def make_tool(name: str, *, cost: int = 0, text: str = "",
               on_install: Optional[Callable] = None,
-              ability: Optional[Callable] = None) -> CardDefinition:
+              ability: Optional[Callable] = None,
+              ability_cost: int = 0, ability_ap: int = 1) -> CardDefinition:
+    """Insurgency persistent. ``ability(game, pid, obj, target)`` is an activated ability
+    costing ``ability_ap`` AP + ``ability_cost`` Cells (fired via ``activate_ability``)."""
     return _card(name, CardType.SCP2_TOOL, text, cost=cost, on_install=on_install,
-                 ability=ability)
+                 ability=ability, ability_cost=ability_cost, ability_ap=ability_ap)
 
 
 def make_event(name: str, *, cost: int = 0, text: str = "",
@@ -306,6 +313,94 @@ def _spend_credits(r: dict, n: int) -> bool:
         return False
     r["credits"] -= n
     return True
+
+
+# ---------------------------------------------------------------------------
+# Card-effect helpers — the vocabulary card closures call. Each is a thin,
+# directly-callable function (no AP/credit gate; the playing verb already paid
+# that). They mutate the per-player record and emit the matching event so the
+# log/frontend observe the effect. Used by card on_*/effect/ability closures.
+# ---------------------------------------------------------------------------
+def add_credits(state: GameState, player_id: str, n: int) -> list[Event]:
+    ensure_scp2_state(state, player_id)["credits"] = max(0, ensure_scp2_state(state, player_id)["credits"] + n)
+    return []
+
+
+def add_liberation(state: GameState, player_id: str, n: int) -> list[Event]:
+    ensure_scp2_state(state, player_id)["liberation_points"] += n
+    return []
+
+
+def add_containment(state: GameState, player_id: str, n: int) -> list[Event]:
+    ensure_scp2_state(state, player_id)["containment_points"] += n
+    return []
+
+
+def add_breach(game, n: int) -> list[Event]:
+    """Raise the shared Total Breach clock (kept on the Foundation record)."""
+    state = game.state
+    fid = foundation_id(state)
+    if fid is None:
+        return []
+    fr = ensure_scp2_state(state, fid)
+    fr["total_breach"] += n
+    return _emit(game, EventType.SCP2_BREACH, amount=n, total_breach=fr["total_breach"])
+
+
+def expose(game, n: int = 1) -> list[Event]:
+    """Tag the Insurgency (enables Foundation soft-kill punishment)."""
+    state = game.state
+    iid = insurgency_id(state)
+    if iid is None:
+        return []
+    ir = ensure_scp2_state(state, iid)
+    ir["exposed"] = int(ir.get("exposed", 0)) + n
+    return _emit(game, EventType.SCP2_EXPOSE, controller=iid, player=iid, amount=n)
+
+
+def mill(game, player_id: str, n: int) -> list[Event]:
+    """Trash the top ``n`` cards of ``player_id``'s deck to discard (Research sabotage)."""
+    state = game.state
+    events: list[Event] = []
+    for _ in range(n):
+        dz = state.zones.get(_zkey(ZoneType.LIBRARY, player_id))
+        if not dz or not dz.objects:
+            break
+        top = state.objects.get(dz.objects[-1])
+        if top is None:
+            dz.objects.pop()
+            continue
+        events.extend(_relocate(game, top, ZoneType.GRAVEYARD))
+    return events
+
+
+def reinforce(state: GameState, layer_obj: GameObject, n: int) -> list[Event]:
+    """Permanently raise a layer's effective strength (Foundation reinforcement tech)."""
+    layer_obj.state.scp2_strength_mod = int(getattr(layer_obj.state, "scp2_strength_mod", 0)) + n
+    return []
+
+
+def trash_a_tool(game) -> list[Event]:
+    """Foundation soft-kill: trash one installed Insurgency tool (or operative if no tool)."""
+    state = game.state
+    iid = insurgency_id(state)
+    if iid is None:
+        return []
+    ir = ensure_scp2_state(state, iid)
+    for role in ("tool", "operative"):
+        for oid in list(ir["rig"]):
+            obj = state.objects.get(oid)
+            if obj and getattr(obj.state, "scp2_role", None) == role:
+                ir["rig"].remove(oid)
+                return _relocate(game, obj, ZoneType.GRAVEYARD)
+    return []
+
+
+def _effective_strength(state: GameState, layer: GameObject) -> int:
+    """A layer's strength after reinforcement modifiers (read at break-check time)."""
+    base = int(getattr(layer.card_def, "scp2_strength", 0) or 0)
+    mod = int(getattr(layer.state, "scp2_strength_mod", 0) or 0)
+    return max(0, base + mod)
 
 
 # ---------------------------------------------------------------------------
@@ -427,6 +522,36 @@ def _install_persistent(game, player_id: str, obj: GameObject, kind: CardType) -
     return events
 
 
+def activate_ability(game, player_id: str, card_id: str, *,
+                     target: Optional[tuple] = None) -> tuple[bool, str, list[Event]]:
+    """Activate an installed asset/tool ability: spend its AP + credit cost, run its closure.
+
+    The card declares ``scp2_ability_ap`` (default 1) and ``scp2_ability_cost`` (default 0).
+    Closure signature: ``ability(game, player_id, obj, target) -> list[Event]``.
+    """
+    state = game.state
+    r = ensure_scp2_state(state, player_id)
+    obj = state.objects.get(card_id)
+    if not obj or obj.controller != player_id or obj.zone != ZoneType.BATTLEFIELD:
+        return False, "Not your installed card", []
+    ability = getattr(obj.card_def, "scp2_ability", None)
+    if not callable(ability):
+        return False, "No activated ability", []
+    ap_cost = int(getattr(obj.card_def, "scp2_ability_ap", 1) or 0)
+    credit_cost = int(getattr(obj.card_def, "scp2_ability_cost", 0) or 0)
+    if r["ap"] < ap_cost:
+        return False, "No actions left", []
+    if r["credits"] < credit_cost:
+        return False, "Insufficient credits", []
+    r["ap"] -= ap_cost
+    r["credits"] -= credit_cost
+    events = _emit(game, EventType.SCP2_ACTIVATE, controller=player_id,
+                   player=player_id, object_id=card_id)
+    events.extend(ability(game, player_id, obj, target) or [])
+    events.extend(check_scp2_win(game))
+    return True, "", events
+
+
 # ---------------------------------------------------------------------------
 # Foundation verbs: advance / contain
 # ---------------------------------------------------------------------------
@@ -498,7 +623,7 @@ def _can_break(state: GameState, insurgent_id: str, layer: GameObject) -> tuple[
     """Does the Insurgency control a breaker that can crack this layer, and at what Cell cost?"""
     ir = ensure_scp2_state(state, insurgent_id)
     ltype = getattr(layer.card_def, "scp2_ltype", None)
-    strength = int(getattr(layer.card_def, "scp2_strength", 0) or 0)
+    strength = _effective_strength(state, layer)
     best: Optional[int] = None
     for oid in ir["rig"]:
         op = state.objects.get(oid)
@@ -815,7 +940,8 @@ def discard_to_max(game, player_id: str) -> list[Event]:
     in practice; the engine enforces only the cap.)"""
     state = game.state
     events: list[Event] = []
-    while len(hand_ids(state, player_id)) > MAX_HAND:
+    limit = int(ensure_scp2_state(state, player_id).get("max_hand") or MAX_HAND)
+    while len(hand_ids(state, player_id)) > limit:
         victim = state.objects.get(random.choice(hand_ids(state, player_id)))
         if not victim:
             break
@@ -851,6 +977,11 @@ def setup_scp2_game(game, foundation_player: Player, insurgency_player: Player, 
                                        characteristics=identity.characteristics, card_def=identity)
             ident.state.scp2_role = "identity"
             ensure_scp2_state(game.state, player.id)["identity"] = ident.id
+            # Apply the identity's passive once, at install. It mutates the player record
+            # (e.g. starting credits, max_hand) — the engine reads those flags thereafter.
+            passive = getattr(identity, "scp2_passive", None)
+            if callable(passive):
+                passive(game, player.id, ident)
         draw_cards(game, player.id, opening_hand)
 
     tm = game.turn_manager

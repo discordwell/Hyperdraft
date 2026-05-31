@@ -135,4 +135,8 @@ class SCP2TurnManager(TurnManager):
         if at == "SCP2_INFILTRATE":
             tgt = action.get("target")
             return scp2.infiltrate(game, player_id, tuple(tgt) if tgt else ("central", "hq"))
+        if at == "SCP2_ACTIVATE":
+            tgt = action.get("target")
+            return scp2.activate_ability(game, player_id, action.get("card_id"),
+                                         target=tuple(tgt) if tgt else None)
         return False, "Unknown scp2 action", []

@@ -294,5 +294,113 @@ def test_turn_manager_runs_a_turn():
     assert len(scp2.hand_ids(g.state, f.id)) == scp2.MAX_HAND
 
 
+# --------------------------------------------------------------------------- Phase-2 engine: activated abilities
+def test_activate_ability_fires_and_costs():
+    g, f, i = _setup()
+    fired = {"n": 0}
+
+    def _abil(game, pid, obj, target):
+        fired["n"] += 1
+        return scp2.add_credits(game.state, pid, 3)
+
+    cd = scp2.make_asset("Generator", ability=_abil, ability_cost=1, ability_ap=1)
+    obj = _hand(g, f.id, cd)
+    r = _ready(g, f.id, ap=2, credits=2)
+    okp, _m, _e = scp2.play_card(g, f.id, obj.id)
+    assert okp and r["ap"] == 1, "play spent 1 AP"
+    ok, msg, _ = scp2.activate_ability(g, f.id, obj.id)
+    assert ok, msg
+    assert fired["n"] == 1, "the formerly-dead ability callback actually fired"
+    assert r["ap"] == 0, "ability spent its 1 AP"
+    assert r["credits"] == 4, "paid 1, gained 3 (2-1+3)"
+
+
+def test_activate_ability_blocked_without_ap():
+    g, f, i = _setup()
+    cd = scp2.make_asset("Generator", ability=lambda *a: [], ability_ap=1)
+    obj = _hand(g, f.id, cd)
+    _ready(g, f.id, ap=1, credits=5)
+    scp2.play_card(g, f.id, obj.id)  # consumes the only AP
+    ok, msg, _ = scp2.activate_ability(g, f.id, obj.id)
+    assert not ok and "action" in msg.lower()
+
+
+# --------------------------------------------------------------------------- Phase-2 engine: identity passives
+def test_identity_passive_applies_at_setup():
+    g = Game(mode="scp2")
+    f = g.add_player("F")
+    i = g.add_player("I")
+
+    def _f_passive(game, pid, obj):
+        scp2.ensure_scp2_state(game.state, pid)["max_hand"] = 6
+        return []
+
+    def _i_passive(game, pid, obj):
+        return scp2.add_credits(game.state, pid, 2)
+
+    fid_card = scp2.make_identity("Site-19", scp2.FOUNDATION, passive=_f_passive)
+    iid_card = scp2.make_identity("Black Queen", scp2.INSURGENCY, passive=_i_passive)
+    fdeck = [scp2.make_anomaly(f"A{n}", 3, 1) for n in range(12)]
+    ideck = [scp2.make_operative(f"Op{n}", "barrier", 2) for n in range(12)]
+    scp2.setup_scp2_game(g, f, i, foundation_deck=fdeck, insurgency_deck=ideck,
+                         foundation_identity=fid_card, insurgency_identity=iid_card)
+    assert scp2.ensure_scp2_state(g.state, f.id)["max_hand"] == 6
+    assert scp2.ensure_scp2_state(g.state, i.id)["credits"] == scp2.STARTING_CREDITS + 2
+
+
+def test_max_hand_modifier_honored_by_discard():
+    g, f, i = _setup()
+    scp2.ensure_scp2_state(g.state, f.id)["max_hand"] = 6
+    for n in range(7):
+        _hand(g, f.id, scp2.make_anomaly(f"A{n}", 3, 1))
+    scp2.discard_to_max(g, f.id)
+    assert len(scp2.hand_ids(g.state, f.id)) == 6
+
+
+# --------------------------------------------------------------------------- Phase-2 engine: reinforcement
+def test_reinforce_raises_effective_strength_and_break_cost():
+    g, f, i = _setup()
+    obj, cell = _install_anomaly(g, f.id, value=2)
+    layer = _add_layer(g, f.id, cell, ltype="barrier", strength=4, rez=4)
+    scp2.reinforce(g.state, layer, 2)  # effective strength now 6
+    fr = scp2.ensure_scp2_state(g.state, f.id)
+    fr["credits"] = 10
+    op = scp2.make_operative("Infiltrator", "barrier", 2, boost=1)
+    oh = _hand(g, i.id, op)
+    _ready(g, i.id, ap=3, credits=3)
+    scp2.play_card(g, i.id, oh.id)
+    ir = scp2.ensure_scp2_state(g.state, i.id)
+    ir["ap"], ir["credits"] = 3, 3        # power2 + 3 cells = 5 < 6 → cannot break
+    scp2.infiltrate(g, i.id, ("cell", cell["id"]))
+    assert ir["liberation_points"] == 0, "reinforced str-6 barrier resists 3 cells"
+    ir["ap"], ir["credits"] = 3, 4        # power2 + 4 cells = 6 ≥ 6 → breaks
+    scp2.infiltrate(g, i.id, ("cell", cell["id"]))
+    assert ir["liberation_points"] == 2, "4 cells boosts through str-6"
+
+
+# --------------------------------------------------------------------------- Phase-2 engine: effect helpers
+def test_effect_helpers_breach_expose_mill_trashtool():
+    g, f, i = _setup()
+    fr = scp2.ensure_scp2_state(g.state, f.id)
+    ir = scp2.ensure_scp2_state(g.state, i.id)
+    scp2.add_breach(g, 3)
+    assert fr["total_breach"] == 3
+    scp2.expose(g, 2)
+    assert ir["exposed"] == 2
+    for n in range(3):
+        cd = scp2.make_anomaly("x", 3, 1)
+        g.create_object(name=cd.name, owner_id=f.id, zone=ZoneType.LIBRARY,
+                        characteristics=cd.characteristics, card_def=cd)
+    before = len(scp2.deck_ids(g.state, f.id))
+    scp2.mill(g, f.id, 2)
+    assert len(scp2.deck_ids(g.state, f.id)) == before - 2
+    tool = _hand(g, i.id, scp2.make_tool("Gizmo"))
+    _ready(g, i.id)
+    scp2.play_card(g, i.id, tool.id)
+    assert tool.id in ir["rig"]
+    scp2.trash_a_tool(g)
+    assert tool.id not in ir["rig"], "soft-kill trashed the tool"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

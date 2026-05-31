@@ -737,6 +737,7 @@ class EventType(Enum):
     SCP2_DAMAGE = auto()          # Damage dealt to the Insurgency. Payload: {'player','amount'}
     SCP2_EXPOSE = auto()          # The Insurgency was exposed (tagged). Payload: {'player'}
     SCP2_WIN = auto()             # A faction met a win condition. Payload: {'winner','loser','reason'}
+    SCP2_ACTIVATE = auto()        # An installed asset/tool ability was activated. Payload: {'player','object_id'}
 
 
 class EventStatus(Enum):

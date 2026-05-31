@@ -1,0 +1,395 @@
+"""Effect gate for the scp2 card pool — every card is fired through the engine.
+
+This is the scp2 equivalent of /test-interceptors: that harness only understands MTG-style
+interceptor cards, so it can't see the scp2 effect-callback model. Instead we exercise each
+card's actual effect through the real verbs (play/advance/contain/infiltrate/activate) and
+assert the observable result moved — a card-level census against the "born dead" failure
+mode (CLAUDE.md: a card isn't done until its effect actually fires).
+
+Plus deck-legality checks (40 cards, Foundation anomaly density ≥ 18) and a full-setup smoke.
+
+Run: HYPERDRAFT_STRICT=1 PYTHONPATH=. python3 -m pytest tests/test_scp2_cards.py -q
+"""
+
+import pytest
+
+from src.engine.game import Game
+from src.engine import scp2
+from src.engine.types import ZoneType
+from src.cards.scp2 import foundation as F
+from src.cards.scp2 import insurgency as I
+from src.cards.scp2 import decks as D
+
+
+# --------------------------------------------------------------------------- helpers
+def _setup():
+    g = Game(mode="scp2")
+    f = g.add_player("Foundation")
+    i = g.add_player("Insurgency")
+    scp2.setup_scp2_player(g, f, scp2.FOUNDATION)
+    scp2.setup_scp2_player(g, i, scp2.INSURGENCY)
+    return g, f, i
+
+
+def _hand(g, pid, cd):
+    return g.create_object(name=cd.name, owner_id=pid, zone=ZoneType.HAND,
+                           characteristics=cd.characteristics, card_def=cd)
+
+
+def _deck_card(g, pid, cd):
+    return g.create_object(name=cd.name, owner_id=pid, zone=ZoneType.LIBRARY,
+                           characteristics=cd.characteristics, card_def=cd)
+
+
+def _ready(g, pid, ap=20, credits=40):
+    r = scp2.ensure_scp2_state(g.state, pid)
+    r["ap"], r["credits"] = ap, credits
+    return r
+
+
+def _play(g, pid, cd, **kw):
+    obj = _hand(g, pid, cd)
+    ok, msg, _ = scp2.play_card(g, pid, obj.id, **kw)
+    assert ok, f"{cd.name}: {msg}"
+    return obj
+
+
+def _last_cell(g, pid):
+    return scp2.ensure_scp2_state(g.state, pid)["cells"][-1]
+
+
+_REAL_ANOMALIES = [c for c in F.FOUNDATION_ANOMALIES if not getattr(c, "scp2_trap", False)]
+_TRAPS = [c for c in F.FOUNDATION_ANOMALIES if getattr(c, "scp2_trap", False)]
+_id = lambda cd: cd.name  # readable parametrize ids
+
+
+# =========================================================================== anomalies
+@pytest.mark.parametrize("cd", _REAL_ANOMALIES, ids=_id)
+def test_real_anomaly_advances_and_scores(cd):
+    g, f, i = _setup()
+    _ready(g, f.id)
+    obj = _play(g, f.id, cd)
+    threshold = int(getattr(cd, "scp2_threshold"))
+    for _ in range(threshold):
+        _ready(g, f.id)
+        ok, m, _ = scp2.advance(g, f.id, obj.id)
+        assert ok, m
+    fr = scp2.ensure_scp2_state(g.state, f.id)
+    _ready(g, f.id)
+    before = fr["containment_points"]
+    ok, m, _ = scp2.contain(g, f.id, obj.id)
+    assert ok, m
+    assert fr["containment_points"] == before + int(getattr(cd, "scp2_value"))
+    assert getattr(obj.state, "scp2_status") == "contained"
+
+
+def test_oncontain_side_effects():
+    # Funding gainers
+    for cd, amt in [(F.SENTIENT_LOCKBOX, 2), (F.CONTAINMENT_LEVIATHAN, 3)]:
+        g, f, i = _setup()
+        _ready(g, f.id)
+        obj = _play(g, f.id, cd)
+        for _ in range(int(getattr(cd, "scp2_threshold"))):
+            _ready(g, f.id)
+            scp2.advance(g, f.id, obj.id)
+        r = _ready(g, f.id, credits=40)
+        scp2.contain(g, f.id, obj.id)
+        assert r["credits"] == 40 + amt, f"{cd.name} on-contain Funding"
+    # Draw gainers — assert the library shrank (clean of the hand confound)
+    for cd in [F.SEALED_VAULT, F.REALITY_BENDER]:
+        g, f, i = _setup()
+        for _ in range(3):
+            _deck_card(g, f.id, F.ANOMALOUS_SPECIMEN)
+        _ready(g, f.id)
+        obj = _play(g, f.id, cd)
+        for _ in range(int(getattr(cd, "scp2_threshold"))):
+            _ready(g, f.id)
+            scp2.advance(g, f.id, obj.id)
+        lib_before = len(scp2.deck_ids(g.state, f.id))
+        _ready(g, f.id)
+        scp2.contain(g, f.id, obj.id)
+        assert len(scp2.deck_ids(g.state, f.id)) == lib_before - 1, f"{cd.name} on-contain draw"
+    # Memetic Archive — exposes on contain
+    g, f, i = _setup()
+    _ready(g, f.id)
+    obj = _play(g, f.id, F.MEMETIC_ARCHIVE)
+    for _ in range(int(getattr(F.MEMETIC_ARCHIVE, "scp2_threshold"))):
+        _ready(g, f.id)
+        scp2.advance(g, f.id, obj.id)
+    _ready(g, f.id)
+    scp2.contain(g, f.id, obj.id)
+    assert scp2.ensure_scp2_state(g.state, i.id)["exposed"] >= 1
+
+
+@pytest.mark.parametrize("cd", [F.WORLDSPINE_WURM, F.KETER_HORROR], ids=_id)
+def test_keter_breach_on_free_override(cd):
+    g, f, i = _setup()
+    _ready(g, f.id)
+    obj = _play(g, f.id, cd)
+    cell = _last_cell(g, f.id)
+    fr = scp2.ensure_scp2_state(g.state, f.id)
+    ir = _ready(g, i.id, ap=3, credits=10)
+    scp2.infiltrate(g, i.id, ("cell", cell["id"]))  # undefended → free
+    assert ir["liberation_points"] == int(getattr(cd, "scp2_value")), f"{cd.name} freed"
+    assert fr["total_breach"] == 5, f"{cd.name} breach_on_free override"
+
+
+@pytest.mark.parametrize("cd", _TRAPS, ids=_id)
+def test_trap_springs_punishes_without_liberation(cd):
+    g, f, i = _setup()
+    _ready(g, f.id)
+    obj = _play(g, f.id, cd)
+    cell = _last_cell(g, f.id)
+    # Fat hand to absorb damage + a tool for Cerebral Relay to trash.
+    for _ in range(4):
+        _hand(g, i.id, I.BLACK_MARKET)
+    tool = _hand(g, i.id, I.STOLEN_CREDENTIALS)
+    _ready(g, i.id)
+    scp2.play_card(g, i.id, tool.id)
+    ir = _ready(g, i.id, ap=3, credits=10)
+    hand_before = len(scp2.hand_ids(g.state, i.id))
+    exposed_before = ir["exposed"]
+    rig_before = len(ir["rig"])
+    scp2.infiltrate(g, i.id, ("cell", cell["id"]))
+    assert ir["liberation_points"] == 0, f"{cd.name}: a trap grants no Liberation"
+    assert cell["anomaly"] is None, f"{cd.name}: trap is consumed"
+    punished = (len(scp2.hand_ids(g.state, i.id)) < hand_before
+                or ir["exposed"] > exposed_before
+                or len(ir["rig"]) < rig_before)
+    assert punished, f"{cd.name}: a trap must punish on access"
+
+
+# =========================================================================== layers
+@pytest.mark.parametrize("cd", F.FOUNDATION_LAYERS, ids=_id)
+def test_layer_subroutine_fires(cd):
+    g, f, i = _setup()
+    _ready(g, f.id)
+    anomaly = _play(g, f.id, F.ANOMALOUS_SPECIMEN)
+    cell = _last_cell(g, f.id)
+    _ready(g, f.id)
+    _play(g, f.id, cd, target=("cell", cell["id"]))
+    fr = scp2.ensure_scp2_state(g.state, f.id)
+    fr["credits"] = 30  # enough to rez
+    for _ in range(4):
+        _hand(g, i.id, I.BLACK_MARKET)
+    ir = _ready(g, i.id, ap=3, credits=0)  # no breaker, no boost
+    ltype = getattr(cd, "scp2_ltype")
+    hand_before = len(scp2.hand_ids(g.state, i.id))
+    exposed_before = ir["exposed"]
+    scp2.infiltrate(g, i.id, ("cell", cell["id"]))
+    if ltype == "barrier":
+        assert ir["liberation_points"] == 0, f"{cd.name} should end the run"
+        assert cell["anomaly"] == anomaly.id, f"{cd.name}: anomaly stays behind the wall"
+    elif ltype == "sentry":
+        assert len(scp2.hand_ids(g.state, i.id)) < hand_before, f"{cd.name} should deal damage"
+    else:  # sensor
+        assert (ir["exposed"] > exposed_before
+                or len(scp2.hand_ids(g.state, i.id)) < hand_before), f"{cd.name} should expose/discard"
+
+
+# =========================================================================== operatives
+@pytest.mark.parametrize("cd", I.INSURGENCY_OPERATIVES, ids=_id)
+def test_operative_breaks_its_layer_type(cd):
+    g, f, i = _setup()
+    _ready(g, f.id)
+    _play(g, f.id, F.ANOMALOUS_SPECIMEN)
+    cell = _last_cell(g, f.id)
+    ltype = getattr(cd, "scp2_breaks")
+    power = int(getattr(cd, "scp2_power"))
+    # A matching layer at strength == power, so it breaks with zero boost — isolates matching.
+    _ready(g, f.id)
+    wall = scp2.make_layer(f"Test {ltype} wall", ltype, power, 1)
+    _play(g, f.id, wall, target=("cell", cell["id"]))
+    scp2.ensure_scp2_state(g.state, f.id)["credits"] = 30
+    _ready(g, i.id)
+    _play(g, i.id, cd)
+    ir = _ready(g, i.id, ap=3, credits=30)
+    scp2.infiltrate(g, i.id, ("cell", cell["id"]))
+    assert ir["liberation_points"] == 2, f"{cd.name} should break {ltype} and free the anomaly"
+
+
+# =========================================================================== assets
+def test_assets_fire():
+    for cd, amt in [(F.CONTAINMENT_BUDGET, 1), (F.BLACK_SITE_FUNDING, 2)]:
+        g, f, i = _setup()
+        r = _ready(g, f.id)
+        _play(g, f.id, cd)
+        before = r["credits"]
+        scp2.fire_turn_start_assets(g, f.id)
+        assert r["credits"] == before + amt, f"{cd.name} start-of-turn Funding"
+    # Mobile Task Force — activated trace exposes
+    g, f, i = _setup()
+    _ready(g, f.id)
+    obj = _play(g, f.id, F.MOBILE_TASK_FORCE)
+    _ready(g, f.id)
+    ok, m, _ = scp2.activate_ability(g, f.id, obj.id)
+    assert ok, m
+    assert scp2.ensure_scp2_state(g.state, i.id)["exposed"] >= 1
+    # Site Director — activated draw (library shrinks)
+    g, f, i = _setup()
+    _ready(g, f.id)
+    _deck_card(g, f.id, F.ANOMALOUS_SPECIMEN)
+    obj = _play(g, f.id, F.SITE_DIRECTOR)
+    _ready(g, f.id)
+    lib_before = len(scp2.deck_ids(g.state, f.id))
+    ok, m, _ = scp2.activate_ability(g, f.id, obj.id)
+    assert ok, m
+    assert len(scp2.deck_ids(g.state, f.id)) == lib_before - 1
+
+
+# =========================================================================== operations
+def test_operations_fire():
+    # Emergency Lockdown reinforces installed layers (+1 each)
+    g, f, i = _setup()
+    _ready(g, f.id)
+    _play(g, f.id, F.ANOMALOUS_SPECIMEN)
+    cell = _last_cell(g, f.id)
+    _ready(g, f.id)
+    layer = _play(g, f.id, F.BLAST_DOOR, target=("cell", cell["id"]))
+    _ready(g, f.id)
+    _play(g, f.id, F.EMERGENCY_LOCKDOWN)
+    assert int(getattr(layer.state, "scp2_strength_mod", 0)) == 1
+
+    # Redaction Order without exposure → exposes
+    g, f, i = _setup()
+    _ready(g, f.id)
+    _play(g, f.id, F.REDACTION_ORDER)
+    assert scp2.ensure_scp2_state(g.state, i.id)["exposed"] >= 1
+
+    # Redaction Order with exposure + a tool → trashes the tool
+    g, f, i = _setup()
+    ir = scp2.ensure_scp2_state(g.state, i.id)
+    ir["exposed"] = 1
+    tool = _hand(g, i.id, I.STOLEN_CREDENTIALS)
+    _ready(g, i.id)
+    scp2.play_card(g, i.id, tool.id)
+    assert tool.id in ir["rig"]
+    _ready(g, f.id)
+    _play(g, f.id, F.REDACTION_ORDER)
+    assert tool.id not in ir["rig"]
+
+    # Amnestics damages the Insurgency (discards a card)
+    g, f, i = _setup()
+    _hand(g, i.id, I.BLACK_MARKET)
+    _ready(g, f.id)
+    _play(g, f.id, F.AMNESTICS)
+    assert len(scp2.hand_ids(g.state, i.id)) == 0
+
+    # Mandatory Audit draws 2 (library shrinks by 2)
+    g, f, i = _setup()
+    _ready(g, f.id)
+    for _ in range(3):
+        _deck_card(g, f.id, F.ANOMALOUS_SPECIMEN)
+    lib_before = len(scp2.deck_ids(g.state, f.id))
+    _play(g, f.id, F.MANDATORY_AUDIT)
+    assert len(scp2.deck_ids(g.state, f.id)) == lib_before - 2
+
+
+# =========================================================================== tools
+def test_tools_fire():
+    # Black Budget — activated +3 Cells
+    g, f, i = _setup()
+    _ready(g, i.id)
+    obj = _play(g, i.id, I.BLACK_BUDGET)
+    r = _ready(g, i.id, credits=5)
+    ok, m, _ = scp2.activate_ability(g, i.id, obj.id)
+    assert ok, m
+    assert r["credits"] == 5 + 3
+    # Safehouse — activated draw (1 Cell, library shrinks)
+    g, f, i = _setup()
+    _deck_card(g, i.id, I.BLACK_MARKET)
+    _ready(g, i.id)
+    obj = _play(g, i.id, I.SAFEHOUSE)
+    _ready(g, i.id)
+    lib_before = len(scp2.deck_ids(g.state, i.id))
+    ok, m, _ = scp2.activate_ability(g, i.id, obj.id)
+    assert ok, m
+    assert len(scp2.deck_ids(g.state, i.id)) == lib_before - 1
+    # Stolen Credentials — on-install +2 Cells (costs 1 to play → net 5-1+2 = 6)
+    g, f, i = _setup()
+    r = _ready(g, i.id, credits=5)
+    scp2.play_card(g, i.id, _hand(g, i.id, I.STOLEN_CREDENTIALS).id)
+    assert r["credits"] == 6, "Stolen Credentials: paid 1, on-install gained 2"
+
+
+# =========================================================================== events
+def test_insurgency_events_fire():
+    # Econ: assert exact credits after = before - cost + gain
+    for cd, gain in [(I.BLACK_MARKET, 2), (I.COORDINATED_STRIKE, 4)]:
+        g, f, i = _setup()
+        r = _ready(g, i.id, credits=10)
+        cost = int(getattr(cd, "scp2_cost", 0))
+        _play(g, i.id, cd)
+        assert r["credits"] == 10 - cost + gain, f"{cd.name} Cells"
+    # Breach: total_breach is clean of cost
+    for cd, amt in [(I.LEAK_TO_THE_PRESS, 2), (I.WETWORK, 3), (I.ANONYMOUS_TIP, 1)]:
+        g, f, i = _setup()
+        _ready(g, i.id)
+        fr = scp2.ensure_scp2_state(g.state, f.id)
+        before = fr["total_breach"]
+        _play(g, i.id, cd)
+        assert fr["total_breach"] == before + amt, f"{cd.name} Total Breach"
+    # Draw: insurgency library shrinks by the draw count
+    for cd, drew in [(I.EXTRACTION, 2), (I.ANONYMOUS_TIP, 1), (I.DATA_HEIST, 1)]:
+        g, f, i = _setup()
+        for _ in range(3):
+            _deck_card(g, i.id, I.BLACK_MARKET)
+        _ready(g, i.id)
+        lib_before = len(scp2.deck_ids(g.state, i.id))
+        _play(g, i.id, cd)
+        assert len(scp2.deck_ids(g.state, i.id)) == lib_before - drew, f"{cd.name} draw"
+    # Mill: foundation library shrinks
+    for cd, milled in [(I.SABOTAGE, 3), (I.DATA_HEIST, 2)]:
+        g, f, i = _setup()
+        for _ in range(5):
+            _deck_card(g, f.id, F.ANOMALOUS_SPECIMEN)
+        _ready(g, i.id)
+        lib_before = len(scp2.deck_ids(g.state, f.id))
+        _play(g, i.id, cd)
+        assert len(scp2.deck_ids(g.state, f.id)) == lib_before - milled, f"{cd.name} mill"
+
+
+# =========================================================================== identities
+def test_identities_apply_at_setup():
+    g = Game(mode="scp2")
+    f = g.add_player("F")
+    i = g.add_player("I")
+    fdeck = [F.ANOMALOUS_SPECIMEN] * 12
+    ideck = [I.INFILTRATOR] * 12
+    scp2.setup_scp2_game(g, f, i, foundation_deck=fdeck, insurgency_deck=ideck,
+                         foundation_identity=F.SITE_19_COMMAND,
+                         insurgency_identity=I.BLACK_QUEEN_CELL)
+    assert scp2.ensure_scp2_state(g.state, f.id)["max_hand"] == 6, "Site-19 Command"
+    assert scp2.ensure_scp2_state(g.state, i.id)["credits"] == scp2.STARTING_CREDITS + 2, "Black Queen Cell"
+
+
+# =========================================================================== decks
+def test_all_decks_are_legal():
+    for label, (ident, builder) in D.SCP2_DECKS.items():
+        deck = builder()
+        assert len(deck) == D.DECK_SIZE, f"{label}: {len(deck)} cards (want {D.DECK_SIZE})"
+        assert ident is not None, f"{label}: missing identity"
+
+
+def test_foundation_decks_meet_anomaly_density():
+    for label, (ident, builder) in D.SCP2_FOUNDATION_DECKS.items():
+        dens = D.anomaly_density(builder())
+        assert dens >= D.MIN_ANOMALY_DENSITY, f"{label}: density {dens} < {D.MIN_ANOMALY_DENSITY}"
+
+
+def test_full_deck_setup_smoke():
+    g = Game(mode="scp2")
+    f = g.add_player("F")
+    i = g.add_player("I")
+    fident, fbuild = D.SCP2_FOUNDATION_DECKS["SCP2_site19_containment"]
+    iident, ibuild = D.SCP2_INSURGENCY_DECKS["SCP2_black_queen_cell"]
+    scp2.setup_scp2_game(g, f, i, foundation_deck=fbuild(), insurgency_deck=ibuild(),
+                         foundation_identity=fident, insurgency_identity=iident)
+    assert len(scp2.hand_ids(g.state, f.id)) == 5
+    assert len(scp2.hand_ids(g.state, i.id)) == 5
+    assert len(scp2.deck_ids(g.state, f.id)) == D.DECK_SIZE - 5
+    assert len(scp2.deck_ids(g.state, i.id)) == D.DECK_SIZE - 5
+
+
+if __name__ == "__main__":
+    raise SystemExit(pytest.main([__file__, "-q"]))
