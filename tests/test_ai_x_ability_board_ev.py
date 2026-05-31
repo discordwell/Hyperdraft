@@ -122,6 +122,23 @@ def test_can_attack_now_keys_off_timestamp_not_stale_flag():
     assert ev._can_attack_now(c) is False
     c.state.summoning_sickness = False
     assert ev._can_attack_now(c) is True
+
+    # (6) defender can't attack; a temporary override (Timid Shieldbearer) lets it.
+    c.entered_zone_at = 99  # established, so only the defender gate is in play
+    c.characteristics.abilities.append({'keyword': 'defender'})
+    assert ev._can_attack_now(c) is False
+    c.state.can_attack_despite_defender = True
+    assert ev._can_attack_now(c) is True
+    c.state.can_attack_despite_defender = False
+    c.characteristics.abilities.pop()
+
+    # (7) "can't attack" binds even through haste (mirrors combat.py).
+    c.characteristics.abilities.append({'keyword': 'cant_attack'})
+    assert ev._can_attack_now(c) is False
+    c.characteristics.abilities.append({'keyword': 'haste'})
+    assert ev._can_attack_now(c) is False  # haste does NOT override cant_attack
+    c.characteristics.abilities.pop()
+    c.characteristics.abilities.pop()
     print("PASS: _can_attack_now keys off entered_zone_at==timestamp, not the stale flag")
 
 
@@ -187,6 +204,22 @@ def test_board_pump_become_does_not_shrink_board():
     print("PASS: become-X/X won't shrink our own board")
 
 
+def test_board_pump_become_no_shrink_multi_creature():
+    # The single-6/6 case above passes even if the floor guard is deleted (a lone
+    # attacker yields extra<=0 anyway). This multi-creature board GATES the guard:
+    # 6/6 + two 1/1s with max X=3. Pumping the two 1/1s to 3/3 adds raw damage, so
+    # WITHOUT the floor guard the scorer wrongly fires (~0.35, X=3) and shrinks the
+    # 6/6 to 3/3. The guard must veto the whole pump (don't shrink our best attacker).
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    p2.life = 20
+    _bf_creature(game, p1, "Big", 6, 6)
+    _bf_creature(game, p1, "S0", 1, 1)
+    _bf_creature(game, p1, "S1", 1, 1)
+    val, x = _ai()._score_x_ability(_x_action(_MIRROR_DESC, 3), game.state, _ev(game), p1.id)
+    assert val == 0.0, f"shrink-guard must veto when max X < our biggest power, got {val}"
+    print("PASS: shrink-guard gated by a multi-creature board (would mis-fire without it)")
+
+
 def test_board_pump_blocked_out_is_zero():
     # All attackers blockable and opponent has enough blockers -> no damage through.
     game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
@@ -213,6 +246,19 @@ def test_self_pump_finds_lethal_at_minimal_x():
     print("PASS: self_pump finds lethal at the minimal X")
 
 
+def test_self_pump_zero_when_source_cant_attack():
+    # self_pump is worthless if the creature can't swing this turn (summoning sick).
+    # Gates the `not _can_attack_now(src)` early-return.
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    p2.life = 4
+    striker = _bf_creature(game, p1, "Striker", 2, 2, sick=True)  # can't attack
+    val, x = _ai()._score_x_ability(
+        _x_action("this creature gets +x/+x until end of turn", 5, source_id=striker.id),
+        game.state, _ev(game), p1.id)
+    assert val == 0.0, f"a summoning-sick source has no self_pump value, got {val}"
+    print("PASS: self_pump gives 0 when the source can't attack")
+
+
 # --------------------------------------------------------------------------- #
 # Direct damage
 # --------------------------------------------------------------------------- #
@@ -233,6 +279,17 @@ def test_damage_kills_creature_at_its_toughness():
                                     game.state, _ev(game), p1.id)
     assert x == 3 and val > 0, f"burn exactly enough (X=3) to kill the 3/3, got {(val, x)}"
     print("PASS: damage X kills the creature at X = its toughness")
+
+
+def test_damage_chips_face_when_no_killable_blocker():
+    # No killable creature and non-lethal X -> the low-priority "chip the face"
+    # fallback (value <= 1.5, X = max). Gates that fallback branch.
+    game = Game(); p1 = game.add_player("A"); p2 = game.add_player("B")
+    p2.life = 20  # X=3 is nowhere near lethal
+    val, x = _ai()._score_x_ability(_x_action("deals x damage to any target", 3),
+                                    game.state, _ev(game), p1.id)
+    assert x == 3 and 0.0 < val <= 1.5, f"chip-face fallback: X=max, small value, got {(val, x)}"
+    print("PASS: damage chips the face when nothing better and non-lethal")
 
 
 # --------------------------------------------------------------------------- #
@@ -279,6 +336,19 @@ def test_draw_caps_x_to_avoid_decking():
     print("PASS: draw X caps at library size minus a buffer")
 
 
+def test_draw_zero_on_one_card_library():
+    # Library of 1 -> drawing would leave 0 buffer -> the decking-guard forbids it
+    # (x < 1 -> 0.0). Gates the off-by-one edge of the cap.
+    game = Game(); p1 = game.add_player("A"); game.add_player("B")
+    cd = make_creature(name="LastCard", power=1, toughness=1, mana_cost="{1}",
+                       colors={Color.BLUE}, subtypes={"Bird"})
+    game.create_object(name=cd.name, owner_id=p1.id, zone=ZoneType.LIBRARY,
+                       characteristics=cd.characteristics, card_def=cd)
+    val, x = _ai()._score_x_ability(_x_action("draw x cards", 5), game.state, _ev(game), p1.id)
+    assert val == 0.0, f"never draw the last card (decking-guard), got {(val, x)}"
+    print("PASS: draw gives 0 rather than decking on a 1-card library")
+
+
 # --------------------------------------------------------------------------- #
 # Copy a graveyard creature with mana value X (Likeness Looter)
 # --------------------------------------------------------------------------- #
@@ -292,6 +362,18 @@ def test_copy_gy_picks_x_for_best_affordable_creature():
     v6, x6 = _ai()._score_x_ability(_x_action(desc, 6), game.state, _ev(game), p1.id)
     assert x6 == 6 and v6 >= v2, f"max X=6 affords the bigger MV-6 giant -> X=6, got {(v6, x6)}"
     print("PASS: copy_gy picks X = best affordable graveyard-creature MV")
+
+
+# --------------------------------------------------------------------------- #
+# Copy an activated/triggered ability X times (Gogo)
+# --------------------------------------------------------------------------- #
+def test_copy_ability_scored_modest_at_max_x():
+    game = Game(); p1 = game.add_player("A"); game.add_player("B")
+    val, x = _ai()._score_x_ability(
+        _x_action("copy target activated or triggered ability you control x times", 4),
+        game.state, _ev(game), p1.id)
+    assert val == 0.5 and x == 4, f"copy_ability: modest value, copy as many as affordable, got {(val, x)}"
+    print("PASS: copy_ability scored modestly at max X")
 
 
 # --------------------------------------------------------------------------- #
@@ -323,18 +405,24 @@ def test_scorer_overrides_x_value_and_records_breakdown():
 
 
 if __name__ == "__main__":
+    test_can_attack_now_keys_off_timestamp_not_stale_flag()
     test_classifier_covers_all_archetypes()
     test_board_pump_finds_lethal_at_minimal_x()
     test_board_pump_zero_without_attackers()
     test_board_pump_nonlethal_uses_max_x()
     test_board_pump_become_does_not_shrink_board()
+    test_board_pump_become_no_shrink_multi_creature()
     test_board_pump_blocked_out_is_zero()
     test_self_pump_finds_lethal_at_minimal_x()
+    test_self_pump_zero_when_source_cant_attack()
     test_damage_lethal_to_face_at_opp_life()
     test_damage_kills_creature_at_its_toughness()
+    test_damage_chips_face_when_no_killable_blocker()
     test_debuff_picks_x_for_best_net_sweep()
     test_debuff_zero_when_only_hurts_self()
     test_draw_caps_x_to_avoid_decking()
+    test_draw_zero_on_one_card_library()
     test_copy_gy_picks_x_for_best_affordable_creature()
+    test_copy_ability_scored_modest_at_max_x()
     test_scorer_overrides_x_value_and_records_breakdown()
     print("\nAll X-ability board-EV tests passed.")

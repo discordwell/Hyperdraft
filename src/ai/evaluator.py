@@ -244,6 +244,10 @@ class BoardEvaluator:
         if self._has_ability(obj, "defender") and not getattr(
                 obj.state, "can_attack_despite_defender", False):
             return False
+        # A "can't attack" effect binds even through haste (mirrors combat.py's
+        # _can_attack); check it before the haste short-circuit.
+        if self._has_ability(obj, "cant_attack"):
+            return False
         if self._has_ability(obj, "haste"):
             return True
         # Summoning sickness — mirror combat.py's AUTHORITATIVE check
