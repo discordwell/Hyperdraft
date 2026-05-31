@@ -233,7 +233,7 @@ def _scp_extras(card_def: CardDefinition) -> dict[str, Any]:
         "scp_ltype": getattr(card_def, "scp_ltype", None),
         "scp_breaks": getattr(card_def, "scp_breaks", None),
         "scp_power": int(getattr(card_def, "scp_power", 0) or 0),
-        "scp_boost": int(getattr(card_def, "scp_boost", 0) or 0),
+        "scp_boost": int(getattr(card_def, "scp_boost", 1) or 1),
     }
 
 

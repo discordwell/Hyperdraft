@@ -922,6 +922,25 @@ def public_board(state: GameState, viewer_id: Optional[str]) -> dict:
                 })
             cells_out.append({"id": cell["id"], "anomaly": anomaly_view, "layers": layers_out})
         rec_out["cells"] = cells_out
+        # Central-access layer stacks (HQ / Research / Archives) — a defensible board
+        # region the Insurgency runs into via the central-infiltrate path. Face-down
+        # identities redacted to the non-owner exactly like cell layers.
+        centrals_out: dict[str, Any] = {}
+        for cname in CENTRALS:
+            stack = []
+            for lid in r["centrals"].get(cname, []):
+                layer = state.objects.get(lid)
+                if not layer:
+                    continue
+                hidden = card_hidden_from(state, layer, viewer_id)
+                stack.append({
+                    "id": layer.id,
+                    "name": ("[FACE-DOWN]" if hidden else layer.name),
+                    "rezzed": bool(getattr(layer.state, "scp_rezzed", False)),
+                    "hidden": hidden,
+                })
+            centrals_out[cname] = stack
+        rec_out["centrals"] = centrals_out
         out["players"][pid] = rec_out
     return out
 

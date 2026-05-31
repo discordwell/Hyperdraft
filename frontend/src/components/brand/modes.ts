@@ -15,7 +15,6 @@ export type GameModeId =
   | 'finance'
   | 'depths'
   | 'scp'
-  | 'scp'
   | 'cats'
   | 'clankers';
 
@@ -43,7 +42,6 @@ export interface GameModeMeta {
     | '/mc'
     | '/fin'
     | '/depths'
-    | '/scp'
     | '/scp'
     | '/cats'
     | '/clankers';

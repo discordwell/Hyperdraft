@@ -4,7 +4,7 @@ One adapter, faction-branching `take_turn` — the asymmetry is intrinsic to the
 seat (unlike the old SCP per-pilot dispatch). The turn manager calls
 ``take_turn(player_id, state, game)`` and expects the list of events produced.
 
-Each turn the AI spends its 3 AP one action at a time: a priority chooser picks the single
+Each turn the AI spends its AP one action at a time: a priority chooser picks the single
 best move, fires the real engine verb (scp.play_card / advance / contain / infiltrate /
 activate_ability / gain_credits / draw_action), and loops until AP runs out.
 

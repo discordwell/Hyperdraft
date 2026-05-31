@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 import sys
 from pathlib import Path
 
@@ -56,6 +57,7 @@ def test_scp_match_setup_and_fog_of_war():
         )
         session = session_manager.get_session(response.match_id)
         assert session is not None
+        random.seed(2024)  # deterministic shuffle (fog test needs a face-down-able opening hand)
         await session.mode_adapter.setup_game(session)
         session.is_started = True
 
@@ -127,6 +129,7 @@ def test_scp_advance_and_credits_flow():
             background_tasks=BackgroundTasks(),
         )
         session = session_manager.get_session(response.match_id)
+        random.seed(2024)  # deterministic shuffle (fog test needs a face-down-able opening hand)
         await session.mode_adapter.setup_game(session)
         session.is_started = True
         human_id = response.player_id
@@ -151,6 +154,35 @@ def test_scp_advance_and_credits_flow():
         cells2 = session.get_client_state(human_id).scp["me"]["cells"]
         cell2 = next(c for c in cells2 if c.get("anomaly"))
         assert cell2["anomaly"]["advancement"] == adv_before + 1
+
+        await session_manager.remove_session(response.match_id)
+
+    asyncio.run(_run())
+
+
+def test_spectator_view_populates_both_seats():
+    """Regression (review finding): _serialize_scp_state with no viewer (spectator /
+    replay frames) must show the Foundation's perspective with both seats + central
+    layer stacks — it previously returned me/opponent=None, blanking the SCPBoard."""
+    async def _run():
+        response = await create_match(
+            request=CreateMatchRequest(
+                mode="human_vs_bot", game_mode="scp", ai_difficulty="medium",
+                player_name="Spectator",
+            ),
+            background_tasks=BackgroundTasks(),
+        )
+        session = session_manager.get_session(response.match_id)
+        random.seed(2024)
+        await session.mode_adapter.setup_game(session)
+
+        spec = session._serialize_scp_state(session.game.state, None)  # no viewer
+        assert spec["me"] is not None and spec["opponent"] is not None, \
+            "spectator/replay must see both seats, not a blank board"
+        assert spec["me"]["faction"] == "foundation"
+        assert spec["opponent"]["faction"] == "insurgency"
+        # Central-access layer stacks are serialized (HQ / Research / Archives).
+        assert set(spec["me"]["centrals"]) == {"hq", "research", "archives"}
 
         await session_manager.remove_session(response.match_id)
 

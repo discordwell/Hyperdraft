@@ -2490,9 +2490,13 @@ class GameSession:
         from src.engine import scp
         from src.engine.types import CardType
 
-        board = scp.public_board(game_state, viewer_id)
         fid = scp.foundation_id(game_state)
         iid = scp.insurgency_id(game_state)
+        # Spectators / replay frames serialize with no viewer; show the Foundation's
+        # perspective (its own board revealed, the Insurgency redacted) rather than a
+        # blank board. Live play passes the real viewer, so this is a no-op there.
+        eff_viewer = viewer_id or fid
+        board = scp.public_board(game_state, eff_viewer)
         active = getattr(game_state, "active_player", None)
 
         def _card_dto(obj_id: str, reveal: bool) -> dict:
@@ -2529,7 +2533,7 @@ class GameSession:
                 return None
             rec = dict(board["players"].get(pid, {}))  # faction, credits, ap, counters, cells (redacted)
             r = scp.ensure_scp_state(game_state, pid)
-            is_me = (pid == viewer_id)
+            is_me = (pid == eff_viewer)
             hand = scp.hand_ids(game_state, pid)
             rec["hand"] = [_card_dto(h, reveal=True) for h in hand] if is_me else None
             rec["hand_count"] = len(hand)
@@ -2537,7 +2541,7 @@ class GameSession:
             rec["discard_count"] = len(scp.discard_ids(game_state, pid))
             rec["rig"] = [_card_dto(o, reveal=True) for o in r.get("rig", []) if o in game_state.objects]
             rec["assets"] = [
-                _card_dto(o, reveal=not scp.card_hidden_from(game_state, game_state.objects[o], viewer_id))
+                _card_dto(o, reveal=not scp.card_hidden_from(game_state, game_state.objects[o], eff_viewer))
                 for o in r.get("assets", []) if o in game_state.objects
             ]
             ident_id = r.get("identity")
@@ -2562,15 +2566,15 @@ class GameSession:
 
         return {
             "foundation_id": fid, "insurgency_id": iid,
-            "viewer_faction": (scp.faction_of(game_state, viewer_id) if viewer_id else None),
+            "viewer_faction": (scp.faction_of(game_state, eff_viewer) if eff_viewer else None),
             "active_player": active,
             "your_turn": bool(viewer_id is not None and viewer_id == active),
             "game_over": game_over, "winner": winner, "win_reason": reason,
             "targets": {"containment": scp.CONTAINMENT_TARGET,
                         "liberation": scp.LIBERATION_TARGET,
                         "breach": scp.BREACH_CATASTROPHE},
-            "me": _seat(viewer_id) if viewer_id else None,
-            "opponent": _seat(scp.opponent_of(game_state, viewer_id)) if viewer_id else None,
+            "me": _seat(eff_viewer) if eff_viewer else None,
+            "opponent": _seat(scp.opponent_of(game_state, eff_viewer)) if eff_viewer else None,
         }
 
     def _serialize_cats_state(self, game_state, viewer_id: Optional[str]) -> dict:

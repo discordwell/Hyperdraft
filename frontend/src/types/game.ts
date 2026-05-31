@@ -418,7 +418,7 @@ export interface GameState {
   // the parent's board. Engine-side subgame execution is a follow-up
   // feature; the field is here so the contract is stable from day one.
   subgame?: GameState | null;
-  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'scp' | 'cats' | 'clankers';
+  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'cats' | 'clankers';
   variant?: string | null;
   max_hand_size?: number;
   // Pokemon zones
@@ -521,7 +521,7 @@ export interface FinancePendingResponse {
 // Request/Response Types
 export interface CreateMatchRequest {
   mode: MatchMode;
-  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'scp' | 'cats' | 'clankers';
+  game_mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'cats' | 'clankers';
   variant?: string;
   ultra_agent?: 'claude' | 'codex';
   ultra_model?: string;
@@ -594,7 +594,7 @@ export interface ActionResultResponse {
 
 // Bot Game Types
 export interface StartBotGameRequest {
-  mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'scp' | 'cats' | 'clankers';
+  mode?: 'mtg' | 'hearthstone' | 'pokemon' | 'yugioh' | 'minecraft' | 'depths' | 'finance' | 'scp' | 'cats' | 'clankers';
   bot1_deck: string[];
   bot2_deck: string[];
   bot1_deck_id?: string;
