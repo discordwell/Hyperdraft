@@ -157,6 +157,13 @@ class TurnManager:
 
         self.turn_state.turn_number += 1
         self.state.turn_number = self.turn_state.turn_number
+        # Stamp the summoning-sickness baseline BEFORE anything can enter the
+        # battlefield this turn. A fresh next_timestamp() is strictly greater
+        # than every prior entered_zone_at, so permanents already in play read
+        # as established (entered_zone_at < baseline) while anything that enters
+        # later this turn reads as summoning sick (entered_zone_at >= baseline).
+        # combat._can_attack / evaluator._can_attack_now consume this.
+        self.state.turn_start_timestamp = self.state.next_timestamp()
         self._reset_turn_state()
 
         # Sweep "until your next turn" effects whose owner is the player
@@ -436,6 +443,11 @@ class TurnManager:
                         obj.state.saddled_by_this_turn = []
                     if obj.state.saddled_count_this_turn:
                         obj.state.saddled_count_this_turn = 0
+
+                    # End "can attack this turn as though it didn't have
+                    # defender" (Timid Shieldbearer and similar).
+                    if getattr(obj.state, 'can_attack_despite_defender', False):
+                        obj.state.can_attack_despite_defender = False
 
                     # Clear end-of-turn PT modifiers
                     if hasattr(obj.state, 'pt_modifiers'):

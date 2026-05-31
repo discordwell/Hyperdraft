@@ -159,6 +159,11 @@ class CombatManager:
         # Get attack declarations from player/AI
         declarations = await self._get_player_attacks(active_player, legal_attackers)
 
+        # CR 508.1a "attacks each combat if able": force any flagged creature
+        # that can attack but the player left back. Additive — no-op unless a
+        # creature carries the 'attacks_each_combat' keyword.
+        declarations = self._apply_must_attack(active_player, legal_attackers, declarations)
+
         if not declarations:
             return events
 
@@ -480,6 +485,35 @@ class CombatManager:
 
         return attackers
 
+    def _apply_must_attack(
+        self,
+        player_id: str,
+        legal_attackers: list[str],
+        declarations: list['AttackDeclaration'],
+    ) -> list['AttackDeclaration']:
+        """Force creatures with the 'attacks_each_combat' keyword to attack.
+
+        CR 508.1a: "attacks each combat if able" — a creature that CAN legally
+        attack but wasn't declared is added as a forced attacker against a
+        default defending player. Purely additive: a creature without the
+        keyword is never touched, so combat is unchanged for every other card.
+        """
+        already = {d.attacker_id for d in declarations}
+        defenders = self._get_defending_players()
+        if not defenders:
+            return declarations
+        for cid in legal_attackers:
+            if cid in already:
+                continue
+            creature = self.state.objects.get(cid)
+            if not creature or not has_ability(creature, 'attacks_each_combat', self.state):
+                continue
+            declarations.append(AttackDeclaration(
+                attacker_id=cid,
+                defending_player_id=defenders[0],
+            ))
+        return declarations
+
     def _can_attack(self, creature_id: str, controller_id: str) -> bool:
         """Check if a creature can attack."""
         creature = self.state.objects.get(creature_id)
@@ -498,15 +532,28 @@ class CombatManager:
         if creature.state.tapped:
             return False
 
-        # Check summoning sickness (can't attack unless haste)
-        # Simplified: check if creature entered this turn
-        if creature.entered_zone_at == self.state.timestamp:
-            if not has_ability(creature, 'haste', self.state):
+        # Check summoning sickness (can't attack unless haste).
+        # A creature is summoning sick iff it entered the battlefield at or after
+        # the current turn began. `turn_start_timestamp` is stamped at turn-begin
+        # (turn.py run_turn). The previous check compared entered_zone_at against
+        # the LIVE timestamp, which bumps on every event after entry — so a
+        # creature read as sick for only one tick and could then attack the turn
+        # it was cast. Fall back to that legacy probe only when no turn has run
+        # (turn_start_timestamp == 0), e.g. direct-combat unit harnesses.
+        ez = getattr(creature, 'entered_zone_at', None)
+        if ez is not None:
+            turn_start = getattr(self.state, 'turn_start_timestamp', 0) or 0
+            sick = (ez >= turn_start) if turn_start else (ez == self.state.timestamp)
+            if sick and not has_ability(creature, 'haste', self.state):
                 return False
 
-        # Check for "can't attack" abilities
+        # Check for "can't attack" abilities. A creature with the temporary
+        # 'can_attack_despite_defender' override (set EOT by abilities like
+        # Timid Shieldbearer's) ignores its own Defender. Additive: defender
+        # still stops every creature that lacks the override flag.
         if has_ability(creature, 'defender', self.state):
-            return False
+            if not getattr(creature.state, 'can_attack_despite_defender', False):
+                return False
 
         if has_ability(creature, 'cant_attack', self.state):
             return False

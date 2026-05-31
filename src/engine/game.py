@@ -781,6 +781,40 @@ class Game:
             )
         )
 
+        # Uncounterable glue: "Target spell can't be countered" card scripts emit
+        # a MAKE_UNCOUNTERABLE event naming a spell-zone object. We flip the
+        # matching stack item's can_be_countered flag, which StackManager.counter()
+        # already honors. PASS (not consume) so the event still reaches any
+        # downstream listeners; this never affects spells that aren't targeted.
+        def _make_uncounterable_filter(event: Event, state: GameState) -> bool:
+            return event.type == EventType.MAKE_UNCOUNTERABLE
+
+        def _make_uncounterable_handler(event: Event, state: GameState) -> InterceptorResult:
+            spell_id = (
+                event.payload.get("spell_id")
+                or event.payload.get("object_id")
+                or event.payload.get("target")
+                or event.payload.get("target_id")
+            )
+            if spell_id:
+                for stack_item in list(self.stack.items):
+                    if stack_item.card_id == spell_id or stack_item.source_id == spell_id:
+                        stack_item.can_be_countered = False
+                        break
+            return InterceptorResult(action=InterceptorAction.PASS)
+
+        self.register_interceptor(
+            Interceptor(
+                id=new_id(),
+                source="SYSTEM",
+                controller="SYSTEM",
+                priority=InterceptorPriority.REACT,
+                filter=_make_uncounterable_filter,
+                handler=_make_uncounterable_handler,
+                duration="forever",
+            )
+        )
+
         # Fight glue: two creatures deal damage equal to their power to each other.
         def _fight_filter(event: Event, state: GameState) -> bool:
             return event.type == EventType.FIGHT

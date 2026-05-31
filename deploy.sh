@@ -26,6 +26,7 @@ RSYNC_SSH="ssh -o ControlMaster=auto -o ControlPath=${CONTROL_PATH} -o ControlPe
 cleanup() {
   "${SSH[@]}" -O exit "${SSH_HOST}" >/dev/null 2>&1 || true
   rm -rf "${CONTROL_DIR}"
+  [ -n "${STAGE:-}" ] && rm -rf "${STAGE}" || true   # build-from-ref temp stage
 }
 trap cleanup EXIT
 
@@ -79,7 +80,32 @@ echo ">> [2/6] Ensuring ${SSH_HOST}:${REMOTE_DIR} exists..."
 # Exclusions mirror .dockerignore so the build context inside the container
 # matches what gets shipped. Art directories are deliberately NOT rsync'd:
 # the host hydrates them via ``make seed-art`` (Git LFS pull from R2).
-echo ">> [3/6] Syncing source to ${SSH_HOST}:${REMOTE_DIR}..."
+# Build from a COMMITTED ref by default (deterministic): stage `git archive` of
+# $DEPLOY_REF so the deploy ships exactly that commit, regardless of which branch
+# or uncommitted WIP is checked out in the working tree. Set DEPLOY_REF="" to fall
+# back to rsyncing the live working tree (local-hotfix workflow).
+DEPLOY_REF="${DEPLOY_REF-origin/main}"
+SYNC_SRC="${SCRIPT_DIR}/"
+if [ -n "${DEPLOY_REF}" ]; then
+  echo ">> [3/6] Staging committed ref '${DEPLOY_REF}' (deterministic build)..."
+  git -C "${SCRIPT_DIR}" fetch origin --quiet || true
+  if ! EXPECT_SHA="$(git -C "${SCRIPT_DIR}" rev-parse "${DEPLOY_REF}" 2>/dev/null)"; then
+    echo "  ERROR: ref '${DEPLOY_REF}' not found — aborting"; exit 1
+  fi
+  STAGE="$(mktemp -d)"
+  git -C "${SCRIPT_DIR}" archive "${DEPLOY_REF}" | tar -x -C "${STAGE}"
+  # GUARD (fail-closed): the staged tree must carry the expected commit's content
+  # before anything ships — proves we deploy ${DEPLOY_REF}, not stale/working state.
+  if ! diff -q <(git -C "${SCRIPT_DIR}" show "${DEPLOY_REF}:src/cards/set_registry.py") \
+                "${STAGE}/src/cards/set_registry.py" >/dev/null 2>&1; then
+    echo "  ERROR: staged tree does not match ${DEPLOY_REF} (${EXPECT_SHA:0:8}) — aborting"; exit 1
+  fi
+  echo "${EXPECT_SHA}" > "${STAGE}/DEPLOYED_SHA"   # traceability of what is live
+  echo "  ✓ staged ${DEPLOY_REF} @ ${EXPECT_SHA:0:8} (guard passed)"
+  SYNC_SRC="${STAGE}/"
+else
+  echo ">> [3/6] Syncing LIVE WORKING TREE (DEPLOY_REF unset) to ${SSH_HOST}:${REMOTE_DIR}..."
+fi
 rsync -az --delete \
   --exclude='.git/' \
   --exclude='.venv/' \
@@ -106,7 +132,7 @@ rsync -az --delete \
   --exclude='assets/card_art/' \
   --exclude='frontend/public/scp-art/' \
   -e "${RSYNC_SSH}" \
-  "${SCRIPT_DIR}/" \
+  "${SYNC_SRC}" \
   "${SSH_HOST}:${REMOTE_DIR}/"
 
 # --- Step 4: verify art has been seeded ---

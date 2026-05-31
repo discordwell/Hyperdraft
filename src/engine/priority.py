@@ -168,6 +168,11 @@ class LegalAction:
     mana_cost: Optional[ManaCost] = None
     crew_cost: int = 0  # Power required to crew (for CREW actions)
     crew_with: list[str] = None  # Creature IDs to use for crewing
+    # For X-cost activated abilities: the chosen X baked into the offer (the AI
+    # has no X-picker, so _get_activatable_abilities bakes the max affordable X
+    # here; _legal_to_player_action carries it into the PlayerAction). Humans
+    # see x_value=0 and the UI prompts for X. Default 0 = no X chosen.
+    x_value: int = 0
 
 
 class PrioritySystem:
@@ -2098,6 +2103,74 @@ class PrioritySystem:
             return self.turn_manager.can_play_land(player_id)
         return False
 
+    def _max_affordable_x(
+        self,
+        ability,
+        obj,
+        player_id: str,
+        effective_cost,
+        *,
+        is_active: bool = True,
+        is_main: bool = True,
+        stack_empty: bool = True,
+    ) -> int:
+        """Largest X an X-cost activated ability can actually pay for now.
+
+        Probes the FULL activation-affordability check the engine applies at
+        activation time (``can_pay_activation`` with a candidate ``x_value``)
+        from an upper bound downward — so the returned X is payable by mana
+        *and* by any non-mana X-gated cost (e.g. Winter, Cursed Rider's
+        "Exile X artifact cards from your graveyard"). Probing mana alone
+        (``can_cast``) could bake an X the non-mana gate forbids, producing a
+        dead offer the AI can't actually pay. Returns 0 when there is no mana
+        system, no {X} in the cost, or nothing beyond the fixed cost is
+        affordable.
+        """
+        ms = self.mana_system
+        if ms is None:
+            return 0
+        cost = effective_cost if effective_cost is not None else ability.mana_cost
+        if cost is None:
+            return 0
+        x_count = int(getattr(cost, "x_count", 0) or 0)
+        if x_count < 1:
+            return 0
+        # Upper bound on X = all mana the player could spend: current pool +
+        # potential untapped-land mana (the mana check below draws on both).
+        # get_available_mana over-counts dual lands, which is harmless — it only
+        # seeds the probe; can_pay_activation (below) is authoritative (it
+        # enforces mana, x_count, colour AND any non-mana X-gated cost). Cap so
+        # a pathological optimistic count stays cheap (<=30 checks).
+        upper = 0
+        try:
+            avail = ms.get_available_mana(player_id)
+            upper += sum(int(v) for v in avail.values())
+        except Exception:
+            pass
+        try:
+            upper += int(ms.get_pool(player_id).total())
+        except Exception:
+            pass
+        from .activated import can_pay_activation
+        for candidate in range(max(0, min(upper, 30)), 0, -1):
+            try:
+                # Full check: mana (via can_cast, inside) PLUS non-mana X-gated
+                # costs (exile-X-from-graveyard, etc.). Strictly tighter than
+                # can_cast alone, so the baked X is always fully payable.
+                if can_pay_activation(
+                    ability, obj, self.state, player_id,
+                    mana_system=ms,
+                    is_active_player=is_active,
+                    is_main_phase=is_main,
+                    stack_empty=stack_empty,
+                    x_value=candidate,
+                    effective_mana_cost=cost,
+                ):
+                    return candidate
+            except Exception:
+                continue
+        return 0
+
     def _get_activatable_abilities(
         self,
         obj,
@@ -2148,6 +2221,30 @@ class PrioritySystem:
                 effective_mana_cost=effective_cost,
             ):
                 continue
+            # X-cost activated abilities (e.g. Mirror Entity "{X}: ...").
+            # The AI never chooses an X (it has no x-picker for activated
+            # abilities), so it would execute at the default x_value=0 — a free
+            # no-op that pays nothing, changes nothing, and is re-offered every
+            # priority window. That ping-pong burns the 5000-iteration priority
+            # cap and stalls games. Bake the max affordable X into the action so
+            # the AI activates it meaningfully (and consumes mana, so it can't
+            # be re-offered for free); skip the free X=0 case entirely for AI
+            # players. Human players keep the normal surface (the UI prompts for
+            # X), so only the AI's degenerate X=0 loop is removed.
+            # Only AI players get the bake + X=0 suppression; humans keep
+            # x_value=0 and the UI prompts for X (the serializer drops this
+            # field anyway). Gating on is_ai_player keeps the human surface
+            # provably unchanged.
+            x_for_action = 0
+            if getattr(ability, "has_x_cost", False) and self.is_ai_player(player_id):
+                x_for_action = self._max_affordable_x(
+                    ability, obj, player_id, effective_cost,
+                    is_active=is_active, is_main=is_main, stack_empty=stack_empty,
+                )
+                if x_for_action < 1:
+                    # Only an unproductive free X=0 activation is available —
+                    # don't offer it to the AI (prevents the priority loop).
+                    continue
             actions.append(LegalAction(
                 type=ActionType.ACTIVATE_ABILITY,
                 source_id=obj.id,
@@ -2155,6 +2252,7 @@ class PrioritySystem:
                 description=f"Activate {obj.name}: {ability.description}",
                 requires_mana=bool(ability.mana_cost and not ability.mana_cost.is_free()),
                 mana_cost=effective_cost or ability.mana_cost,
+                x_value=x_for_action,
             ))
 
         # Marvin-style ability mirror: surface activated abilities copied
@@ -2183,6 +2281,19 @@ class PrioritySystem:
                 effective_mana_cost=effective_cost,
             ):
                 continue
+            # Same free-X=0 priority-loop guard as the primary loop, for X-cost
+            # MIRRORED abilities (e.g. Marvin, Murderous Mimic copying Mirror
+            # Entity's "{X}:"): bake the max affordable X for AI players and skip
+            # the degenerate X=0 so it isn't re-offered every priority window
+            # (the mirror activation handler reads action.x_value).
+            x_for_action = 0
+            if getattr(mirror_view, "has_x_cost", False) and self.is_ai_player(player_id):
+                x_for_action = self._max_affordable_x(
+                    mirror_view, obj, player_id, effective_cost,
+                    is_active=is_active, is_main=is_main, stack_empty=stack_empty,
+                )
+                if x_for_action < 1:
+                    continue
             src_obj = self.state.objects.get(src_obj_id)
             src_name = src_obj.name if src_obj is not None else "source"
             actions.append(LegalAction(
@@ -2197,6 +2308,7 @@ class PrioritySystem:
                     mirror_view.mana_cost and not mirror_view.mana_cost.is_free()
                 ),
                 mana_cost=effective_cost or mirror_view.mana_cost,
+                x_value=x_for_action,
             ))
 
         ability_lines = self._get_activated_ability_lines(obj)

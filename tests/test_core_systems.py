@@ -262,6 +262,27 @@ class TestStackManager:
         assert stack.pop().id == "b"
         assert stack.pop().id == "a"
 
+    def test_counter_respects_uncounterable_flag(self):
+        """A stack item flagged can_be_countered=False survives counter()."""
+        state = GameState()
+        stack = StackManager(state)
+        stack.push(StackItem(id="immune", type=StackItemType.SPELL,
+                             source_id="c1", controller_id="p1",
+                             can_be_countered=False))
+        events = stack.counter("immune")
+        assert events == []                       # counter() refused
+        assert stack.size() == 1                  # still on the stack
+        assert stack.top().id == "immune"
+
+    def test_counter_default_still_counters(self):
+        """Default (counterable) items are still removed — the hook is additive."""
+        state = GameState()
+        stack = StackManager(state)
+        stack.push(StackItem(id="normal", type=StackItemType.SPELL,
+                             source_id="c1", controller_id="p1"))
+        stack.counter("normal")
+        assert stack.is_empty()                   # countered as before
+
 
 # =============================================================================
 # Turn Manager Tests
@@ -336,6 +357,80 @@ class TestCombatState:
         cs.blocked_attackers.add("c1")
 
         assert "c1" in cs.blocked_attackers
+
+
+class TestMustAttack:
+    """CR 508.1a 'attacks each combat if able' — the additive must-attack hook."""
+
+    def _setup(self, *, give_keyword):
+        from src.engine.combat import CombatManager
+        game = Game()
+        p1 = game.add_player("Alice")
+        p2 = game.add_player("Bob")
+        abilities = [{'keyword': 'attacks_each_combat'}] if give_keyword else []
+        ch = Characteristics(types={CardType.CREATURE}, power=2, toughness=1,
+                             abilities=abilities)
+        creature = game.create_object(name="Brute", owner_id=p1.id,
+                                      zone=ZoneType.BATTLEFIELD, characteristics=ch)
+        cm = CombatManager(game.state)   # no turn_manager -> active = first player
+        return cm, p1, p2, creature
+
+    def test_flagged_creature_is_forced(self):
+        cm, p1, p2, creature = self._setup(give_keyword=True)
+        decls = cm._apply_must_attack(p1.id, [creature.id], [])
+        assert any(d.attacker_id == creature.id for d in decls), \
+            "a creature that attacks-each-combat must be forced to attack"
+        forced = next(d for d in decls if d.attacker_id == creature.id)
+        assert forced.defending_player_id == p2.id
+
+    def test_unflagged_creature_not_forced(self):
+        """Additive: a plain creature is never forced."""
+        cm, p1, p2, creature = self._setup(give_keyword=False)
+        decls = cm._apply_must_attack(p1.id, [creature.id], [])
+        assert decls == [], "an ordinary creature must not be forced to attack"
+
+    def test_already_declared_not_duplicated(self):
+        cm, p1, p2, creature = self._setup(give_keyword=True)
+        existing = [AttackDeclaration(attacker_id=creature.id, defending_player_id=p2.id)]
+        decls = cm._apply_must_attack(p1.id, [creature.id], existing)
+        assert len([d for d in decls if d.attacker_id == creature.id]) == 1, \
+            "a creature already attacking must not be added twice"
+
+
+class TestAttackDespiteDefender:
+    """The additive 'can attack as though it didn't have defender' override."""
+
+    def _make_defender(self):
+        from src.engine.combat import CombatManager
+        game = Game()
+        p1 = game.add_player("Alice")
+        p2 = game.add_player("Bob")
+        ch = Characteristics(types={CardType.CREATURE}, power=0, toughness=3,
+                             abilities=[{'keyword': 'defender'}])
+        creature = game.create_object(name="Wall", owner_id=p1.id,
+                                      zone=ZoneType.BATTLEFIELD, characteristics=ch)
+        creature.entered_zone_at = -1   # no summoning sickness
+        cm = CombatManager(game.state)
+        return cm, p1, creature
+
+    def test_defender_blocks_attack_by_default(self):
+        cm, p1, creature = self._make_defender()
+        assert cm._can_attack(creature.id, p1.id) is False, \
+            "a Defender creature cannot attack without the override"
+
+    def test_override_lets_defender_attack(self):
+        cm, p1, creature = self._make_defender()
+        creature.state.can_attack_despite_defender = True
+        assert cm._can_attack(creature.id, p1.id) is True, \
+            "the override should let a Defender creature attack"
+
+    def test_override_does_not_help_a_tapped_creature(self):
+        """Additive: the override only bypasses Defender, not other rules."""
+        cm, p1, creature = self._make_defender()
+        creature.state.can_attack_despite_defender = True
+        creature.state.tapped = True
+        assert cm._can_attack(creature.id, p1.id) is False, \
+            "the override must not override the tapped restriction"
 
 
 # =============================================================================

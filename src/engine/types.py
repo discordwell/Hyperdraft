@@ -148,10 +148,12 @@ class EventType(Enum):
 
     # Additional card-used events
     DESTROY = auto()                       # Destroy a permanent
+    REGENERATE = auto()                    # Regeneration shield replaced a destroy (tap + clear damage + leave combat)
     COUNTER = auto()                       # Counter a spell/ability
     COUNTER_SPELL = auto()                 # Alias for COUNTER (counter a spell)
     COUNTER_SPELL_UNLESS_PAY = auto()      # Alias (counter unless pay)
     SPELL_COUNTERED = auto()               # Marker event (spell was countered)
+    MAKE_UNCOUNTERABLE = auto()            # Set can_be_countered=False on a target stack item
     COPY_SPELL = auto()                    # Copy a spell on the stack
     COPY_STACK_ITEM = auto()               # Copy any stack item (spell or activated/triggered ability)
     RETURN_TO_HAND = auto()                # Return permanent to hand
@@ -982,6 +984,9 @@ class ObjectState:
     foil: bool = False               # Cosmetic "holo foil" — rolled at deck-load
     damage_marked: int = 0           # Damage marked this turn (before cleanup)
     crewed_until_eot: bool = False   # True if Vehicle was crewed this turn
+    # Set EOT by abilities like Timid Shieldbearer's "can attack this turn as
+    # though it didn't have defender"; read by CombatManager._can_attack.
+    can_attack_despite_defender: bool = False
     # OTJ Saddle mechanic state
     saddled_until_eot: bool = False  # True if Mount was saddled this turn
     saddled_by_this_turn: list = field(default_factory=list)  # Creature IDs that saddled this Mount this turn
@@ -1293,6 +1298,12 @@ class CardDefinition:
     text: str = ""
     rarity: Optional[str] = None  # 'common', 'uncommon', 'rare', 'mythic'
 
+    # Spells whose own text reads "this spell can't be countered" set this to
+    # False. The cast path (SpellBuilder.cast_spell) copies it onto the
+    # StackItem.can_be_countered flag that StackManager.counter() honors.
+    # Default True preserves behavior for every existing card.
+    can_be_countered: bool = True
+
     # Keyword-ability metadata (list of dicts like {'keyword': 'taunt'}). Retained
     # for the Hearthstone keyword catalog and legacy text-based assertions in
     # tests/test_jujutsu_kaisen.py. Not a declarative DSL — behaviour comes
@@ -1589,6 +1600,12 @@ class GameState:
     priority_player: Optional[str] = None
     turn_number: int = 0
     timestamp: int = 0  # Global timestamp counter
+    # Timestamp captured at the start of the current turn (turn.py run_turn).
+    # A creature is summoning sick iff entered_zone_at >= turn_start_timestamp
+    # (it entered at/after this turn began). 0 = no turn has run yet (combat
+    # falls back to the legacy entered==timestamp probe so direct-combat test
+    # harnesses that never invoke the turn loop keep working).
+    turn_start_timestamp: int = 0
 
     # Land play tracking (for "one land per turn" rule)
     lands_played_this_turn: int = 0

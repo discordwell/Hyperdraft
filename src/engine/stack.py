@@ -762,6 +762,11 @@ class SpellBuilder:
             # Spell metadata used by rules glue (e.g., flashback exile).
             item.additional_data.update(dict(additional_data))
 
+        # "This spell can't be countered" — a card's own static, declared on its
+        # CardDefinition. Default True leaves every existing card untouched.
+        if card.card_def is not None and not getattr(card.card_def, 'can_be_countered', True):
+            item.can_be_countered = False
+
         # Get resolve function from card definition
         if card.card_def and card.card_def.resolve:
             item.resolve_fn = card.card_def.resolve

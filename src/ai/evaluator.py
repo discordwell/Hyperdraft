@@ -239,11 +239,35 @@ class BoardEvaluator:
     def _can_attack_now(self, obj: 'GameObject') -> bool:
         if obj.state.tapped:
             return False
-        if self._has_ability(obj, "defender"):
+        # Defender can't attack unless an effect granted a temporary override
+        # (mirrors combat.py's _can_attack, e.g. Timid Shieldbearer).
+        if self._has_ability(obj, "defender") and not getattr(
+                obj.state, "can_attack_despite_defender", False):
             return False
-        if getattr(obj.state, "summoning_sickness", False) and not self._has_ability(obj, "haste"):
+        # A "can't attack" effect binds even through haste (mirrors combat.py's
+        # _can_attack); check it before the haste short-circuit.
+        if self._has_ability(obj, "cant_attack"):
             return False
-        return True
+        if self._has_ability(obj, "haste"):
+            return True
+        # Summoning sickness — mirror combat.py's _can_attack. A creature is sick
+        # iff it entered at/after the current turn began (entered_zone_at >=
+        # turn_start_timestamp). The per-object `summoning_sickness` flag is set
+        # on entry but the MTG turn manager never clears it (only HS/finance/…
+        # do), so it is a stale always-True signal — trusting it blanked every
+        # attack-based valuation. Use the turn-start baseline when a turn has run;
+        # fall back to the legacy entered!=timestamp probe otherwise (direct
+        # eval harnesses with no turn loop), and to the flag if no timestamp.
+        entered = getattr(obj, "entered_zone_at", None)
+        if entered is None:
+            return not getattr(obj.state, "summoning_sickness", False)
+        turn_start = getattr(self.state, "turn_start_timestamp", 0) or 0
+        if turn_start:
+            return entered < turn_start
+        ts = getattr(self.state, "timestamp", None)
+        if ts is not None:
+            return entered != ts
+        return not getattr(obj.state, "summoning_sickness", False)
 
     def _can_block(self, obj: 'GameObject') -> bool:
         if obj.state.tapped:

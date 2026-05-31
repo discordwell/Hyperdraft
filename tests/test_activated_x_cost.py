@@ -383,6 +383,162 @@ def test_gogo_master_of_mimicry_xx_cost_emits_x_copies():
     asyncio.get_event_loop().run_until_complete(_run())
 
 
+def test_ai_x_cost_ability_bakes_max_affordable_x_and_suppresses_free_zero():
+    """AI X-picking for {X}: activated abilities (priority-loop fix, 2026-05-29).
+
+    Regression for the polish-pass stall: an {X}: activated ability (e.g. Mirror
+    Entity) surfaced to the AI at the default x_value=0 — a free no-op re-offered
+    every priority window, ping-ponging to the 5000-iteration priority cap and
+    grinding Elf/changeling games to a multi-minute crawl. The fix
+    (priority.py _get_activatable_abilities + the new _max_affordable_x) bakes
+    the max *affordable* X into the surfaced action and skips the unproductive
+    free X=0 case for AI players, while leaving the human surface unchanged.
+    """
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    _setup_game_for_player(p1.id, game)
+    game.priority_system.set_ai_player(p1.id)
+
+    # Mirror Entity's shape: a pure {X}: activated ability (no fixed cost).
+    def setup(obj, state):
+        def _eff(o, st, targets, *, x_value: int = 0):
+            return []
+        make_activated_ability(obj, "{X}", _eff,
+                               description="creatures become X/X")
+        return []
+
+    card = make_creature(
+        name="X Pump Bear", power=2, toughness=2, mana_cost="{1}{G}",
+        colors={Color.GREEN}, setup_interceptors=setup,
+    )
+    obj = _spawn_on_battlefield(game, p1, card)
+
+    def _x_actions():
+        return [a for a in game.priority_system.get_legal_actions(p1.id)
+                if a.type == ActionType.ACTIVATE_ABILITY and a.source_id == obj.id]
+
+    # Case 1 — no mana: the only available X is the free X=0 no-op. The AI must
+    # NOT be offered it (offering it is the infinite priority loop).
+    assert not _x_actions(), \
+        "AI must not be offered the free X=0 activation (priority-loop bug)"
+
+    # Case 2 — four mana: offered exactly once, with the max affordable X baked
+    # in (so activating consumes mana and can't be re-offered for free).
+    _give_player_mana(p1, game.priority_system.mana_system, green=4)
+    acts = _x_actions()
+    assert len(acts) == 1, f"expected exactly one X activation, got {len(acts)}"
+    assert acts[0].x_value == 4, \
+        f"AI should bake max affordable X (=4) into the action, got {acts[0].x_value}"
+
+    # The AI's LegalAction -> PlayerAction conversion must CARRY x_value through;
+    # otherwise the chosen action activates at X=0 (no mana spent) and re-loops.
+    from src.ai.engine import AIEngine
+    pa = AIEngine(difficulty='medium')._legal_to_player_action(
+        acts[0], p1.id, game.state)
+    assert pa.x_value == 4, \
+        f"_legal_to_player_action must carry x_value (=4), got {pa.x_value}"
+
+    print("PASS: AI X-cost ability bakes max affordable X and suppresses free X=0")
+
+
+def test_ai_x_cost_capped_by_nonmana_xgate():
+    """_max_affordable_x must respect NON-mana X-gated costs (review follow-up #1).
+
+    Winter, Cursed Rider's "Exile X artifact cards from your graveyard" gates X
+    on an additional cost, not mana. The AI's baked X comes from
+    _max_affordable_x, which originally probed mana alone (can_cast) — so with
+    plenty of mana but few artifacts in the graveyard it would bake an X the
+    exile gate can't pay: a dead offer the AI can't actually activate. The fix
+    probes the full can_pay_activation per candidate, so the baked X is capped
+    by whichever cost binds (here: the 2 artifact cards available, not 4 mana).
+    """
+    from src.engine import make_artifact
+
+    game = Game()
+    p1 = game.add_player("Alice")
+    game.add_player("Bob")
+    _setup_game_for_player(p1.id, game)
+    game.priority_system.set_ai_player(p1.id)
+
+    def setup(obj, state):
+        def _eff(o, st, targets, *, x_value: int = 0):
+            return []
+        make_activated_ability(
+            obj, cost="{X}, Exile X artifact cards from your graveyard",
+            effect_fn=_eff, description="exile-X-gated ability",
+        )
+        return []
+
+    card = make_creature(
+        name="GY-Exile X Tester", power=1, toughness=1, mana_cost="{1}",
+        colors=set(), subtypes={"Construct"},
+        text="{X}, Exile X artifact cards from your graveyard: Do nothing.",
+        setup_interceptors=setup,
+    )
+    obj = _spawn_on_battlefield(game, p1, card)
+
+    # Only TWO artifact cards in the graveyard, but FOUR mana available.
+    scrap = make_artifact(name="Scrap Token", mana_cost="{1}", text="")
+    for _ in range(2):
+        game.create_object(
+            name=scrap.name, owner_id=p1.id, zone=ZoneType.GRAVEYARD,
+            characteristics=scrap.characteristics, card_def=scrap,
+        )
+    _give_player_mana(p1, game.priority_system.mana_system, generic=4)
+
+    acts = [a for a in game.priority_system.get_legal_actions(p1.id)
+            if a.type == ActionType.ACTIVATE_ABILITY and a.source_id == obj.id]
+    assert len(acts) == 1, f"expected one X activation, got {len(acts)}"
+    # Mana alone would allow X=4; the exile gate caps it at the 2 artifacts.
+    assert acts[0].x_value == 2, (
+        "baked X must be capped by the non-mana exile gate (2 artifacts), "
+        f"not the mana budget (4); got {acts[0].x_value}"
+    )
+    print("PASS: _max_affordable_x respects non-mana X-gated costs (capped at 2)")
+
+
+def test_likeness_looter_copy_consumes_x_value():
+    """Likeness Looter's {X} copy must consume x_value (review follow-up #3).
+
+    "{X}: This creature becomes a copy of target creature card in your graveyard
+    with mana value X." The effect_fn originally ignored x_value and copied a
+    target regardless of X, so paying X bought nothing (mana waste). The fix
+    treats X as a mana-value budget: it copies the best graveyard creature with
+    MV <= X, so a larger X yields a bigger copy and X=0 copies nothing.
+    """
+    from src.engine.queries import get_power
+    from src.cards.wilds_of_eldraine import LIKENESS_LOOTER
+
+    def _gy_creature(game, player, name, power, tough, cost):
+        cd = make_creature(name=name, power=power, toughness=tough,
+                           mana_cost=cost, colors={Color.GREEN}, subtypes={"Bear"})
+        game.create_object(
+            name=cd.name, owner_id=player.id, zone=ZoneType.GRAVEYARD,
+            characteristics=cd.characteristics, card_def=cd,
+        )
+
+    def _run_copy(x_value):
+        game = Game()
+        p1 = game.add_player("Alice")
+        game.add_player("Bob")
+        looter = _spawn_on_battlefield(game, p1, LIKENESS_LOOTER)
+        _gy_creature(game, p1, "GY Bear", 2, 2, "{1}{G}")       # MV 2
+        _gy_creature(game, p1, "GY Giant", 5, 5, "{3}{G}{G}")   # MV 5
+        x_ability = [a for a in looter.state.activated_abilities
+                     if getattr(a, "has_x_cost", False)][0]
+        x_ability.effect_fn(looter, game.state, [], x_value=x_value)
+        return get_power(looter, game.state)
+
+    # X=2: only the MV-2 bear is within budget -> copy it (power 2).
+    assert _run_copy(2) == 2, "X=2 should copy the MV-2 creature (power 2)"
+    # X=5: the MV-5 giant is now affordable and bigger -> copy it (power 5).
+    assert _run_copy(5) == 5, "X=5 should copy the MV-5 creature (power 5)"
+    # X=0: nothing is within budget -> no copy (Looter stays a 1/1).
+    assert _run_copy(0) == 1, "X=0 should copy nothing (Looter stays 1/1)"
+    print("PASS: Likeness Looter {X} copy consumes x_value (X picks the copy)")
+
+
 if __name__ == "__main__":
     test_parse_activation_cost_recognises_x_x()
     test_register_activated_ability_sets_has_x_cost_flag()
@@ -391,4 +547,7 @@ if __name__ == "__main__":
     test_insufficient_mana_for_chosen_x_blocks_activation()
     test_legacy_effect_fn_signature_still_works()
     test_gogo_master_of_mimicry_xx_cost_emits_x_copies()
+    test_ai_x_cost_ability_bakes_max_affordable_x_and_suppresses_free_zero()
+    test_ai_x_cost_capped_by_nonmana_xgate()
+    test_likeness_looter_copy_consumes_x_value()
     print("\nAll X-cost activated-ability tests passed.")

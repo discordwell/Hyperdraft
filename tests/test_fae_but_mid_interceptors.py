@@ -34,10 +34,14 @@ if str(_REPO_ROOT) not in sys.path:
 os.environ.setdefault("HYPERDRAFT_STRICT", "1")
 os.environ.setdefault("HYPERDRAFT_STRICT_STACK", "1")
 
+import asyncio
+
 from src.engine import (
     Game, Event, EventType, ZoneType, CardType, Color, Characteristics,
 )
 from src.engine.queries import get_power, get_toughness, has_ability
+from src.engine.priority import ActionType, PlayerAction
+from src.engine.turn import Phase
 from src.cards.custom.fae_but_mid import FAE_BUT_MID_CARDS
 
 
@@ -147,136 +151,14 @@ def _new_game():
 
 
 SKIPPED_CARDS = {
-    "Goldmeadow Nomad": "graveyard-activated ability (structural; no battlefield interceptor)",
-    "Evershrike's Gift": "aura static + death trigger needs an attached creature",
-    "Timid Shieldbearer": "activated ability (can-attack grant); no triggered interceptor",
-    "Great Forest Druid": "mana ability (structural)",
-    "Lys Alana Dignitary": "conditional mana ability (structural)",
-    "Flamebraider": "mana ability (structural)",
-    "Safewright Cavalry": "activated pump ability (structural)",
-    "Surly Farrier": "activated tap pump ability (structural)",
-    "Flame-Chain Mauler": "activated pump ability (structural)",
-    "Bre of Clan Stoutarm": "activated tap ability (structural)",
-    "Figure of Fable": "modal activated animate abilities (structural)",
-    "Gristle Glutton": "activated tap/blight ability (structural)",
-    "Morcant's Eyes": "aura static (enchant creature) needs an attached creature",
-    "Champion of the Path": "grants a triggered ability to OTHER creatures (static; setup returns [])",
-    "Doran, Besieged by Time": "combat-damage replacement static (structural)",
-    "Goliath Daydreamer": "cast-replacement (exile-on-resolve) effect (structural)",
-    "Chitinous Graspling": "keyword-only (Changeling/Reach); setup returns [] — vanilla-equivalent",
-    "Gangly Stompling": "keyword-only (Changeling/Trample); setup returns [] — vanilla-equivalent",
-    "Treefolk-bough Spear": "equipment dynamic-P/T static needs an attached creature",
-    "The Aurora Cycle": "Saga — chapter abilities are lore-counter driven (structural)",
-    "Glamermite": "modal ETB (choose tap OR untap target) — needs mode selection",
-    "Rhys, the Evermore": "targeted ETB granting persist to a chosen creature (target-choice)",
-    "Unwelcome Sprite": "counter target ability — needs an ability on the stack",
-    "Glen Elendra Guardian": "ETB only adds a counter; the counter-spell is an activated ability w/ stack target",
-    "Raiding Schemes": "static 'each noncreature spell has conspire' grant — firing needs conspire cost paid (creatures tapped)",
-    "Retched Wretch": "reanimation: only effect is a ZONE_CHANGE back to the battlefield (plumbing-only; no content event)",
-    "Diviner's Wand": "equipment that grants draw/pump abilities to the EQUIPPED creature; the content events fire from the held creature, not the equipment (needs an attached host)",
-    "Thornbite Staff": "equipment that grants an activated damage ability + untap trigger to the EQUIPPED creature (needs an attached host)",
-    "Garruk Wildspeaker": "planeswalker: loyalty-activated abilities (structural; no canonical trigger to fire)",
-    "Inner-Flame Igniter": "activated team-pump ability ({2}{R}: ...); no triggered/static interceptor to fire",
-    "Ashling's Command": "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
-    'Austere Command': "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
-    "Brigid's Command": "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
-    'Broken Ambitions': 'instant/sorcery: counterspell: counters a spell on the stack (needs a spell on the stack to target)',
-    'Burning Curiosity': 'instant/sorcery: exile top N + play-this-turn (impulse draw); needs a play-from-exile window',
-    'Cryptic Command': 'instant/sorcery: counterspell: counters a spell on the stack (needs a spell on the stack to target)',
-    'Dream Harvest': 'instant/sorcery: exile-until-mana threshold (structural)',
-    'End-Blaze Epiphany': 'instant/sorcery: X-damage + dies-this-turn delayed exile rider (variable X + delayed trigger)',
-    'Faerie Trickery': 'instant/sorcery: counterspell: counters a spell on the stack (needs a spell on the stack to target)',
-    'Giantfall': "instant/sorcery: modal 'choose one': needs mode selection",
-    'Gilt-Leaf Ambush': 'instant/sorcery: clash mechanic: outcome-dependent secondary effect (structural)',
-    "Glen Elendra's Answer": 'instant/sorcery: mass counter: counters spells/abilities on the stack (stack-target)',
-    'Goatnap': 'instant/sorcery: gain-control effect: not expressible as a single content event',
-    "Grub's Command": "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
-    'Incendiary Command': "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
-    'Keep Out': "instant/sorcery: modal 'choose one': needs mode selection",
-    'Lash Out': 'instant/sorcery: clash mechanic: outcome-dependent secondary effect (structural)',
-    'Noggle the Mind': 'instant/sorcery: hand-shuffle + variable draw (structural)',
-    'Pollen Lullaby': 'instant/sorcery: damage-prevention replacement effect (structural)',
-    'Primal Command': "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
-    'Profane Command': "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
-    'Rime Chill': 'instant/sorcery: tap up to two + stun counters; cost-reduction-by-color (modal targets)',
-    'Run Away Together': 'instant/sorcery: bounce two creatures controlled by DIFFERENT players (paired-target constraint)',
-    'Spell Snare': 'instant/sorcery: counterspell: counters a spell on the stack (needs a spell on the stack to target)',
-    'Spiral into Solitude': 'instant/sorcery: exile an attacking/blocking creature (combat-restricted target) + opponent makes a token',
-    "Sygg's Command": "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
-    "Trystan's Command": "instant/sorcery: modal 'choose two' command: needs mode selection the harness can't drive",
-    'Wild Unraveling': 'instant/sorcery: counterspell: counters a spell on the stack (needs a spell on the stack to target)',
     # --- Section 2 structural skips (lands / activated / equipment / aura / replacement / PW) ---
-    'Ajani, Outland Chaperone': 'planeswalker: loyalty-activated abilities (structural)',
-    'Aurora Awakener': 'reveal-until-X dig (variable, library-state dependent; not a single content event)',
-    'Barbed Bloodletter': 'equipment: grants statics/abilities to the held creature (needs an attached host)',
-    'Blood Crypt': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
-    'Bloom Tender': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Brion Stoutarm': 'activated sacrifice ability (structural; no triggered/static interceptor)',
-    'Chameleon Colossus': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Champion of the Weird': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Cloak and Dagger': 'equipment: grants statics/abilities to the held creature (needs an attached host)',
-    'Collective Inferno': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Dawnhand Dissident': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Deity of Scars': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Demigod of Revenge': 'cast-time graveyard recursion (return all copies; resolves before ETB; structural)',
-    'Devoted Druid': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Earwig Squad': 'prowl-gated ETB (search+exile only when prowl cost paid; alt-cost dependent)',
-    'Eclipsed Realms': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
-    'Elvish Branchbender': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Evolving Wilds': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
-    'Figure of Destiny': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Firdoch Core': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Forest': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
-    'Fulminator Mage': 'activated sacrifice ability (structural; no triggered/static interceptor)',
-    'Gathering Stone': 'choose-a-type cost-reducer / mana on ETB (structural; no content event)',
-    "Gilt-Leaf's Embrace": 'aura: continuous/granted effect on the enchanted permanent (needs an attached host)',
-    'Glen Elendra Archmage': 'activated sacrifice ability (structural; no triggered/static interceptor)',
-    'Hallowed Fountain': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
-    'Heap Doll': 'activated sacrifice ability (structural; no triggered/static interceptor)',
-    'Heritage Druid': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Horde of Notions': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Island': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
-    'Maralen, Fae Ascendant': 'static lock / name-or-color-choice replacement effect (structural)',
-    'Mirror Entity': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Mirrormind Crown': 'equipment: grants statics/abilities to the held creature (needs an attached host)',
-    'Mistbind Clique': 'champion mechanic (exile-on-ETB + return-on-leave; structural)',
-    'Moonglove Extract': 'activated sacrifice ability (structural; no triggered/static interceptor)',
-    'Mornsong Aria': 'static lock / name-or-color-choice replacement effect (structural)',
-    'Mountain': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
-    'Nettle Sentinel': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Nettlevine Blight': 'aura: continuous/granted effect on the enchanted permanent (needs an attached host)',
-    'Obsidian Battle-Axe': 'equipment: grants statics/abilities to the held creature (needs an attached host)',
-    'Overbeing of Myth': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Overgrown Tomb': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
+    'Champion of the Weird': "behold-a-Goblin cast cost (alt-cost choice the engine can't model) + 'Pay 1 life, Blight 2: target opponent blights 2' — there is no blight content-event the engine consumes (blight is parsed only as a cost), so the activated ability has no fireable effect (engine gap)",
+    'Earwig Squad': "prowl-gated ETB: the search+exile fires only 'if its prowl cost was paid'. Prowl is an alternative cost, and the engine cannot gate an effect on which cost was paid: the cost-payment path in priority.py sets NO per-cost-paid flag on the spell object, and the one precedent (was_bargained, interceptor_helpers.py) is itself a defined-but-never-auto-set flag awaiting a 'future cast-option extension'. Wiring needs non-additive engine work (out of scope).",
+    'Mirrormind Crown': "equipment token-creation REPLACEMENT: 'the first time you would create one or more tokens each turn, you may instead create that many tokens that are copies of equipped creature.' Needs three engine pieces none of which exist: (1) a token-creation replacement that rewrites OBJECT_CREATED/CREATE_TOKEN before resolution — src/engine/replacements.py ships only make_counter_doubler, and Foundations' own Doubling Season (doubling_season_setup) leaves its identical token-doubling clause UNWIRED for exactly this reason; (2) a primitive that re-stamps each created token as a full COPY of the equipped creature (copy all characteristics); (3) once-per-turn gating keyed to token creation. All three are non-additive engine work (out of scope).",
     "Painter's Servant": 'static lock / name-or-color-choice replacement effect (structural)',
-    'Pili-Pala': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Pitiless Fists': 'aura: continuous/granted effect on the enchanted permanent (needs an attached host)',
-    'Plains': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
-    'Reaping Willow': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Rhys the Redeemed': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Rimefire Torque': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Runed Halo': 'static lock / name-or-color-choice replacement effect (structural)',
-    'Scarblade Elite': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Scarblade Scout': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Sensation Gorger': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Shimmerwilds Growth': 'aura: continuous/granted effect on the enchanted permanent (needs an attached host)',
-    'Soulbright Seeker': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Sower of Temptation': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Spellstutter Sprite': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Springleaf Drum': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Steam Vents': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
-    'Stillmoon Cavalier': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Sting-Slinger': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Stoic Grove-Guide': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Swamp': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
-    'Sygg, River Guide': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Tattermunge Maniac': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    'Temple Garden': 'land: mana-tap / pay-life-or-tapped ETB (structural; no canonical content trigger)',
-    'Twilight Diviner': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Vendilion Clique': 'structural / activated / replacement effect not expressible via a canonical trigger',
-    "Veteran's Armaments": 'equipment: grants statics/abilities to the held creature (needs an attached host)',
-    'Vexing Shusher': 'activated ability only ({cost}: ...); no triggered/static interceptor to fire',
-    'Vinebred Brawler': 'structural / activated / replacement effect not expressible via a canonical trigger',
+    'Runed Halo': "grants the PLAYER 'protection from a chosen card name'. targeting.py protection only covers color/type/everything ON OBJECTS via has_ability; there is no name-based protection, no GRANT_PROTECTION event, and _player_can_be_targeted is a hard-coded `return True` stub (players aren't GameObjects). Wiring needs engine work, which is out of scope for card-wiring.",
+    'Vendilion Clique': "ETB 'look at target player's hand, you MAY choose a nonland card, put it on the bottom, they draw' — the effect is entirely contingent on inspecting the hand and choosing a specific card (a player decision the harness can't deterministically drive); only the trailing draw is a plain event (engine gap for the hand-choice-to-bottom interaction)",
+    'Vinebred Brawler': "'as an additional cost you MAY blight 2. If you do, enters with a +1/+1 counter' — the ETB counter is contingent on an optional alt-cost the engine can't know was paid at resolve time; no deterministic content event (engine gap)",
 }
 
 def test_card_changeling_wayfinder():
@@ -1085,6 +967,41 @@ def test_card_oblivion_ring():
     obj = create_creature_on_battlefield(game, p1, "Oblivion Ring")
     _assert_emits(game, ['EXILE'], "Oblivion Ring")
 
+def test_card_mistbind_clique():
+    """Mistbind Clique: Champion a Faerie -> exile another Faerie you control,
+    then tap all lands the opponent controls."""
+    game, p1, p2 = _new_game()
+    faerie = _spawn(game, p1, subtypes={'Faerie'}, name='Champ Faerie')
+    _spawn(game, p2, types={CardType.LAND}, name='Opp Land 1')
+    _spawn(game, p2, types={CardType.LAND}, name='Opp Land 2')
+    obj = create_creature_on_battlefield(game, p1, "Mistbind Clique")
+    # Championed Faerie is exiled and recorded on the source.
+    assert faerie.zone == ZoneType.EXILE, \
+        f"Mistbind Clique: championed Faerie should be exiled, in {faerie.zone}"
+    assert getattr(obj.state, 'championed_card_id', None) == faerie.id, \
+        "Mistbind Clique: championed card id should be stored on obj.state"
+    _assert_emits(game, ['EXILE', 'TAP'], "Mistbind Clique")
+
+def test_card_mistbind_clique_returns_on_leave():
+    """Mistbind Clique: when it leaves, the championed Faerie returns to the battlefield."""
+    game, p1, p2 = _new_game()
+    faerie = _spawn(game, p1, subtypes={'Faerie'}, name='Champ Faerie')
+    obj = create_creature_on_battlefield(game, p1, "Mistbind Clique")
+    assert faerie.zone == ZoneType.EXILE, "precondition: Faerie championed/exiled"
+    # Mistbind Clique leaves the battlefield -> the championed card returns.
+    game.emit(Event(type=EventType.ZONE_CHANGE, payload={
+        'object_id': obj.id, 'from_zone_type': ZoneType.BATTLEFIELD,
+        'to_zone_type': ZoneType.GRAVEYARD}, source=obj.id))
+    assert faerie.zone == ZoneType.BATTLEFIELD, \
+        f"Mistbind Clique: championed Faerie should return to battlefield, in {faerie.zone}"
+
+def test_card_mistbind_clique_no_faerie_self_sacrifice():
+    """Mistbind Clique: with no other Faerie to champion, it sacrifices itself."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Mistbind Clique")
+    assert obj.zone == ZoneType.GRAVEYARD, \
+        f"Mistbind Clique: no Faerie to champion should self-sacrifice, in {obj.zone}"
+
 def test_card_preeminent_captain():
     """Preeminent Captain: First strike. Whenever Preeminent Captain attacks, you may put a Soldier creature card from your hand onto the battlefield tapped and attacking."""
     game, p1, p2 = _new_game()
@@ -1884,6 +1801,108 @@ def test_card_crib_swap():
     assert any(t in got for t in ['EXILE']), f"Crib Swap: expected one of ['EXILE'] from resolve, got {sorted(got)}"
 
 
+def _seed_lib_top(game, player, mana_cost):
+    """Put a single card with the given mana cost on TOP of player's library
+    (index 0). create_object appends, so call before any other lib seeding."""
+    return game.create_object(
+        name=f"ClashLib-{player.id}-{mana_cost}", owner_id=player.id,
+        zone=ZoneType.LIBRARY,
+        characteristics=Characteristics(types={CardType.CREATURE}, mana_cost=mana_cost),
+        card_def=None,
+    )
+
+
+def test_card_gilt_leaf_ambush():
+    """Gilt-Leaf Ambush: primary effect — create two Elf Warrior tokens."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    spell = game.create_object(name='Gilt-Leaf Ambush', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Gilt-Leaf Ambush'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Gilt-Leaf Ambush'].resolve([], game.state)
+    got = {e.type.name for e in evs}
+    assert 'CREATE_TOKEN' in got, f"Gilt-Leaf Ambush: expected CREATE_TOKEN from resolve, got {sorted(got)}"
+    assert sum(1 for e in evs if e.type.name == 'CREATE_TOKEN') == 2, \
+        "Gilt-Leaf Ambush: expected exactly two Elf Warrior tokens"
+
+
+def test_card_gilt_leaf_ambush_clash_win_grants_deathtouch():
+    """Gilt-Leaf Ambush: winning the clash grants deathtouch to your creatures."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    # caster reveals MV 5, opponent reveals MV 0 -> caster wins the clash
+    _seed_lib_top(game, p1, "{4}{G}")
+    _seed_lib_top(game, p2, "")
+    _spawn(game, p1, subtypes={"Elf", "Warrior"}, power=1, toughness=1)
+    spell = game.create_object(name='Gilt-Leaf Ambush', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Gilt-Leaf Ambush'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Gilt-Leaf Ambush'].resolve([], game.state)
+    kw = [e for e in evs if e.type.name == 'GRANT_KEYWORD'
+          and e.payload.get('keyword') == 'deathtouch']
+    assert kw, ("Gilt-Leaf Ambush: clash win should grant deathtouch, "
+                f"got {sorted({e.type.name for e in evs})}")
+
+
+def test_card_gilt_leaf_ambush_clash_loss_no_deathtouch():
+    """Gilt-Leaf Ambush: losing the clash grants no deathtouch (boolean gate)."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    # caster reveals MV 0, opponent reveals MV 5 -> caster LOSES the clash
+    _seed_lib_top(game, p1, "")
+    _seed_lib_top(game, p2, "{4}{G}")
+    _spawn(game, p1, subtypes={"Elf", "Warrior"}, power=1, toughness=1)
+    spell = game.create_object(name='Gilt-Leaf Ambush', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Gilt-Leaf Ambush'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Gilt-Leaf Ambush'].resolve([], game.state)
+    kw = [e for e in evs if e.type.name == 'GRANT_KEYWORD'
+          and e.payload.get('keyword') == 'deathtouch']
+    assert not kw, "Gilt-Leaf Ambush: clash LOSS must not grant deathtouch"
+
+
+def test_card_lash_out():
+    """Lash Out: primary effect — 3 damage to a creature."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p2, power=2, toughness=2)
+    spell = game.create_object(name='Lash Out', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Lash Out'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Lash Out'].resolve([], game.state)
+    got = {e.type.name for e in evs}
+    assert 'DAMAGE' in got, f"Lash Out: expected DAMAGE from resolve, got {sorted(got)}"
+
+
+def test_card_lash_out_clash_win_damages_controller():
+    """Lash Out: winning the clash deals 3 to the creature's controller."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _seed_lib_top(game, p1, "{4}{R}")  # MV 5
+    _seed_lib_top(game, p2, "")        # MV 0 -> caster wins
+    _spawn(game, p2, power=2, toughness=2)
+    spell = game.create_object(name='Lash Out', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Lash Out'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Lash Out'].resolve([], game.state)
+    player_dmg = [e for e in evs if e.type.name == 'DAMAGE'
+                  and e.payload.get('target_type') == 'player']
+    assert player_dmg, ("Lash Out: clash win should deal damage to the "
+                        f"creature's controller, got {sorted({e.type.name for e in evs})}")
+    assert player_dmg[0].payload.get('target') == p2.id, \
+        "Lash Out: clash damage should hit the damaged creature's controller (p2)"
+
+
+def test_card_lash_out_clash_loss_no_player_damage():
+    """Lash Out: losing the clash deals no damage to the controller."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _seed_lib_top(game, p1, "")        # MV 0
+    _seed_lib_top(game, p2, "{4}{R}")  # MV 5 -> caster LOSES
+    _spawn(game, p2, power=2, toughness=2)
+    spell = game.create_object(name='Lash Out', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Lash Out'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Lash Out'].resolve([], game.state)
+    player_dmg = [e for e in evs if e.type.name == 'DAMAGE'
+                  and e.payload.get('target_type') == 'player']
+    assert not player_dmg, "Lash Out: clash LOSS must not damage the controller"
+
+
 def test_card_darkness_descends():
     """Darkness Descends: cast-resolve effect."""
     game, p1, p2 = _new_game()
@@ -2379,10 +2398,2265 @@ def test_card_wretched_banquet():
     assert any(t in got for t in ['OBJECT_DESTROYED']), f"Wretched Banquet: expected one of ['OBJECT_DESTROYED'] from resolve, got {sorted(got)}"
 
 
+# ===========================================================================
+# PHASE A no-effect cards: implemented with existing helpers + verified here.
+# Activated abilities are fired through priority_system._handle_activate_ability
+# (the same path test_activated_abilities.py uses); equipment/auras are attached
+# via an ATTACH event and read back through get_power / has_ability; static
+# lords reuse the get_power-delta pattern above.
+# ===========================================================================
+import asyncio as _asyncio
+from src.engine.priority import ActionType as _ActionType, PlayerAction as _PlayerAction
+from src.engine.turn import Phase as _Phase
+from src.engine.mana import ManaType as _ManaType
+
+
+def _own_main(game, player):
+    """Give ``player`` priority on their own precombat main phase."""
+    game.turn_manager.turn_state.active_player_id = player.id
+    game.turn_manager.turn_state.phase = _Phase.PRECOMBAT_MAIN
+
+
+def _give_mana(game, player, *, generic=0, w=0, u=0, b=0, r=0, g=0):
+    ms = game.mana_system
+    for _ in range(generic):
+        ms.produce_mana(player.id, _ManaType.COLORLESS, 1)
+    for _ in range(w):
+        ms.produce_mana(player.id, _ManaType.WHITE, 1)
+    for _ in range(u):
+        ms.produce_mana(player.id, _ManaType.BLUE, 1)
+    for _ in range(b):
+        ms.produce_mana(player.id, _ManaType.BLACK, 1)
+    for _ in range(r):
+        ms.produce_mana(player.id, _ManaType.RED, 1)
+    for _ in range(g):
+        ms.produce_mana(player.id, _ManaType.GREEN, 1)
+
+
+def _activate(game, player, source, ability_id="activated:0", targets=None, x_value=None):
+    """Activate an ability and return (cost_events, resolve_events).
+
+    cost_events are what _handle_activate_ability emits (TAP/SACRIFICE/ACTIVATE);
+    resolve_events are produced by resolving the stack item the ability pushed.
+    ``targets`` is the engine's grouped ``list[list[Target]]`` shape; a single
+    bare target is auto-wrapped into one group.
+    """
+    if targets is not None and targets and not isinstance(targets[0], list):
+        targets = [targets]
+
+    async def _run():
+        action = _PlayerAction(
+            type=_ActionType.ACTIVATE_ABILITY,
+            player_id=player.id, source_id=source.id,
+            ability_id=ability_id,
+        )
+        if targets is not None:
+            action.targets = targets
+        if x_value is not None:
+            action.x_value = x_value
+        cost_events = await game.priority_system._handle_activate_ability(action)
+        resolve_events = []
+        if game.stack.items:
+            item = game.stack.items[-1]
+            if item.resolve_fn:
+                resolve_events = item.resolve_fn(item.chosen_targets, game.state)
+        return cost_events, resolve_events
+    return _asyncio.get_event_loop().run_until_complete(_run())
+
+
+def _target_obj(obj):
+    """Wrap an object id as a target the activated-ability effect_fn can read."""
+    class _T:
+        object_id = obj.id
+        id = obj.id
+    return _T()
+
+
+def _target_player(pid):
+    class _T:
+        object_id = None
+        player_id = pid
+        id = pid
+    return _T()
+
+
+def _attach(game, equip, host):
+    game.emit(Event(
+        type=EventType.ATTACH,
+        payload={"object_id": equip.id, "target_id": host.id},
+        source=equip.id, controller=equip.controller,
+    ))
+
+
+def _resolve_types(events):
+    return {e.type.name for e in events}
+
+
+# --- static lords (color / subtype) ---------------------------------------
+
+def test_card_boartusk_liege():
+    """Boartusk Liege: Trample. Other red creatures you control get +1/+1. Other green creatures you control get +1/+1."""
+    game, p1, p2 = _new_game()
+    create_creature_on_battlefield(game, p1, "Boartusk Liege")
+    red = _spawn(game, p1, colors=[Color.RED], power=2, toughness=2, name='Red Ally')
+    rg = _spawn(game, p1, colors=[Color.RED, Color.GREEN], power=2, toughness=2, name='RG Ally')
+    assert get_power(red, game.state) == 3, f"red ally should be +1/+1, got {get_power(red, game.state)}"
+    assert get_power(rg, game.state) == 4, f"red-green ally should be +2/+2, got {get_power(rg, game.state)}"
+
+
+def test_card_scion_of_oona():
+    """Scion of Oona: Flash. Flying. Other Faerie creatures you control get +1/+1. Other Faeries you control have shroud."""
+    game, p1, p2 = _new_game()
+    create_creature_on_battlefield(game, p1, "Scion of Oona")
+    fae = _spawn(game, p1, subtypes=['Faerie'], power=2, toughness=2, name='Faerie Ally')
+    assert get_power(fae, game.state) == 3, f"faerie should be +1/+1, got {get_power(fae, game.state)}"
+    assert has_ability(fae, "shroud", game.state), "faerie should gain shroud"
+
+
+def test_card_sunrise_sovereign():
+    """Sunrise Sovereign: Other Giant creatures you control get +2/+2 and have trample."""
+    game, p1, p2 = _new_game()
+    create_creature_on_battlefield(game, p1, "Sunrise Sovereign")
+    giant = _spawn(game, p1, subtypes=['Giant'], power=3, toughness=3, name='Giant Ally')
+    assert get_power(giant, game.state) == 5, f"giant should be +2/+2, got {get_power(giant, game.state)}"
+    assert has_ability(giant, "trample", game.state), "giant should gain trample"
+
+
+def test_card_wilt_leaf_liege():
+    """Wilt-Leaf Liege: Other green creatures you control get +1/+1. Other white creatures you control get +1/+1."""
+    game, p1, p2 = _new_game()
+    create_creature_on_battlefield(game, p1, "Wilt-Leaf Liege")
+    gw = _spawn(game, p1, colors=[Color.GREEN, Color.WHITE], power=2, toughness=2, name='GW Ally')
+    assert get_power(gw, game.state) == 4, f"green-white ally should be +2/+2, got {get_power(gw, game.state)}"
+
+
+def test_card_thistledown_liege():
+    """Thistledown Liege: Flash. Other white creatures you control get +1/+1. Other blue creatures you control get +1/+1."""
+    game, p1, p2 = _new_game()
+    create_creature_on_battlefield(game, p1, "Thistledown Liege")
+    white = _spawn(game, p1, colors=[Color.WHITE], power=2, toughness=2, name='White Ally')
+    assert get_power(white, game.state) == 3, f"white ally should be +1/+1, got {get_power(white, game.state)}"
+
+
+# --- equipment (attach, then read get_power / has_ability) -----------------
+
+def _equip_to_host(game, player, equip_name, *, host_power=2, host_toughness=2):
+    """Spawn the named Equipment + a vanilla host, attach, return (equip, host)."""
+    equip = create_creature_on_battlefield(game, player, equip_name)
+    host = _spawn(game, player, power=host_power, toughness=host_toughness, name='Equip Host')
+    _attach(game, equip, host)
+    return equip, host
+
+
+def test_card_barbed_bloodletter():
+    """Barbed Bloodletter: ...Equipped creature gets +1/+2. Equip {2}"""
+    game, p1, p2 = _new_game()
+    _, host = _equip_to_host(game, p1, "Barbed Bloodletter")
+    assert get_power(host, game.state) == 3 and get_toughness(host, game.state) == 4, (
+        f"+1/+2 expected 3/4, got {get_power(host, game.state)}/{get_toughness(host, game.state)}")
+
+
+def test_card_bark_of_doran():
+    """Bark of Doran: Equipped creature gets +0/+1. ... Equip {1}"""
+    game, p1, p2 = _new_game()
+    _, host = _equip_to_host(game, p1, "Bark of Doran")
+    assert get_power(host, game.state) == 2 and get_toughness(host, game.state) == 3, (
+        f"+0/+1 expected 2/3, got {get_power(host, game.state)}/{get_toughness(host, game.state)}")
+
+
+def test_card_cloak_and_dagger():
+    """Cloak and Dagger: Equipped creature gets +2/+0 and has shroud. ... Equip {3}"""
+    game, p1, p2 = _new_game()
+    _, host = _equip_to_host(game, p1, "Cloak and Dagger")
+    assert get_power(host, game.state) == 4, f"+2/+0 expected power 4, got {get_power(host, game.state)}"
+    assert has_ability(host, "shroud", game.state), "equipped creature should have shroud"
+
+
+def test_card_obsidian_battle_axe():
+    """Obsidian Battle-Axe: Equipped creature gets +2/+1 and has haste. ... Equip {3}"""
+    game, p1, p2 = _new_game()
+    _, host = _equip_to_host(game, p1, "Obsidian Battle-Axe")
+    assert get_power(host, game.state) == 4 and get_toughness(host, game.state) == 3, (
+        f"+2/+1 expected 4/3, got {get_power(host, game.state)}/{get_toughness(host, game.state)}")
+    assert has_ability(host, "haste", game.state), "equipped creature should have haste"
+
+
+def test_card_runed_stalactite():
+    """Runed Stalactite: Equipped creature gets +1/+1 and is every creature type. Equip {2}"""
+    game, p1, p2 = _new_game()
+    _, host = _equip_to_host(game, p1, "Runed Stalactite")
+    assert get_power(host, game.state) == 3 and get_toughness(host, game.state) == 3, (
+        f"+1/+1 expected 3/3, got {get_power(host, game.state)}/{get_toughness(host, game.state)}")
+    assert has_ability(host, "changeling", game.state), "equipped creature should be every creature type (changeling)"
+
+
+def test_card_veterans_armaments():
+    """Veteran's Armaments: Equipped creature has 'Whenever this attacks, +1/+1 for each other attacker.' Equip {2}"""
+    game, p1, p2 = _new_game()
+    _, host = _equip_to_host(game, p1, "Veteran's Armaments")
+    other1 = _spawn(game, p1, name='Other Attacker 1')
+    other2 = _spawn(game, p1, name='Other Attacker 2')
+    for o in (host, other1, other2):
+        o.state.attacking = True
+    log0 = len(game.state.event_log)
+    game.emit(Event(type=EventType.ATTACK_DECLARED, payload={'attacker_id': host.id}, source=host.id))
+    new = {e.type.name for e in game.state.event_log[log0:]} - _PLUMBING
+    assert 'PT_MODIFICATION' in new, f"attack trigger should pump the equipped creature, got {sorted(new)}"
+    assert get_power(host, game.state) == 4, f"+1/+1 per 2 other attackers -> power 4, got {get_power(host, game.state)}"
+
+
+def test_card_diviners_wand():
+    """Diviner's Wand: Equipped creature has 'Whenever you draw, +1/+1 + flying EOT' and '{4}: Draw a card.' Equip {3}"""
+    game, p1, p2 = _new_game()
+    equip, host = _equip_to_host(game, p1, "Diviner's Wand")
+    # Granted activated ability is registered on the host.
+    descs = [getattr(a, 'description', '') if not isinstance(a, dict) else a.get('description', '')
+             for a in host.state.activated_abilities]
+    assert any('draw' in d.lower() for d in descs), f"host should gain a Draw ability, got {descs}"
+    # Drawing fires the granted pump trigger.
+    log0 = len(game.state.event_log)
+    game.emit(Event(type=EventType.DRAW, payload={'player': p1.id, 'count': 1}, source=p1.id))
+    new = {e.type.name for e in game.state.event_log[log0:]} - _PLUMBING
+    assert 'PT_MODIFICATION' in new and ('GRANT_KEYWORD' in new), (
+        f"on-draw should pump + grant flying, got {sorted(new)}")
+    assert has_ability(host, "flying", game.state), "host should gain flying after drawing"
+
+
+def test_card_thornbite_staff():
+    """Thornbite Staff: Equipped creature has '{2},{T}: deal 1 damage to any target' and 'Whenever a creature dies, untap this.' Equip {4}"""
+    game, p1, p2 = _new_game()
+    _own_main(game, p1)
+    equip, host = _equip_to_host(game, p1, "Thornbite Staff")
+    host.state.summoning_sickness = False
+    # 1) Granted {2},{T} damage ability fires from the host.
+    _give_mana(game, p1, generic=2)
+    cost_evts, resolve_evts = _activate(game, p1, host, targets=[_target_player(p2.id)])
+    assert EventType.TAP in [e.type for e in cost_evts], "ability should tap the host"
+    dmg = [e for e in resolve_evts if e.type == EventType.DAMAGE]
+    assert dmg and dmg[0].payload.get('amount') == 1 and dmg[0].payload.get('source') == host.id, (
+        f"granted ability should deal 1 damage from the host, got {[e.type.name for e in resolve_evts]}")
+    # 2) A creature dying untaps the host.
+    dier = _spawn(game, p1, name='Dier')
+    log0 = len(game.state.event_log)
+    game.emit(Event(type=EventType.OBJECT_DESTROYED, payload={'object_id': dier.id}, source=dier.id))
+    untaps = [e for e in game.state.event_log[log0:]
+              if e.type == EventType.UNTAP and e.payload.get('object_id') == host.id]
+    assert untaps, "a creature dying should untap the equipped creature"
+
+
+# --- auras (set _aura_target_id, move to battlefield, read the grant) ------
+
+def _enchant_host(game, player, aura_name, host):
+    """Spawn the named Aura with its target pre-set (mirrors the cast/resolve
+    fast-path) and move it to the battlefield so setup_interceptors fire."""
+    card_def = FAE_BUT_MID_CARDS[aura_name]
+    aura = game.create_object(
+        name=aura_name, owner_id=player.id, zone=ZoneType.HAND,
+        characteristics=card_def.characteristics, card_def=None,
+    )
+    aura.card_def = card_def
+    aura.state._aura_target_id = host.id
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={"object_id": aura.id, "from_zone": f"hand_{player.id}",
+                 "to_zone": "battlefield", "to_zone_type": ZoneType.BATTLEFIELD},
+    ))
+    return aura
+
+
+def test_card_gilt_leafs_embrace():
+    """Gilt-Leaf's Embrace: ...enchanted creature gains trample and indestructible until end of turn. Enchanted creature gets +2/+0."""
+    game, p1, p2 = _new_game()
+    host = _spawn(game, p1, power=2, toughness=2, name='Enchanted')
+    log0 = len(game.state.event_log)
+    _enchant_host(game, p1, "Gilt-Leaf's Embrace", host)
+    new = {e.type.name for e in game.state.event_log[log0:]} - _PLUMBING
+    assert 'GRANT_KEYWORD' in new, f"ETB should grant keywords, got {sorted(new)}"
+    assert get_power(host, game.state) == 4, f"+2/+0 expected power 4, got {get_power(host, game.state)}"
+    assert has_ability(host, "trample", game.state), "enchanted creature should gain trample"
+    assert has_ability(host, "indestructible", game.state), "enchanted creature should gain indestructible"
+
+
+# --- mana lands (engine-native mana ability; verify it produces the colors) -
+
+def _spawn_land(game, player, land_name):
+    card_def = FAE_BUT_MID_CARDS[land_name]
+    land = game.create_object(
+        name=land_name, owner_id=player.id, zone=ZoneType.HAND,
+        characteristics=card_def.characteristics, card_def=None,
+    )
+    land.card_def = card_def
+    game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={"object_id": land.id, "from_zone": f"hand_{player.id}",
+                 "to_zone": "battlefield", "to_zone_type": ZoneType.BATTLEFIELD},
+    ))
+    land.state.summoning_sickness = False
+    return land
+
+
+def _assert_land_produces(game, player, land_name, expected_colors):
+    """Activate the land's mana ability and assert it produces ``expected_colors``.
+
+    Mana abilities are engine-native (text-parsed, surfaced as ``mana:N``); they
+    emit MANA_PRODUCED rather than a card-effect event, so this verifies the
+    actual produced colors instead of scanning the (plumbing-filtered) log.
+    """
+    land = _spawn_land(game, player, land_name)
+    mana_actions = [a for a in game.priority_system.get_legal_actions(player.id)
+                    if a.source_id == land.id and a.ability_id and a.ability_id.startswith("mana:")]
+    assert mana_actions, f"{land_name}: expected a mana ability in legal actions"
+
+    async def _run():
+        action = _PlayerAction(
+            type=_ActionType.ACTIVATE_ABILITY,
+            player_id=player.id, source_id=land.id,
+            ability_id=mana_actions[0].ability_id,
+        )
+        return await game.priority_system._handle_activate_ability(action)
+    events = _asyncio.get_event_loop().run_until_complete(_run())
+    produced = {e.payload.get('color') for e in events if e.type == EventType.MANA_PRODUCED}
+    for c in expected_colors:
+        assert c in produced, f"{land_name}: expected to produce {c}, got {sorted(produced)}"
+
+
+def _assert_creature_mana_produces(game, player, card_name, expected_colors):
+    """Like _assert_land_produces but for a CREATURE mana source: clears the
+    same-timestamp summoning-sickness block (MTG adapter gates {T} abilities on
+    entered_zone_at == state.timestamp) before activating the engine-native
+    mana ability."""
+    _own_main(game, player)
+    obj = create_creature_on_battlefield(game, player, card_name)
+    obj.state.summoning_sickness = False
+    obj.entered_zone_at = -1  # been under control since before this turn
+    mana_actions = [a for a in game.priority_system.get_legal_actions(player.id)
+                    if a.source_id == obj.id and a.ability_id and a.ability_id.startswith("mana:")]
+    assert mana_actions, f"{card_name}: expected a mana ability in legal actions"
+
+    async def _run():
+        action = _PlayerAction(
+            type=_ActionType.ACTIVATE_ABILITY,
+            player_id=player.id, source_id=obj.id,
+            ability_id=mana_actions[0].ability_id,
+        )
+        return await game.priority_system._handle_activate_ability(action)
+    events = _asyncio.get_event_loop().run_until_complete(_run())
+    produced = {e.payload.get('color') for e in events if e.type == EventType.MANA_PRODUCED}
+    for c in expected_colors:
+        assert c in produced, f"{card_name}: expected to produce {c}, got {sorted(produced)}"
+
+
+
+def test_card_forest():
+    """Forest: ({T}: Add {G}.)"""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Forest", ["G"])
+
+
+def test_card_island():
+    """Island: ({T}: Add {U}.)"""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Island", ["U"])
+
+
+def test_card_mountain():
+    """Mountain: ({T}: Add {R}.)"""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Mountain", ["R"])
+
+
+def test_card_plains():
+    """Plains: ({T}: Add {W}.)"""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Plains", ["W"])
+
+
+def test_card_swamp():
+    """Swamp: ({T}: Add {B}.)"""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Swamp", ["B"])
+
+
+def test_card_blood_crypt():
+    """Blood Crypt: ({T}: Add {B} or {R}.) ..."""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Blood Crypt", ["B", "R"])
+
+
+def test_card_hallowed_fountain():
+    """Hallowed Fountain: ({T}: Add {W} or {U}.) ..."""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Hallowed Fountain", ["W", "U"])
+
+
+def test_card_overgrown_tomb():
+    """Overgrown Tomb: ({T}: Add {B} or {G}.) ..."""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Overgrown Tomb", ["B", "G"])
+
+
+def test_card_steam_vents():
+    """Steam Vents: ({T}: Add {U} or {R}.) ..."""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Steam Vents", ["U", "R"])
+
+
+def test_card_temple_garden():
+    """Temple Garden: ({T}: Add {G} or {W}.) ..."""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Temple Garden", ["G", "W"])
+
+
+def test_card_eclipsed_realms():
+    """Eclipsed Realms: ... {T}: Add {C}. {T}: Add one mana of any color. ..."""
+    game, p1, p2 = _new_game()
+    _assert_land_produces(game, p1, "Eclipsed Realms", ["C"])
+
+
+def test_card_evolving_wilds():
+    """Evolving Wilds: {T}, Sacrifice Evolving Wilds: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle."""
+    game, p1, p2 = _new_game()
+    _own_main(game, p1)
+    land = _spawn_land(game, p1, "Evolving Wilds")
+    cost_evts, resolve_evts = _activate(game, p1, land)
+    cost_types = [e.type for e in cost_evts]
+    assert EventType.SACRIFICE in cost_types, f"should sacrifice itself, got {[e.type.name for e in cost_evts]}"
+    assert any(e.type.name in ('SEARCH_LIBRARY', 'LIBRARY_SEARCH') for e in resolve_evts), (
+        f"should search library for a basic land, got {[e.type.name for e in resolve_evts]}")
+
+
+# --- activated abilities on creatures / artifacts --------------------------
+
+def _setup_activated(game, player, card_name, *, summon_sick=False, mana=None):
+    """Place the card, clear summoning sickness, optionally add mana; return obj."""
+    _own_main(game, player)
+    obj = create_creature_on_battlefield(game, player, card_name)
+    obj.state.summoning_sickness = summon_sick
+    if mana:
+        _give_mana(game, player, **mana)
+    return obj
+
+
+def test_card_soulbright_seeker():
+    """Soulbright Seeker: Trample. {R}: Soulbright Seeker gets +1/+0 until end of turn."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Soulbright Seeker", mana={'r': 1})
+    _, resolve = _activate(game, p1, obj)
+    assert any(e.type == EventType.PT_MODIFICATION and e.payload.get('power_mod') == 1
+               for e in resolve), f"should pump +1/+0, got {[e.type.name for e in resolve]}"
+
+
+def test_card_sting_slinger():
+    """Sting-Slinger: {T}, Sacrifice Sting-Slinger: It deals 1 damage to any target."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Sting-Slinger")
+    cost, resolve = _activate(game, p1, obj, targets=[_target_player(p2.id)])
+    assert EventType.SACRIFICE in [e.type for e in cost], "should sacrifice itself"
+    dmg = [e for e in resolve if e.type == EventType.DAMAGE]
+    assert dmg and dmg[0].payload.get('amount') == 1, f"should deal 1 damage, got {[e.type.name for e in resolve]}"
+
+
+def test_card_moonglove_extract():
+    """Moonglove Extract: Sacrifice Moonglove Extract: It deals 2 damage to any target."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Moonglove Extract")
+    cost, resolve = _activate(game, p1, obj, targets=[_target_player(p2.id)])
+    assert EventType.SACRIFICE in [e.type for e in cost], "should sacrifice itself"
+    dmg = [e for e in resolve if e.type == EventType.DAMAGE]
+    assert dmg and dmg[0].payload.get('amount') == 2, f"should deal 2 damage, got {[e.type.name for e in resolve]}"
+
+
+def test_card_fulminator_mage():
+    """Fulminator Mage: Sacrifice Fulminator Mage: Destroy target nonbasic land."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Fulminator Mage")
+    land = _spawn_land(game, p2, "Mountain")
+    cost, resolve = _activate(game, p1, obj, targets=[_target_obj(land)])
+    assert EventType.SACRIFICE in [e.type for e in cost], "should sacrifice itself"
+    assert any(e.type == EventType.DESTROY for e in resolve), (
+        f"should destroy the target land, got {[e.type.name for e in resolve]}")
+
+
+def test_card_deity_of_scars():
+    """Deity of Scars: Trample. Enters with two -1/-1 counters. {B/G}, Remove a
+    -1/-1 counter: Regenerate Deity of Scars.
+
+    Wires the new REGENERATE subsystem: activating the ability installs a one-
+    shot regeneration shield, so the next destroy is replaced (tap + clear
+    damage + leave combat) and the creature SURVIVES; a second destroy kills it.
+    """
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Deity of Scars", mana={'g': 1})
+    # ETB put two -1/-1 counters on it (needed to pay the Remove-a-counter cost).
+    assert obj.state.counters.get('-1/-1', 0) == 2, (
+        f"should enter with two -1/-1 counters, got {obj.state.counters}")
+
+    # Activate {B/G}, Remove a -1/-1 counter: Regenerate. The effect installs the
+    # shield (no resolve events); a counter is removed as part of the cost.
+    _activate(game, p1, obj)
+    assert obj.state.counters.get('-1/-1', 0) == 1, (
+        f"removing a -1/-1 counter is part of the cost, got {obj.state.counters}")
+
+    # The next destroy is regenerated: the creature stays on the battlefield.
+    game.emit(Event(type=EventType.OBJECT_DESTROYED,
+                    payload={'object_id': obj.id, 'reason': 'destroy'}))
+    assert obj.zone == ZoneType.BATTLEFIELD and obj.id in game.state.zones['battlefield'].objects, (
+        "regen shield should replace the destroy — Deity of Scars must survive")
+    assert obj.state.tapped, "regenerated creature must be tapped"
+    assert any(e.type == EventType.REGENERATE for e in game.state.event_log), (
+        "a REGENERATE marker should be logged")
+
+    # Shield was one-shot: a second destroy kills it.
+    game.emit(Event(type=EventType.OBJECT_DESTROYED,
+                    payload={'object_id': obj.id, 'reason': 'destroy'}))
+    assert obj.zone == ZoneType.GRAVEYARD, (
+        f"second destroy must kill (shield was one-shot), got zone {obj.zone}")
+
+
+# --- engine-native mana abilities (creatures/artifacts) --------------------
+
+def test_card_springleaf_drum():
+    """Springleaf Drum: {T}, Tap an untapped creature you control: Add one mana of any color."""
+    game, p1, p2 = _new_game()
+    _own_main(game, p1)
+    # Springleaf Drum needs another untapped creature to tap as part of its cost.
+    _spawn(game, p1, name='Tap Fodder')
+    _assert_land_produces(game, p1, "Springleaf Drum", ["C"])
+
+
+def test_card_firdoch_core():
+    """Firdoch Core: Changeling. {T}: Add one mana of any color. ..."""
+    game, p1, p2 = _new_game()
+    _own_main(game, p1)
+    _assert_land_produces(game, p1, "Firdoch Core", ["C"])
+
+
+# === Re-exam batch: engine-native creature mana abilities ===
+# These are "{T}: Add ..." lines the priority engine auto-parses; they need no
+# setup function. (Originally skipped before the mana-ability path was wired.)
+
+def test_card_great_forest_druid():
+    """Great Forest Druid: {T}: Add one mana of any color. (any-color -> colorless in current engine)."""
+    game, p1, p2 = _new_game()
+    _assert_creature_mana_produces(game, p1, "Great Forest Druid", ["C"])
+
+
+def test_card_flamebraider():
+    """Flamebraider: {T}: Add two mana in any combination of colors. ... (any-color -> colorless)."""
+    game, p1, p2 = _new_game()
+    _assert_creature_mana_produces(game, p1, "Flamebraider", ["C"])
+
+
+def test_card_lys_alana_dignitary():
+    """Lys Alana Dignitary: ... {T}: Add {G}{G}. ..."""
+    game, p1, p2 = _new_game()
+    _assert_creature_mana_produces(game, p1, "Lys Alana Dignitary", ["G"])
+
+
+# === Re-exam batch: creature activated abilities (false structural skips) ===
+
+def test_card_surly_farrier():
+    """Surly Farrier: {T}: Target creature you control gets +1/+1 and gains vigilance until end of turn."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Surly Farrier")
+    ally = _spawn(game, p1, power=2, toughness=2, name='Pump Target')
+    cost, resolve = _activate(game, p1, obj, targets=[_target_obj(ally)])
+    assert EventType.TAP in [e.type for e in cost], "ability should tap the source"
+    assert any(e.type == EventType.PT_MODIFICATION and e.payload.get('power_mod') == 1
+               for e in resolve), f"should pump +1/+1, got {[e.type.name for e in resolve]}"
+    assert any(e.type == EventType.GRANT_KEYWORD and e.payload.get('keyword') == 'vigilance'
+               for e in resolve), f"should grant vigilance, got {[e.type.name for e in resolve]}"
+
+
+def test_card_safewright_cavalry():
+    """Safewright Cavalry: ... {5}: Target Elf you control gets +2/+2 until end of turn."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Safewright Cavalry", mana={'generic': 5})
+    elf = _spawn(game, p1, subtypes=['Elf'], power=2, toughness=2, name='Elf Target')
+    _, resolve = _activate(game, p1, obj, targets=[_target_obj(elf)])
+    assert any(e.type == EventType.PT_MODIFICATION and e.payload.get('power_mod') == 2
+               and e.payload.get('toughness_mod') == 2 for e in resolve), (
+        f"should pump +2/+2, got {[e.type.name for e in resolve]}")
+
+
+def test_card_flame_chain_mauler():
+    """Flame-Chain Mauler: {1}{R}: This creature gets +1/+0 and gains menace until end of turn."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Flame-Chain Mauler", mana={'generic': 1, 'r': 1})
+    _, resolve = _activate(game, p1, obj)
+    assert any(e.type == EventType.PT_MODIFICATION and e.payload.get('power_mod') == 1
+               for e in resolve), f"should pump +1/+0, got {[e.type.name for e in resolve]}"
+    assert any(e.type == EventType.GRANT_KEYWORD and e.payload.get('keyword') == 'menace'
+               for e in resolve), f"should grant menace, got {[e.type.name for e in resolve]}"
+
+
+def test_card_bre_of_clan_stoutarm():
+    """Bre of Clan Stoutarm: {1}{W}, {T}: Another target creature you control gains flying and lifelink until end of turn."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Bre of Clan Stoutarm", mana={'generic': 1, 'w': 1})
+    ally = _spawn(game, p1, power=2, toughness=2, name='Buff Target')
+    cost, resolve = _activate(game, p1, obj, targets=[_target_obj(ally)])
+    assert EventType.TAP in [e.type for e in cost], "ability should tap the source"
+    kws = {e.payload.get('keyword') for e in resolve if e.type == EventType.GRANT_KEYWORD}
+    assert 'flying' in kws and 'lifelink' in kws, (
+        f"should grant flying + lifelink, got {sorted(k for k in kws if k)}")
+
+
+def test_card_gristle_glutton():
+    """Gristle Glutton: {T}, Blight 1: Discard a card. If you do, draw a card."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Gristle Glutton")
+    cost, resolve = _activate(game, p1, obj)
+    assert EventType.TAP in [e.type for e in cost], "ability should tap the source"
+    assert any(e.type == EventType.DISCARD for e in resolve), (
+        f"should discard a card, got {[e.type.name for e in resolve]}")
+    assert any(e.type == EventType.DRAW for e in resolve), (
+        f"should then draw a card, got {[e.type.name for e in resolve]}")
+
+
+def test_card_glen_elendra_archmage():
+    """Glen Elendra Archmage: {U}, Sacrifice Glen Elendra Archmage: Counter target noncreature spell."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Glen Elendra Archmage")
+    abils = getattr(obj.state, 'activated_abilities', None) or []
+    assert abils, "Glen Elendra Archmage should register an activated counterspell ability"
+    spell = _push_spell(game, p2, 'Opp Sorcery', mana_cost='{1}{R}',
+                        types={CardType.SORCERY}, colors={Color.RED})
+    ab = abils[0]
+    effect_fn = ab['effect_fn'] if isinstance(ab, dict) else ab.effect_fn
+    evs = effect_fn(obj, game.state, []) or []
+    assert any(e.type == EventType.COUNTER_SPELL and e.payload.get('spell_id') == spell.id
+               for e in evs), (
+        f"activated ability should counter the noncreature spell, got {[e.type.name for e in evs]}")
+
+
+def test_card_goldmeadow_nomad():
+    """Goldmeadow Nomad: {W}, Exile this card from your graveyard: Create a 1/1 green and white Kithkin creature token."""
+    game, p1, p2 = _new_game()
+    card_def = FAE_BUT_MID_CARDS["Goldmeadow Nomad"]
+    obj = game.create_object(name="Goldmeadow Nomad", owner_id=p1.id, zone=ZoneType.HAND,
+                             characteristics=card_def.characteristics, card_def=None)
+    obj.card_def = card_def
+    # Move to graveyard so setup_in_graveyard registers the activated ability.
+    game.emit(Event(type=EventType.ZONE_CHANGE,
+                    payload={'object_id': obj.id, 'from_zone': f'hand_{p1.id}',
+                             'to_zone': f'graveyard_{p1.id}', 'to_zone_type': ZoneType.GRAVEYARD}))
+    abils = getattr(obj.state, 'activated_abilities', None) or []
+    assert abils, "Goldmeadow Nomad should register a graveyard-activated ability"
+    ab = abils[0]
+    effect_fn = ab['effect_fn'] if isinstance(ab, dict) else ab.effect_fn
+    evs = effect_fn(obj, game.state, []) or []
+    assert any(e.type == EventType.EXILE for e in evs), (
+        f"should exile this card from the graveyard, got {[e.type.name for e in evs]}")
+    assert any(e.type == EventType.OBJECT_CREATED for e in evs), (
+        f"should create a Kithkin token, got {[e.type.name for e in evs]}")
+
+
+# === Re-exam batch: auras / equipment (attach, then read statics / fire trigger) ===
+
+def test_card_morcants_eyes():
+    """Morcant's Eyes: Enchanted creature gets +2/+2 and has 'Whenever this creature
+    deals combat damage to a player, draw a card.'"""
+    game, p1, p2 = _new_game()
+    host = _spawn(game, p1, power=2, toughness=2, name='Enchanted')
+    aura = _enchant_host(game, p1, "Morcant's Eyes", host)
+    # ATTACH installs the granted triggered ability (the cast/resolve path emits it).
+    _attach(game, aura, host)
+    assert get_power(host, game.state) == 4 and get_toughness(host, game.state) == 4, (
+        f"+2/+2 expected 4/4, got {get_power(host, game.state)}/{get_toughness(host, game.state)}")
+    log0 = len(game.state.event_log)
+    game.emit(Event(type=EventType.DAMAGE,
+                    payload={'source': host.id, 'target': p2.id, 'amount': 2, 'combat': True},
+                    source=host.id))
+    new = {e.type.name for e in game.state.event_log[log0:]}
+    assert 'DRAW' in new, (
+        f"combat damage to a player should make the controller draw, got {sorted(new - _PLUMBING)}")
+
+
+def test_card_evershrikes_gift():
+    """Evershrike's Gift: Enchanted creature gets +2/+2 and has flying. When enchanted
+    creature dies, return Evershrike's Gift to your hand."""
+    game, p1, p2 = _new_game()
+    host = _spawn(game, p1, power=2, toughness=2, name='Enchanted')
+    aura = _enchant_host(game, p1, "Evershrike's Gift", host)
+    _attach(game, aura, host)
+    assert get_power(host, game.state) == 4, f"+2/+2 expected power 4, got {get_power(host, game.state)}"
+    assert has_ability(host, "flying", game.state), "enchanted creature should gain flying"
+    log0 = len(game.state.event_log)
+    game.emit(Event(type=EventType.ZONE_CHANGE,
+                    payload={'object_id': host.id, 'from_zone': 'battlefield',
+                             'to_zone': f'graveyard_{host.owner}',
+                             'to_zone_type': ZoneType.GRAVEYARD,
+                             'from_zone_type': ZoneType.BATTLEFIELD}, source=host.id))
+    returned = [e for e in game.state.event_log[log0:]
+                if e.type == EventType.ZONE_CHANGE and e.payload.get('object_id') == aura.id
+                and e.payload.get('to_zone_type') == ZoneType.HAND]
+    assert returned, "when the enchanted creature dies, the aura should return to its owner's hand"
+
+
+def test_card_treefolk_bough_spear():
+    """Treefolk-bough Spear: Equipped creature gets +X/+X, where X is the number of
+    Treefolk and Forests you control."""
+    game, p1, p2 = _new_game()
+    _spawn(game, p1, subtypes=['Treefolk'], name='TF1')
+    _spawn(game, p1, subtypes=['Treefolk'], name='TF2')
+    _, host = _equip_to_host(game, p1, "Treefolk-bough Spear", host_power=2, host_toughness=2)
+    # Two Treefolk on the battlefield -> +2/+2 on the equipped 2/2 host.
+    assert get_power(host, game.state) == 4 and get_toughness(host, game.state) == 4, (
+        f"dynamic +2/+2 (2 Treefolk) expected 4/4, got "
+        f"{get_power(host, game.state)}/{get_toughness(host, game.state)}")
+
+
+def test_card_champion_of_the_path():
+    """Champion of the Path: Other Elementals you control have 'Whenever this creature
+    deals combat damage to a player, it deals damage equal to its power to up to one
+    target creature that player controls.'"""
+    game, p1, p2 = _new_game()
+    create_creature_on_battlefield(game, p1, "Champion of the Path")
+    elem = _spawn(game, p1, subtypes=['Elemental'], power=3, toughness=3,
+                  colors=[Color.RED], name='Other Elemental')
+    enemy = _spawn(game, p2, power=2, toughness=4, name='Enemy Creature')
+    log0 = len(game.state.event_log)
+    # The granted Elemental deals combat damage to a player.
+    game.emit(Event(type=EventType.DAMAGE,
+                    payload={'source': elem.id, 'target': p2.id, 'amount': 3, 'is_combat': True},
+                    source=elem.id))
+    extra = [e for e in game.state.event_log[log0:]
+             if e.type == EventType.DAMAGE and e.payload.get('source') == elem.id
+             and e.payload.get('target') == enemy.id and e.payload.get('amount') == 3]
+    assert extra, (
+        "the granted Elemental's combat damage to a player should deal damage equal to "
+        "its power to a creature that player controls; got "
+        f"{[(e.type.name, e.payload.get('target'), e.payload.get('amount')) for e in game.state.event_log[log0:] if e.type == EventType.DAMAGE]}")
+
+
+def test_card_nettle_sentinel():
+    """Nettle Sentinel: ... Whenever you cast a green spell, you may untap Nettle Sentinel."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Nettle Sentinel")
+    obj.state.tapped = True
+    log0 = len(game.state.event_log)
+    spell = _push_spell(game, p1, 'Green Spell', mana_cost='{1}{G}',
+                        types={CardType.SORCERY}, colors={Color.GREEN})
+    game.emit(Event(type=EventType.SPELL_CAST,
+                    payload={'spell_id': spell.id, 'caster': p1.id, 'controller': p1.id,
+                             'colors': {Color.GREEN}, 'types': {CardType.SORCERY}},
+                    source=spell.id, controller=p1.id))
+    new = {e.type.name for e in game.state.event_log[log0:]}
+    assert 'UNTAP' in new, (
+        f"casting a green spell should let you untap Nettle Sentinel, got {sorted(new - _PLUMBING)}")
+
+
+def test_card_overbeing_of_myth():
+    """Overbeing of Myth: power and toughness are each equal to the number of cards in your
+    hand. At the beginning of your draw step, draw an additional card."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Overbeing of Myth")
+    # Three cards in hand -> base P/T 3/3 (characteristic-defining).
+    for i in range(3):
+        game.create_object(name=f'Hand Card {i}', owner_id=p1.id, zone=ZoneType.HAND,
+                           characteristics=Characteristics(types={CardType.SORCERY}), card_def=None)
+    assert get_power(obj, game.state) == 3 and get_toughness(obj, game.state) == 3, (
+        f"P/T should equal cards in hand (3), got "
+        f"{get_power(obj, game.state)}/{get_toughness(obj, game.state)}")
+    # At the beginning of your draw step, draw an additional card.
+    game.state.active_player = p1.id
+    log0 = len(game.state.event_log)
+    game.emit(Event(type=EventType.PHASE_START, payload={'phase': 'draw', 'active_player': p1.id}))
+    drew = [e for e in game.state.event_log[log0:]
+            if e.type == EventType.DRAW and e.payload.get('player') == p1.id]
+    assert drew, f"should draw an additional card at the draw step, got {[e.type.name for e in game.state.event_log[log0:]]}"
+
+
+def test_card_sower_of_temptation():
+    """Sower of Temptation: When Sower of Temptation enters, gain control of target
+    creature for as long as Sower of Temptation remains on the battlefield."""
+    game, p1, p2 = _new_game()
+    enemy = _spawn(game, p2, power=3, toughness=3, name='Stolen Creature')
+    log0 = len(game.state.event_log)
+    create_creature_on_battlefield(game, p1, "Sower of Temptation")
+    gc = [e for e in game.state.event_log[log0:]
+          if e.type == EventType.GAIN_CONTROL and e.payload.get('object_id') == enemy.id
+          and e.payload.get('new_controller') == p1.id]
+    assert gc, (
+        "ETB should gain control of a target creature; got "
+        f"{[(e.type.name, e.payload.get('new_controller')) for e in game.state.event_log[log0:] if e.type == EventType.GAIN_CONTROL]}")
+
+
+def test_card_sensation_gorger():
+    """Sensation Gorger: Kinship ... each player discards their hand, then draws four cards."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    obj = create_creature_on_battlefield(game, p1, "Sensation Gorger")
+    for i in range(2):
+        game.create_object(name=f'Hand Card {i}', owner_id=p1.id, zone=ZoneType.HAND,
+                           characteristics=Characteristics(types={CardType.SORCERY}), card_def=None)
+    log0 = len(game.state.event_log)
+    game.emit(Event(type=EventType.PHASE_START, payload={'phase': 'upkeep', 'active_player': p1.id}))
+    new = game.state.event_log[log0:]
+    assert any(e.type == EventType.DISCARD for e in new), (
+        f"each player should discard their hand, got {[e.type.name for e in new]}")
+    assert any(e.type == EventType.DRAW and e.payload.get('count') == 4 for e in new), (
+        f"each player should then draw four cards, got "
+        f"{[(e.type.name, e.payload.get('count')) for e in new if e.type == EventType.DRAW]}")
+
+
+# === Phase A Batch A tests ===
+def test_card_heap_doll():
+    """Heap Doll: Sacrifice Heap Doll: Exile target card from a graveyard."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Heap Doll")
+    victim = _spawn(game, p2, name='GY Card')
+    cost, resolve = _activate(game, p1, obj, targets=[_target_obj(victim)])
+    assert EventType.SACRIFICE in [e.type for e in cost], "should sacrifice itself"
+    assert any(e.type == EventType.EXILE for e in resolve), (
+        f"should exile the target card, got {[e.type.name for e in resolve]}")
+
+
+def test_card_scarblade_elite():
+    """Scarblade Elite: {T}, Exile an Assassin card from your graveyard: Destroy target creature."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Scarblade Elite")
+    victim = _spawn(game, p2, power=2, toughness=2, name='Victim')
+    cost, resolve = _activate(game, p1, obj, targets=[_target_obj(victim)])
+    assert EventType.TAP in [e.type for e in cost], "ability should tap the source"
+    assert any(e.type == EventType.DESTROY for e in resolve), (
+        f"should destroy the target creature, got {[e.type.name for e in resolve]}")
+
+
+def test_card_scarblade_scout():
+    """Scarblade Scout: {T}, Exile an Elf card from your graveyard: Destroy target creature that was dealt damage this turn."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Scarblade Scout")
+    victim = _spawn(game, p2, power=2, toughness=2, name='Victim')
+    cost, resolve = _activate(game, p1, obj, targets=[_target_obj(victim)])
+    assert EventType.TAP in [e.type for e in cost], "ability should tap the source"
+    assert any(e.type == EventType.DESTROY for e in resolve), (
+        f"should destroy the target creature, got {[e.type.name for e in resolve]}")
+
+
+def test_card_rhys_the_redeemed():
+    """Rhys the Redeemed: {2}{G/W}, {T}: Create a 1/1 green and white Elf Warrior creature token."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Rhys the Redeemed", mana={'generic': 2, 'g': 1})
+    cost, resolve = _activate(game, p1, obj)
+    assert EventType.TAP in [e.type for e in cost], "ability should tap the source"
+    assert any(e.type == EventType.OBJECT_CREATED for e in resolve), (
+        f"should create an Elf Warrior token, got {[e.type.name for e in resolve]}")
+
+
+def test_card_twilight_diviner():
+    """Twilight Diviner: {1}{B}, {T}: Target player loses 1 life and you gain 1 life."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Twilight Diviner", mana={'generic': 1, 'b': 1})
+    cost, resolve = _activate(game, p1, obj, targets=[_target_player(p2.id)])
+    assert EventType.TAP in [e.type for e in cost], "ability should tap the source"
+    drains = [e for e in resolve if e.type == EventType.LIFE_CHANGE and e.payload.get('amount') == -1
+              and e.payload.get('player') == p2.id]
+    gains = [e for e in resolve if e.type == EventType.LIFE_CHANGE and e.payload.get('amount') == 1
+             and e.payload.get('player') == p1.id]
+    assert drains and gains, (
+        f"target loses 1, you gain 1; got {[(e.type.name, e.payload.get('amount'), e.payload.get('player')) for e in resolve]}")
+
+
+def test_card_brion_stoutarm():
+    """Brion Stoutarm: {R}, {T}, Sacrifice another creature: deals damage equal to the sacrificed creature's power to target player or planeswalker."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Brion Stoutarm", mana={'r': 1})
+    _spawn(game, p1, power=5, toughness=5, name='Thrown Body')
+    cost, resolve = _activate(game, p1, obj, targets=[_target_player(p2.id)])
+    assert EventType.TAP in [e.type for e in cost], "ability should tap the source"
+    dmg = [e for e in resolve if e.type == EventType.DAMAGE]
+    assert dmg and dmg[0].payload.get('amount') == 5, (
+        f"should deal 5 (the 5/5 body's power), got {[(e.type.name, e.payload.get('amount')) for e in resolve]}")
+
+
+def test_card_devoted_druid():
+    """Devoted Druid: {T}: Add {G}. (engine-native mana ability)"""
+    game, p1, p2 = _new_game()
+    _assert_creature_mana_produces(game, p1, "Devoted Druid", ["G"])
+
+
+def test_card_stoic_grove_guide():
+    """Stoic Grove-Guide: {T}: Add one mana of any color that a creature you control is. (any-color -> colorless fallback)"""
+    game, p1, p2 = _new_game()
+    _assert_creature_mana_produces(game, p1, "Stoic Grove-Guide", ["C"])
+
+
+
+# === Phase A Batch B tests ===
+def test_card_inner_flame_igniter():
+    """Inner-Flame Igniter: {2}{R}: Creatures you control get +1/+0 and gain first strike until end of turn."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Inner-Flame Igniter", mana={'generic': 2, 'r': 1})
+    ally = _spawn(game, p1, power=2, toughness=2, name='Ally')
+    cost, resolve = _activate(game, p1, obj)
+    got = {e.type.name for e in resolve}
+    assert 'PT_MODIFICATION' in got and 'GRANT_KEYWORD' in got, (
+        f"team +1/+0 and first strike; got {sorted(got)}")
+    assert any(e.type == EventType.PT_MODIFICATION and e.payload.get('object_id') == ally.id
+               for e in resolve), "the ally should be pumped"
+
+
+def test_card_chameleon_colossus():
+    """Chameleon Colossus: {2}{G}{G}: gets +X/+X until end of turn, where X is its power (4)."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Chameleon Colossus", mana={'generic': 2, 'g': 2})
+    cost, resolve = _activate(game, p1, obj)
+    pumps = [e for e in resolve if e.type == EventType.PT_MODIFICATION
+             and e.payload.get('object_id') == obj.id]
+    assert pumps and pumps[0].payload.get('power_mod') == 4, (
+        f"should pump +4/+4 (X = its power 4), got {[(e.type.name, e.payload.get('power_mod')) for e in resolve]}")
+
+
+def test_card_mirror_entity():
+    """Mirror Entity: {X}: creatures you control have base P/T X/X and gain all creature types until end of turn."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Mirror Entity", mana={'generic': 3})
+    ally = _spawn(game, p1, power=1, toughness=1, name='Ally')
+    cost, resolve = _activate(game, p1, obj, x_value=3)
+    # "base P/T X/X" is realised as a temporary additive modifier that brings
+    # each creature to X/X (the 1/1 ally gets +2/+2 -> 3/3).
+    pumps = [e for e in resolve if e.type == EventType.PT_MODIFICATION
+             and e.payload.get('object_id') == ally.id]
+    grants = [e for e in resolve if e.type == EventType.GRANT_KEYWORD
+              and e.payload.get('keyword') == 'changeling']
+    assert pumps and pumps[0].payload.get('power_mod') == 2, (
+        f"the 1/1 ally should be brought to 3/3 (power_mod +2); got "
+        f"{[(e.type.name, e.payload.get('power_mod')) for e in resolve]}")
+    assert grants, "creatures you control should gain all creature types (changeling)"
+    # The additive bring-to-X actually changes the ally's power (not a no-op).
+    for e in resolve:
+        game.emit(e)
+    assert get_power(ally, game.state) == 3, (
+        f"ally should actually be 3/3 after resolution, got {get_power(ally, game.state)}")
+
+
+def test_card_stillmoon_cavalier():
+    """Stillmoon Cavalier: {W/B}: gains flying until end of turn (first ability)."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Stillmoon Cavalier", mana={'w': 1})
+    cost, resolve = _activate(game, p1, obj)
+    grants = [e for e in resolve if e.type == EventType.GRANT_KEYWORD
+              and e.payload.get('keyword') == 'flying']
+    assert grants, f"should grant flying, got {[(e.type.name, e.payload.get('keyword')) for e in resolve]}"
+
+
+def test_card_sygg_river_guide():
+    """Sygg, River Guide: {1}{W}: Target Merfolk you control gains protection from the color of your choice until end of turn."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Sygg, River Guide", mana={'generic': 1, 'w': 1})
+    merf = _spawn(game, p1, subtypes=['Merfolk'], name='Merf')
+    cost, resolve = _activate(game, p1, obj, targets=[_target_obj(merf)])
+    grants = [e for e in resolve if e.type == EventType.GRANT_KEYWORD
+              and e.payload.get('keyword') == 'protection' and e.payload.get('object_id') == merf.id]
+    assert grants, f"target Merfolk should gain protection, got {[(e.type.name, e.payload.get('keyword')) for e in resolve]}"
+
+
+def test_card_bloom_tender():
+    """Bloom Tender: {T}: For each color among permanents you control, add one mana of that color."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Bloom Tender")
+    _spawn(game, p1, colors=[Color.WHITE], name='White Thing')
+    cost, resolve = _activate(game, p1, obj)
+    produced = {e.payload.get('color') for e in resolve if e.type == EventType.MANA_PRODUCED}
+    # Bloom Tender is green; the white permanent adds white -> at least {G, W}.
+    assert 'G' in produced and 'W' in produced, (
+        f"should add one mana per color among permanents (>= G and W), got {sorted(produced)}")
+
+
+def test_card_heritage_druid():
+    """Heritage Druid: {T}: Add {G}{G}{G}, only with three+ untapped Elves.
+
+    POLISH-PASS (2026-05-29): the cost was reworked from the unpayable
+    "Tap three untapped Elves you control" (which paid nothing and looped the
+    priority system forever) to the engine-payable {T} self-tap gated on a
+    three-untapped-Elf precondition. The ability must therefore be set up with
+    a board of three Elves before it can fire.
+    """
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Heritage Druid")
+    # Precondition: need three+ untapped Elves you control. The Druid is one;
+    # add two more untapped Elves so the ability is legal.
+    create_creature_on_battlefield(game, p1, "Imperious Perfect")  # Elf
+    create_creature_on_battlefield(game, p1, "Imperious Perfect")  # Elf
+    cost, resolve = _activate(game, p1, obj)
+    greens = [e for e in resolve if e.type == EventType.MANA_PRODUCED and e.payload.get('color') == 'G']
+    assert len(greens) == 3, f"should add GGG (3 green), got {[(e.type.name, e.payload.get('color')) for e in resolve]}"
+
+
+def test_card_pili_pala():
+    """Pili-Pala: {2}, {Q}: Add one mana of any color (colorless in current engine)."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Pili-Pala", mana={'generic': 2})
+    cost, resolve = _activate(game, p1, obj)
+    produced = {e.payload.get('color') for e in resolve if e.type == EventType.MANA_PRODUCED}
+    assert produced, f"should add one mana, got {[(e.type.name, e.payload) for e in resolve]}"
+
+
+
+# === Phase A Batch C tests ===
+def test_card_reaping_willow():
+    """Reaping Willow: {1}{W/B}, Remove two counters: Return target creature card with mana value 3 or less from your graveyard to the battlefield."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Reaping Willow", mana={'generic': 1, 'w': 1})
+    cost, resolve = _activate(game, p1, obj)
+    reanims = [e for e in resolve if e.type == EventType.RETURN_FROM_GRAVEYARD]
+    assert reanims, f"should reanimate a creature, got {[e.type.name for e in resolve]}"
+    # to the battlefield (no to:hand), filtered to creatures of MV<=3.
+    assert reanims[0].payload.get('card_type') == 'creature', "should target a creature card"
+    assert reanims[0].payload.get('max_mv') == 3, "mana value 3 or less"
+
+
+def test_card_horde_of_notions():
+    """Horde of Notions: {W}{U}{B}{R}{G}: You may play target Elemental card from your graveyard without paying its mana cost."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Horde of Notions",
+                           mana={'w': 1, 'u': 1, 'b': 1, 'r': 1, 'g': 1})
+    cost, resolve = _activate(game, p1, obj)
+    plays = [e for e in resolve if e.type == EventType.RETURN_FROM_GRAVEYARD]
+    assert plays, f"should play a card from graveyard, got {[e.type.name for e in resolve]}"
+
+
+def test_card_figure_of_destiny():
+    """Figure of Destiny: {R/W}: becomes a Kithkin Spirit with base power and toughness 2/2."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Figure of Destiny", mana={'r': 1})
+    assert get_power(obj, game.state) == 1, "Figure starts 1/1"
+    _activate(game, p1, obj)
+    # becomes_creature installs QUERY interceptors — get_power must now read 2/2.
+    assert get_power(obj, game.state) == 2 and get_toughness(obj, game.state) == 2, (
+        f"Figure should become base 2/2, got {get_power(obj, game.state)}/{get_toughness(obj, game.state)}")
+
+
+def test_card_elvish_branchbender():
+    """Elvish Branchbender: {T}: target Forest becomes an X/X Treefolk creature, where X is the number of Elves you control."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Elvish Branchbender")  # itself an Elf
+    _spawn(game, p1, subtypes=['Elf'], name='Elf 2')
+    forest = _spawn(game, p1, types=[CardType.LAND], subtypes=['Forest'], name='Forest',
+                    power=0, toughness=0)
+    assert get_power(forest, game.state) == 0, "Forest starts as a non-creature (0 power)"
+    _activate(game, p1, obj, targets=[_target_obj(forest)])
+    # 2 Elves on the battlefield (Branchbender + Elf 2) -> Forest becomes 2/2.
+    assert get_power(forest, game.state) == 2 and get_toughness(forest, game.state) == 2, (
+        f"Forest should become 2/2 (2 Elves), got {get_power(forest, game.state)}/{get_toughness(forest, game.state)}")
+
+
+def test_card_dawnhand_dissident():
+    """Dawnhand Dissident: {T}, Blight 1: Surveil 1."""
+    game, p1, p2 = _new_game()
+    obj = _setup_activated(game, p1, "Dawnhand Dissident")
+    cost, resolve = _activate(game, p1, obj)
+    surveils = [e for e in resolve if e.type == EventType.SURVEIL]
+    assert surveils and surveils[0].payload.get('amount') == 1, (
+        f"should Surveil 1, got {[(e.type.name, e.payload.get('amount')) for e in resolve]}")
+
+
+
+# === Phase A Batch D tests ===
+def test_card_pitiless_fists():
+    """Pitiless Fists: When this Aura enters, enchanted creature fights up to one target creature an opponent controls."""
+    game, p1, p2 = _new_game()
+    host = _spawn(game, p1, power=3, toughness=3, name='Enchanted')
+    _spawn(game, p2, power=2, toughness=2, name='Opp Creature')
+    log0 = len(game.state.event_log)
+    _enchant_host(game, p1, "Pitiless Fists", host)
+    new = {e.type.name for e in game.state.event_log[log0:]} - _PLUMBING
+    assert 'FIGHT' in new, f"ETB should make the enchanted creature fight, got {sorted(new)}"
+
+
+def test_card_rime_chill():
+    """Rime Chill: Tap up to two target creatures. Put a stun counter on each of them."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    # Two opponent creatures so the resolve hits the concrete (non-fallback) path.
+    c1 = _spawn(game, p2, power=1, toughness=1, name='Frozen 1')
+    c2 = _spawn(game, p2, power=1, toughness=1, name='Frozen 2')
+    spell = game.create_object(name='Rime Chill', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Rime Chill'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Rime Chill'].resolve([], game.state)
+    taps = [e for e in evs if e.type == EventType.TAP]
+    stuns = [e for e in evs if e.type == EventType.COUNTER_ADDED and e.payload.get('counter_type') == 'stun']
+    assert taps, f"should tap target creatures, got {[e.type.name for e in evs]}"
+    assert stuns, f"should put a stun counter on each, got {[(e.type.name, e.payload.get('counter_type')) for e in evs]}"
+
+
+# ---------------------------------------------------------------------------
+# Section 3: counterspells (Foundations CANCEL pattern). Each test pushes a
+# victim spell onto the stack, casts/resolves the counter, and asserts the
+# victim is countered (COUNTER_SPELL event + the victim leaves the stack into
+# the graveyard/exile with reason='countered').
+# ---------------------------------------------------------------------------
+
+def _push_spell(game, owner, name, *, mana_cost="{1}{G}", subtypes=None,
+                types=None, colors=None):
+    """Create a spell object on the stack and return it (also returns its id
+    in game.state.zones['stack'].objects)."""
+    ch = Characteristics(
+        types=set(types) if types else {CardType.CREATURE},
+        subtypes=set(subtypes) if subtypes else set(),
+        power=1, toughness=1,
+        colors=set(colors) if colors else {Color.GREEN},
+        mana_cost=mana_cost,
+    )
+    return game.create_object(
+        name=name, owner_id=owner.id, zone=ZoneType.STACK,
+        characteristics=ch, card_def=None,
+    )
+
+
+def _assert_countered(evs, victim, game, card_name, *, to_zone='graveyard'):
+    """A counterspell fired correctly: a COUNTER_SPELL event names the victim
+    AND the victim left the stack (now in graveyard/exile)."""
+    cs = [e for e in evs if e.type == EventType.COUNTER_SPELL
+          and e.payload.get('spell_id') == victim.id]
+    assert cs, (f"{card_name}: expected a COUNTER_SPELL event naming the "
+                f"victim, got {[(e.type.name, e.payload.get('spell_id')) for e in evs]}")
+    # Apply the events so the victim actually leaves the stack.
+    for e in evs:
+        game.emit(e)
+    moved = game.state.objects[victim.id]
+    assert moved.zone != ZoneType.STACK, (
+        f"{card_name}: victim should leave the stack, still {moved.zone}")
+    if to_zone == 'exile':
+        assert moved.zone == ZoneType.EXILE, (
+            f"{card_name}: victim should be exiled, got {moved.zone}")
+
+
+def test_card_broken_ambitions():
+    """Broken Ambitions: Counter target spell ...; if you win the clash, that
+    spell's controller mills four cards."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    victim = _push_spell(game, p2, 'Victim Bear')
+    game.create_object(name='Broken Ambitions', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Broken Ambitions'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Broken Ambitions'].resolve([], game.state)
+    assert any(e.type == EventType.MILL for e in evs), \
+        f"Broken Ambitions should mill, got {[e.type.name for e in evs]}"
+    _assert_countered(evs, victim, game, 'Broken Ambitions')
+
+
+def test_card_faerie_trickery():
+    """Faerie Trickery: Counter target non-Faerie spell; exile it instead of GY."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    victim = _push_spell(game, p2, 'NonFae Bear', subtypes={'Bear'})
+    game.create_object(name='Faerie Trickery', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Faerie Trickery'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Faerie Trickery'].resolve([], game.state)
+    _assert_countered(evs, victim, game, 'Faerie Trickery', to_zone='exile')
+
+
+def test_card_faerie_trickery_skips_faerie():
+    """Faerie Trickery does NOT counter a Faerie spell."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _push_spell(game, p2, 'Faerie Spell', subtypes={'Faerie'}, mana_cost='{U}',
+                colors={Color.BLUE})
+    game.create_object(name='Faerie Trickery', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Faerie Trickery'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Faerie Trickery'].resolve([], game.state)
+    assert any(e.payload.get('no_target') for e in evs), \
+        f"Faerie Trickery should fizzle vs a Faerie spell, got {[e.type.name for e in evs]}"
+
+
+def test_card_spell_snare():
+    """Spell Snare: Counter target spell with mana value 2 (and only MV 2)."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    victim = _push_spell(game, p2, 'MV2 Bear', mana_cost='{1}{G}')  # MV 2
+    game.create_object(name='Spell Snare', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Spell Snare'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Spell Snare'].resolve([], game.state)
+    _assert_countered(evs, victim, game, 'Spell Snare')
+
+
+def test_card_spell_snare_mv_gate():
+    """Spell Snare does NOT counter an MV-3 spell."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _push_spell(game, p2, 'MV3 Bear', mana_cost='{1}{G}{G}')  # MV 3
+    game.create_object(name='Spell Snare', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Spell Snare'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Spell Snare'].resolve([], game.state)
+    assert any(e.payload.get('no_target') for e in evs), \
+        f"Spell Snare should not counter MV-3, got {[e.type.name for e in evs]}"
+
+
+def test_card_wild_unraveling():
+    """Wild Unraveling: Counter target spell ...; its controller draws a card."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    victim = _push_spell(game, p2, 'Victim Bear')
+    game.create_object(name='Wild Unraveling', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Wild Unraveling'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Wild Unraveling'].resolve([], game.state)
+    assert any(e.type == EventType.DRAW for e in evs), \
+        f"Wild Unraveling should draw, got {[e.type.name for e in evs]}"
+    _assert_countered(evs, victim, game, 'Wild Unraveling')
+
+
+def test_card_glen_elendras_answer():
+    """Glen Elendra's Answer: Counter all opponent spells; make a Faerie token
+    for each spell countered."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    v1 = _push_spell(game, p2, 'Opp Bolt', mana_cost='{R}', colors={Color.RED})
+    v2 = _push_spell(game, p2, 'Opp Bear', mana_cost='{1}{G}')
+    game.create_object(name="Glen Elendra's Answer", owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS["Glen Elendra's Answer"].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS["Glen Elendra's Answer"].resolve([], game.state)
+    cs = [e for e in evs if e.type == EventType.COUNTER_SPELL]
+    tok = [e for e in evs if e.type == EventType.CREATE_TOKEN]
+    assert len(cs) == 2, f"should counter both opponent spells, got {len(cs)}"
+    assert len(tok) == 2, f"should make a Faerie token per counter, got {len(tok)}"
+    for e in evs:
+        game.emit(e)
+    assert game.state.objects[v1.id].zone != ZoneType.STACK
+    assert game.state.objects[v2.id].zone != ZoneType.STACK
+
+
+def test_card_spellstutter_sprite():
+    """Spellstutter Sprite: ETB counters a spell with MV <= number of Faeries
+    you control (Spellstutter itself is a Faerie, so X>=1)."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    victim = _push_spell(game, p2, 'MV1 Spell', mana_cost='{U}', colors={Color.BLUE})
+    create_creature_on_battlefield(game, p1, 'Spellstutter Sprite')
+    got = {e.type.name for e in game.state.event_log}
+    assert 'COUNTER_SPELL' in got, \
+        f"Spellstutter Sprite ETB should counter a spell, got {sorted(got)}"
+    assert game.state.objects[victim.id].zone != ZoneType.STACK, \
+        "Spellstutter Sprite should remove the victim from the stack"
+
+
+def test_card_unwelcome_sprite():
+    """Unwelcome Sprite: ETB counters the targeted item on the stack."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    victim = _push_spell(game, p2, 'Some Item', mana_cost='{2}', colors=set())
+    create_creature_on_battlefield(game, p1, 'Unwelcome Sprite')
+    got = {e.type.name for e in game.state.event_log}
+    assert 'COUNTER_SPELL' in got, \
+        f"Unwelcome Sprite ETB should counter a stack item, got {sorted(got)}"
+    assert game.state.objects[victim.id].zone != ZoneType.STACK, \
+        "Unwelcome Sprite should remove the victim from the stack"
+
+
+def test_card_glen_elendra_guardian():
+    """Glen Elendra Guardian: ETB puts a -1/-1 counter on itself; it ALSO
+    registers a real activated counterspell ability."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Glen Elendra Guardian")
+    got = {e.type.name for e in game.state.event_log}
+    assert 'COUNTER_ADDED' in got, \
+        f"Glen Elendra Guardian ETB should add a -1/-1 counter, got {sorted(got)}"
+    # The activated counter ability is wired and counters a noncreature spell.
+    abils = getattr(obj.state, 'activated_abilities', None) or []
+    assert abils, "Glen Elendra Guardian should register an activated ability"
+    spell = _push_spell(game, p2, 'Opp Sorcery', mana_cost='{1}{R}',
+                        types={CardType.SORCERY}, colors={Color.RED})
+    ab = abils[0]
+    effect_fn = ab['effect_fn'] if isinstance(ab, dict) else ab.effect_fn
+    evs = effect_fn(obj, game.state, []) or []
+    assert any(e.type == EventType.COUNTER_SPELL and e.payload.get('spell_id') == spell.id
+               for e in evs), \
+        f"activated ability should counter the noncreature spell, got {[e.type.name for e in evs]}"
+
+
+def test_card_vexing_shusher():
+    """Vexing Shusher: (a) its own spell can't be countered (self-static read by
+    the cast path); (b) {R/G}: target spell can't be countered (activated ability
+    emits MAKE_UNCOUNTERABLE, which the SYSTEM glue applies to the stack item)."""
+    # --- (a) self-static: a Vexing Shusher spell survives counter() ---
+    game, p1, p2 = _new_game()
+    vs = game.create_object(
+        name='Vexing Shusher', owner_id=p1.id, zone=ZoneType.HAND,
+        characteristics=FAE_BUT_MID_CARDS['Vexing Shusher'].characteristics,
+        card_def=FAE_BUT_MID_CARDS['Vexing Shusher'])
+    item = game.cast_spell(vs.id, p1.id)
+    assert item.can_be_countered is False, \
+        "Vexing Shusher's own spell should be uncounterable on cast"
+    assert game.stack.counter(item.id) == [], "counter() should refuse"
+    assert game.stack.size() == 1, "Vexing Shusher should survive on the stack"
+
+    # --- (b) activated ability makes a TARGET spell uncounterable ---
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    victim = _push_spell(game, p2, 'Opp Spell', mana_cost='{2}', colors=set())
+    # Mirror the cast path: register a real StackItem so counter() has a target.
+    from src.engine.stack import StackItem as _SI, StackItemType as _SIT
+    game.stack.push(_SI(id='', type=_SIT.SPELL, source_id=victim.id,
+                        controller_id=p2.id, card_id=victim.id))
+    obj = create_creature_on_battlefield(game, p1, 'Vexing Shusher')
+    abils = getattr(obj.state, 'activated_abilities', None) or []
+    assert abils, "Vexing Shusher should register its activated ability"
+    ab = abils[0]
+    effect_fn = ab['effect_fn'] if isinstance(ab, dict) else ab.effect_fn
+    evs = effect_fn(obj, game.state, []) or []
+    assert any(e.type == EventType.MAKE_UNCOUNTERABLE and e.payload.get('spell_id') == victim.id
+               for e in evs), \
+        f"activated ability should emit MAKE_UNCOUNTERABLE naming the victim, got {[e.type.name for e in evs]}"
+    for e in evs:
+        game.emit(e)
+    si = next(s for s in game.stack.items if s.card_id == victim.id)
+    assert si.can_be_countered is False, "target spell should now be uncounterable"
+    assert game.stack.counter(si.id) == [], "counter() should refuse the protected spell"
+    assert any(s.card_id == victim.id for s in game.stack.items), \
+        "the protected spell should survive the counter attempt"
+
+
+def test_card_tattermunge_maniac():
+    """Tattermunge Maniac attacks each combat if able: it grants itself the
+    'attacks_each_combat' keyword, and the combat declare-attackers step
+    (CombatManager._apply_must_attack) forces it to attack."""
+    from src.engine.combat import CombatManager
+    game, p1, p2 = _new_game()
+    tm = create_creature_on_battlefield(game, p1, "Tattermunge Maniac")
+    assert has_ability(tm, 'attacks_each_combat', game.state), \
+        "Tattermunge Maniac should grant itself the attacks_each_combat keyword"
+    cm = CombatManager(game.state)  # no turn_manager -> active = first player (p1)
+    decls = cm._apply_must_attack(p1.id, [tm.id], [])
+    assert any(d.attacker_id == tm.id for d in decls), \
+        "Tattermunge Maniac must be forced to attack each combat"
+
+
+def test_card_timid_shieldbearer():
+    """Timid Shieldbearer: Defender. {1}{W}: can attack this turn as though it
+    didn't have defender. The activated ability sets the
+    can_attack_despite_defender override that CombatManager._can_attack honors."""
+    from src.engine.combat import CombatManager
+    game, p1, p2 = _new_game()
+    ts = create_creature_on_battlefield(game, p1, "Timid Shieldbearer")
+    ts.entered_zone_at = -1  # clear summoning sickness for the attack check
+    assert has_ability(ts, 'defender', game.state), \
+        "Timid Shieldbearer should have Defender"
+    cm = CombatManager(game.state)
+    assert cm._can_attack(ts.id, p1.id) is False, \
+        "Timid Shieldbearer cannot attack before activating its ability"
+    abils = getattr(ts.state, 'activated_abilities', None) or []
+    assert abils, "Timid Shieldbearer should register its activated ability"
+    ab = abils[0]
+    effect_fn = ab['effect_fn'] if isinstance(ab, dict) else ab.effect_fn
+    effect_fn(ts, game.state, [])
+    assert ts.state.can_attack_despite_defender is True, \
+        "the ability should set the can_attack_despite_defender override"
+    assert cm._can_attack(ts.id, p1.id) is True, \
+        "Timid Shieldbearer can attack after activating its ability"
+
+
+# ---------------------------------------------------------------------------
+# Section 4: modal "choose one/two" spells (Foundations make_modal_resolve).
+# Each test pushes the spell to the stack, resolves it (-> modal_with_callback
+# PendingChoice), submits the chosen mode indices, then auto-answers any
+# chained per-mode target choices, and asserts the chosen modes' TEXT-matching
+# events fired. (Mirrors tests/test_modal_modespec.py.)
+# ---------------------------------------------------------------------------
+
+def _drive_modal(game, p1, card_name, modes_pick):
+    """Resolve a modal spell, pick modes, drain chained target choices.
+    Returns the aggregated list[Event] across mode-select + target picks."""
+    spell = game.create_object(
+        name=card_name, owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS[card_name].characteristics, card_def=None)
+    all_evs = []
+    FAE_BUT_MID_CARDS[card_name].resolve([], game.state)
+    pc = game.state.pending_choice
+    assert pc is not None and pc.choice_type == "modal_with_callback", \
+        f"{card_name}: expected a modal_with_callback choice, got {pc and pc.choice_type}"
+    ok, _err, evs = game.submit_choice(pc.id, p1.id, modes_pick)
+    assert ok, f"{card_name}: mode submit failed: {_err}"
+    all_evs += evs or []
+    guard = 0
+    while game.state.pending_choice is not None and guard < 12:
+        guard += 1
+        pc2 = game.state.pending_choice
+        opts = pc2.options or []
+        if not opts:
+            game.state.pending_choice = None
+            break
+        first = opts[0]
+        oid = first['id'] if isinstance(first, dict) else first
+        ok2, _e2, evs2 = game.submit_choice(pc2.id, p1.id, [oid])
+        all_evs += evs2 or []
+    return all_evs
+
+
+def _evtypes(evs):
+    return {e.type.name for e in evs}
+
+
+def test_card_cryptic_command():
+    """Cryptic Command (choose two): counter target spell + draw a card."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _push_spell(game, p2, 'Victim')  # victim spell to counter
+    evs = _drive_modal(game, p1, 'Cryptic Command', [0, 3])
+    got = _evtypes(evs)
+    assert 'COUNTER_SPELL' in got and 'DRAW' in got, \
+        f"Cryptic Command counter+draw should fire, got {sorted(got)}"
+
+
+def test_card_ashlings_command():
+    """Ashling's Command (choose two): draw two + deal 3 to each creature."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p2, name='Foe1')
+    _spawn(game, p2, name='Foe2')
+    evs = _drive_modal(game, p1, "Ashling's Command", [1, 2])
+    got = _evtypes(evs)
+    assert 'DRAW' in got and 'DAMAGE' in got, \
+        f"Ashling's Command draw+damage should fire, got {sorted(got)}"
+
+
+def test_card_brigids_command():
+    """Brigid's Command (choose two): make a Kithkin token + pump+trample."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p1, subtypes={'Kithkin'}, name='MyKithkin')
+    evs = _drive_modal(game, p1, "Brigid's Command", [1, 2])
+    got = _evtypes(evs)
+    assert 'CREATE_TOKEN' in got and 'PT_MODIFICATION' in got, \
+        f"Brigid's Command token+pump should fire, got {sorted(got)}"
+
+
+def test_card_grubs_command():
+    """Grub's Command (choose two): each player sacs + make Goblin tokens."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p1, name='G1')
+    _spawn(game, p2, name='G2')
+    evs = _drive_modal(game, p1, "Grub's Command", [1, 3])
+    got = _evtypes(evs)
+    assert 'DESTROY' in got and 'CREATE_TOKEN' in got, \
+        f"Grub's Command sac+tokens should fire, got {sorted(got)}"
+
+
+def test_card_syggs_command():
+    """Sygg's Command (choose two): draw + gain life."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p1, subtypes={'Merfolk'}, name='MyMerfolk')
+    evs = _drive_modal(game, p1, "Sygg's Command", [2, 3])
+    got = _evtypes(evs)
+    assert 'DRAW' in got and 'LIFE_CHANGE' in got, \
+        f"Sygg's Command draw+life should fire, got {sorted(got)}"
+
+
+def test_card_trystans_command():
+    """Trystan's Command (choose two): each opponent sacs + gain life."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p1, subtypes={'Elf'}, name='MyElf')
+    _spawn(game, p2, name='Foe')
+    evs = _drive_modal(game, p1, "Trystan's Command", [1, 2])
+    got = _evtypes(evs)
+    assert 'DESTROY' in got and 'LIFE_CHANGE' in got, \
+        f"Trystan's Command sac+life should fire, got {sorted(got)}"
+
+
+def test_card_austere_command():
+    """Austere Command (choose two): destroy all artifacts + creatures MV<=3."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    # an artifact and a low-MV creature so both destroy modes have targets
+    art = game.create_object(
+        name='Art', owner_id=p2.id, zone=ZoneType.HAND,
+        characteristics=Characteristics(types={CardType.ARTIFACT}, mana_cost='{2}'),
+        card_def=None)
+    game.emit(Event(type=EventType.ZONE_CHANGE, payload={
+        'object_id': art.id, 'from_zone': f'hand_{p2.id}', 'to_zone': 'battlefield',
+        'to_zone_type': ZoneType.BATTLEFIELD}))
+    _spawn(game, p2, name='Crea')
+    evs = _drive_modal(game, p1, 'Austere Command', [0, 2])
+    got = _evtypes(evs)
+    assert 'DESTROY' in got, \
+        f"Austere Command destroy-all should fire, got {sorted(got)}"
+
+
+def test_card_primal_command():
+    """Primal Command (choose two): gain 7 life + tutor a creature."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    evs = _drive_modal(game, p1, 'Primal Command', [0, 2])
+    got = _evtypes(evs)
+    assert 'LIFE_CHANGE' in got and 'SEARCH_LIBRARY' in got, \
+        f"Primal Command life+tutor should fire, got {sorted(got)}"
+
+
+def test_card_profane_command():
+    """Profane Command (choose two): target player loses X + creature -X/-X."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p2, name='Foe')
+    evs = _drive_modal(game, p1, 'Profane Command', [0, 2])
+    got = _evtypes(evs)
+    assert 'LIFE_CHANGE' in got and 'PT_MODIFICATION' in got, \
+        f"Profane Command life-loss+minus should fire, got {sorted(got)}"
+
+
+def test_card_incendiary_command():
+    """Incendiary Command (choose two): 4 dmg to player + 2 dmg to each creature."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p2, name='Foe')
+    evs = _drive_modal(game, p1, 'Incendiary Command', [0, 1])
+    got = _evtypes(evs)
+    dmg = [e for e in evs if e.type == EventType.DAMAGE]
+    assert 'DAMAGE' in got and len(dmg) >= 2, \
+        f"Incendiary Command double-damage should fire, got {[e.type.name for e in evs]}"
+
+
+def test_card_giantfall():
+    """Giantfall (choose one): your creature deals damage equal to its power."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p1, power=3, name='Mine')
+    _spawn(game, p2, name='Theirs')
+    evs = _drive_modal(game, p1, 'Giantfall', [0])
+    got = _evtypes(evs)
+    assert 'DAMAGE' in got, f"Giantfall fight-damage should fire, got {sorted(got)}"
+
+
+def test_card_keep_out():
+    """Keep Out (choose one): 4 damage to target tapped creature."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p2, tapped=True, name='TappedFoe')
+    evs = _drive_modal(game, p1, 'Keep Out', [0])
+    got = _evtypes(evs)
+    assert 'DAMAGE' in got, f"Keep Out damage should fire, got {sorted(got)}"
+
+
+def test_card_run_away_together():
+    """Run Away Together: bounce two creatures controlled by different players."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p1, name='Mine')
+    _spawn(game, p2, name='Theirs')
+    spell = game.create_object(name='Run Away Together', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Run Away Together'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Run Away Together'].resolve([], game.state)
+    rth = [e for e in evs if e.type == EventType.RETURN_TO_HAND]
+    assert len(rth) == 2, \
+        f"Run Away Together should bounce two creatures, got {[e.type.name for e in evs]}"
+
+
+def test_card_glamermite():
+    """Glamermite: ETB choose one — tap (default) target creature."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    _spawn(game, p2, name='Foe')
+    create_creature_on_battlefield(game, p1, 'Glamermite')
+    got = {e.type.name for e in game.state.event_log}
+    assert 'TAP' in got, f"Glamermite ETB tap/untap should fire, got {sorted(got)}"
+
+
+def test_card_figure_of_fable():
+    """Figure of Fable: activated 'becomes a Kithkin Scout 2/3' ability really
+    changes its power/toughness (becomes_creature)."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, 'Figure of Fable')
+    abils = getattr(obj.state, 'activated_abilities', None) or []
+    assert len(abils) == 2, f"Figure of Fable should register 2 abilities, got {len(abils)}"
+    ab = abils[0]
+    effect_fn = ab['effect_fn'] if isinstance(ab, dict) else ab.effect_fn
+    for e in (effect_fn(obj, game.state, []) or []):
+        game.emit(e)
+    assert get_power(obj, game.state) == 2 and get_toughness(obj, game.state) == 3, \
+        (f"Figure of Fable scout animate should set 2/3, got "
+         f"{get_power(obj, game.state)}/{get_toughness(obj, game.state)}")
+
+
+# ---------------------------------------------------------------------------
+# Section 5: replacement effects (src/engine/replacements.py).
+# Each test puts the source on the battlefield, emits the to-be-replaced event,
+# and asserts the REPLACED outcome (mirrors tests/test_replacement_effects.py).
+# ---------------------------------------------------------------------------
+def _put_library_cards(game, player, n):
+    """Seed n vanilla cards into player's library so DRAW has something to move."""
+    for i in range(n):
+        game.create_object(
+            name=f"Lib{i}", owner_id=player.id, zone=ZoneType.LIBRARY,
+            characteristics=Characteristics(types={CardType.CREATURE}),
+            card_def=None,
+        )
+
+
+def test_card_maralen_fae_ascendant():
+    """Maralen, Fae Ascendant: 'Players can't draw cards' — DRAW is zeroed for
+    every player (draw-prevention replacement)."""
+    game, p1, p2 = _new_game()
+    _put_library_cards(game, p1, 3)
+    create_creature_on_battlefield(game, p1, "Maralen, Fae Ascendant")
+    hand_key = f"hand_{p1.id}"
+    before = len(game.state.zones[hand_key].objects)
+    game.emit(Event(type=EventType.DRAW,
+                    payload={"player": p1.id, "amount": 2}))
+    after = len(game.state.zones[hand_key].objects)
+    assert after == before, (
+        f"Maralen: draw should be prevented, hand went {before} -> {after}")
+
+
+def test_card_mornsong_aria():
+    """Mornsong Aria: 'Players can't draw cards or gain life' — DRAW zeroed AND
+    life gain prevented; life LOSS still resolves (the draw-step 3-life drain)."""
+    game, p1, p2 = _new_game()
+    _put_library_cards(game, p1, 3)
+    create_creature_on_battlefield(game, p1, "Mornsong Aria")
+    hand_key = f"hand_{p1.id}"
+    before = len(game.state.zones[hand_key].objects)
+    game.emit(Event(type=EventType.DRAW,
+                    payload={"player": p1.id, "amount": 1}))
+    assert len(game.state.zones[hand_key].objects) == before, (
+        "Mornsong Aria: draw should be prevented")
+    life0 = p1.life
+    game.emit(Event(type=EventType.LIFE_CHANGE,
+                    payload={"player": p1.id, "amount": 4}))
+    assert p1.life == life0, (
+        f"Mornsong Aria: life GAIN should be prevented, {life0} -> {p1.life}")
+    game.emit(Event(type=EventType.LIFE_CHANGE,
+                    payload={"player": p1.id, "amount": -3}))
+    assert p1.life == life0 - 3, (
+        f"Mornsong Aria: life LOSS must still apply, expected {life0 - 3}, "
+        f"got {p1.life}")
+
+
+def test_card_doran_besieged_by_time():
+    """Doran, Besieged by Time: 'Each creature assigns combat damage equal to
+    its toughness rather than its power' — a 4/1 combat-damages for 1, and
+    NONcombat damage is left untouched."""
+    game, p1, p2 = _new_game()
+    create_creature_on_battlefield(game, p1, "Doran, Besieged by Time")
+    attacker = _spawn(game, p1, power=4, toughness=1, name="Bear")
+    wall = _spawn(game, p2, power=1, toughness=12, name="Wall")
+    game.emit(Event(type=EventType.DAMAGE,
+                    payload={"target": wall.id,
+                             "amount": get_power(attacker, game.state),
+                             "source": attacker.id, "is_combat": True},
+                    source=attacker.id))
+    assert wall.state.damage == 1, (
+        f"Doran: combat damage should equal toughness (1), got {wall.state.damage}")
+    wall2 = _spawn(game, p2, power=1, toughness=12, name="Wall2")
+    game.emit(Event(type=EventType.DAMAGE,
+                    payload={"target": wall2.id, "amount": 5,
+                             "source": attacker.id, "is_combat": False},
+                    source=attacker.id))
+    assert wall2.state.damage == 5, (
+        f"Doran: noncombat damage must be unchanged (5), got {wall2.state.damage}")
+
+
+def test_card_collective_inferno():
+    """Collective Inferno: 'Double all damage that sources you control of the
+    chosen type would deal' — your chosen-type creature's damage is doubled;
+    an opponent's creature of the same type is NOT."""
+    game, p1, p2 = _new_game()
+    create_creature_on_battlefield(game, p1, "Collective Inferno")
+    # Two Elementals you control -> "the chosen type" resolves to Elemental.
+    elem = _spawn(game, p1, subtypes=["Elemental"], power=3, toughness=3,
+                  name="Elem")
+    _spawn(game, p1, subtypes=["Elemental"], power=2, toughness=2, name="Elem2")
+    victim = _spawn(game, p2, power=1, toughness=20, name="Victim")
+    game.emit(Event(type=EventType.DAMAGE,
+                    payload={"target": victim.id, "amount": 3,
+                             "source": elem.id, "is_combat": True},
+                    source=elem.id))
+    assert victim.state.damage == 6, (
+        f"Collective Inferno: chosen-type damage should double to 6, "
+        f"got {victim.state.damage}")
+    # Opponent's Elemental does NOT get the doubler (not a source YOU control).
+    opp_elem = _spawn(game, p2, subtypes=["Elemental"], power=3, toughness=3,
+                      name="OppElem")
+    mine = _spawn(game, p1, power=1, toughness=20, name="Mine")
+    game.emit(Event(type=EventType.DAMAGE,
+                    payload={"target": mine.id, "amount": 3,
+                             "source": opp_elem.id, "is_combat": True},
+                    source=opp_elem.id))
+    assert mine.state.damage == 3, (
+        f"Collective Inferno: opponent's Elemental must NOT be doubled (3), "
+        f"got {mine.state.damage}")
+
+
+def test_card_pollen_lullaby():
+    """Pollen Lullaby: 'Prevent all combat damage that would be dealt this turn'
+    — combat DAMAGE is zeroed; noncombat damage is untouched."""
+    game, p1, p2 = _new_game()
+    create_creature_on_battlefield(game, p1, "Pollen Lullaby")
+    attacker = _spawn(game, p1, power=5, toughness=5, name="Atk")
+    target = _spawn(game, p2, power=1, toughness=20, name="Tgt")
+    game.emit(Event(type=EventType.DAMAGE,
+                    payload={"target": target.id, "amount": 5,
+                             "source": attacker.id, "is_combat": True},
+                    source=attacker.id))
+    assert target.state.damage == 0, (
+        f"Pollen Lullaby: combat damage should be prevented (0), "
+        f"got {target.state.damage}")
+    other = _spawn(game, p2, power=1, toughness=20, name="Tgt2")
+    game.emit(Event(type=EventType.DAMAGE,
+                    payload={"target": other.id, "amount": 3,
+                             "source": attacker.id, "is_combat": False},
+                    source=attacker.id))
+    assert other.state.damage == 3, (
+        f"Pollen Lullaby: noncombat damage must be unaffected (3), "
+        f"got {other.state.damage}")
+
+
+def test_card_goliath_daydreamer():
+    """Goliath Daydreamer: your instants/sorceries are 'exile[d] ... with a dream
+    counter ... instead of putting it into your graveyard as it resolves' — an
+    instant headed to your graveyard lands in exile with a dream counter; a
+    creature is left alone."""
+    game, p1, p2 = _new_game()
+    create_creature_on_battlefield(game, p1, "Goliath Daydreamer")
+    inst = game.create_object(
+        name="MyBolt", owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=Characteristics(types={CardType.INSTANT}),
+        card_def=None)
+    game.emit(Event(type=EventType.ZONE_CHANGE,
+                    payload={"object_id": inst.id,
+                             "from_zone_type": ZoneType.STACK,
+                             "to_zone_type": ZoneType.GRAVEYARD,
+                             "from_zone": "stack",
+                             "to_zone": f"graveyard_{p1.id}"},
+                    source=inst.id))
+    assert inst.zone == ZoneType.EXILE, (
+        f"Goliath Daydreamer: instant should be redirected to exile, "
+        f"got {inst.zone}")
+    assert inst.state.counters.get("dream") == 1, (
+        f"Goliath Daydreamer: exiled card needs a dream counter, "
+        f"got {inst.state.counters.get('dream')}")
+    creature = game.create_object(
+        name="MyBear", owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=Characteristics(types={CardType.CREATURE}),
+        card_def=None)
+    game.emit(Event(type=EventType.ZONE_CHANGE,
+                    payload={"object_id": creature.id,
+                             "from_zone_type": ZoneType.STACK,
+                             "to_zone_type": ZoneType.GRAVEYARD,
+                             "from_zone": "stack",
+                             "to_zone": f"graveyard_{p1.id}"},
+                    source=creature.id))
+    assert creature.zone == ZoneType.GRAVEYARD, (
+        f"Goliath Daydreamer: a creature must NOT be redirected, "
+        f"got {creature.zone}")
+
+
+def test_card_raiding_schemes():
+    """Raiding Schemes: 'Each noncreature spell you cast has conspire' — the
+    conspire grant registers on the runtime registry when it enters."""
+    from src.engine.conspire import list_active_grants
+    game, p1, p2 = _new_game()
+    schemes = create_creature_on_battlefield(game, p1, "Raiding Schemes")
+    grants = list_active_grants(game.state)
+    assert any(g.source_id == schemes.id and g.controller == p1.id
+               for g in grants), (
+        f"Raiding Schemes: expected a registered conspire grant from "
+        f"{schemes.id}, got {[(g.source_id, g.controller) for g in grants]}")
+    # And the grant is gone once the source leaves the battlefield.
+    game.emit(Event(type=EventType.ZONE_CHANGE,
+                    payload={"object_id": schemes.id,
+                             "from_zone_type": ZoneType.BATTLEFIELD,
+                             "to_zone_type": ZoneType.GRAVEYARD},
+                    source=schemes.id))
+    grants_after = list_active_grants(game.state)
+    assert not any(g.source_id == schemes.id for g in grants_after), (
+        "Raiding Schemes: conspire grant should be cleaned up on zone leave")
+
+
+# ---------------------------------------------------------------------------
+# Section 6: framework-wired cards (planeswalker / saga / gain-control).
+# These exercise EXISTING engine frameworks (src/engine/planeswalker.py,
+# src/engine/saga.py, the GAIN_CONTROL handler) — no new engine.
+# ---------------------------------------------------------------------------
+
+def _put_permanent_on_battlefield(game, player, card_name):
+    """Put a non-creature permanent (planeswalker / Saga enchantment) on the
+    battlefield so its setup_interceptors register and any ETB trigger fires."""
+    return create_creature_on_battlefield(game, player, card_name)
+
+
+def _activate_loyalty(game, p, pw, loyalty_cost):
+    """Drive a loyalty ability through the real priority system: find the
+    ability with the requested signed loyalty cost, activate it, resolve the
+    stack item, and emit the resulting events. Returns the resolved events."""
+    game.turn_manager.turn_state.active_player_id = p.id
+    game.turn_manager.turn_state.phase = Phase.PRECOMBAT_MAIN
+    game.state.active_player = p.id
+    game.state.turn_number = 1
+    pw.state.summoning_sickness = False
+
+    idx = None
+    for i, ab in enumerate(pw.state.activated_abilities):
+        if getattr(ab, "loyalty_cost", None) == loyalty_cost:
+            idx = i
+            break
+    assert idx is not None, (
+        f"no loyalty ability with cost {loyalty_cost} on {pw.name}; "
+        f"have {[getattr(a, 'loyalty_cost', None) for a in pw.state.activated_abilities]}")
+
+    action = PlayerAction(
+        type=ActionType.ACTIVATE_ABILITY,
+        player_id=p.id, source_id=pw.id,
+        ability_id=f"activated:{idx}",
+    )
+
+    async def _run():
+        evs = await game.priority_system._execute_action(action)
+        item = game.stack.items[-1]
+        resolved = item.resolve_fn(item.chosen_targets, game.state)
+        for e in resolved:
+            game.emit(e)
+        return resolved
+
+    return asyncio.get_event_loop().run_until_complete(_run())
+
+
+def test_card_ajani_outland_chaperone():
+    """Ajani, Outland Chaperone: planeswalker. ETB sets loyalty 3; +1 creates a
+    Cat token (CREATE_TOKEN). Wired via the loyalty framework."""
+    from src.engine.planeswalker import get_loyalty
+    game, p1, p2 = _new_game()
+    pw = _put_permanent_on_battlefield(game, p1, "Ajani, Outland Chaperone")
+    assert get_loyalty(pw) == 3, f"Ajani: expected starting loyalty 3, got {get_loyalty(pw)}"
+    _activate_loyalty(game, p1, pw, +1)  # +1: Create a 1/1 white Cat token.
+    assert get_loyalty(pw) == 4, f"Ajani: expected loyalty 4 after +1, got {get_loyalty(pw)}"
+    _assert_emits(game, ['CREATE_TOKEN', 'OBJECT_CREATED'], "Ajani, Outland Chaperone")
+
+
+def test_card_garruk_wildspeaker():
+    """Garruk Wildspeaker: planeswalker. ETB sets loyalty 3; -1 creates a 3/3
+    Beast token (CREATE_TOKEN) and removes a loyalty counter. Loyalty framework."""
+    from src.engine.planeswalker import get_loyalty
+    game, p1, p2 = _new_game()
+    pw = _put_permanent_on_battlefield(game, p1, "Garruk Wildspeaker")
+    assert get_loyalty(pw) == 3, f"Garruk: expected starting loyalty 3, got {get_loyalty(pw)}"
+    _activate_loyalty(game, p1, pw, -1)  # -1: Create a 3/3 green Beast token.
+    assert get_loyalty(pw) == 2, f"Garruk: expected loyalty 2 after -1, got {get_loyalty(pw)}"
+    _assert_emits(game, ['CREATE_TOKEN', 'OBJECT_CREATED'], "Garruk Wildspeaker")
+
+
+def test_card_goatnap():
+    """Goatnap: sorcery. Gain control of target creature, untap it, haste; +3/+0
+    if it's a Goat. Mirrors the Sower GAIN_CONTROL pattern (cast-resolve)."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    victim = _spawn(game, p2, subtypes=['Goat'], power=1, toughness=1,
+                    tapped=True, name='Stolen Goat')
+    spell = game.create_object(name='Goatnap', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Goatnap'].characteristics, card_def=None)
+    evs = FAE_BUT_MID_CARDS['Goatnap'].resolve([], game.state)
+    got = {e.type.name for e in evs}
+    assert 'GAIN_CONTROL' in got, f"Goatnap: expected GAIN_CONTROL from resolve, got {sorted(got)}"
+    assert 'UNTAP' in got, f"Goatnap: expected UNTAP from resolve, got {sorted(got)}"
+    assert 'GRANT_KEYWORD' in got, f"Goatnap: expected haste GRANT_KEYWORD, got {sorted(got)}"
+
+
+def test_card_the_aurora_cycle():
+    """The Aurora Cycle: Saga. ETB adds lore counter -> chapter I fires
+    (SEARCH_LIBRARY for an Elemental). Wired via make_saga_setup."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    saga = _put_permanent_on_battlefield(game, p1, "The Aurora Cycle")
+    # Chapter I — tutor an Elemental.
+    _assert_emits(game, ['SEARCH_LIBRARY', 'LIBRARY_SEARCH', 'LIBSEARCH_BEGIN'], "The Aurora Cycle")
+    # Advance to chapter II via the controller's draw step -> five tribe tokens.
+    game.emit(Event(type=EventType.PHASE_START,
+                    payload={'phase': 'draw', 'step': 'draw',
+                             'active_player': p1.id, 'player': p1.id},
+                    source=None))
+    _assert_emits(game, ['CREATE_TOKEN', 'OBJECT_CREATED'], "The Aurora Cycle")
+
+
+# ===========================================================================
+# FINISH-TAIL batch: the last feasible cards (keyword-only vanilla, reanimation,
+# combat-exile, hand-shuffle, choose-a-type, ability-granting auras,
+# target-persist, dynamic count, library-dig, variable-X, recursion).
+# Each fires the card's OWN canonical trigger and asserts a TEXT-MATCHING effect.
+# ===========================================================================
+
+def test_card_chitinous_graspling():
+    """Chitinous Graspling: Changeling. Reach. (keyword-only vanilla)"""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Chitinous Graspling")
+    assert has_ability(obj, "changeling", game.state), "should have changeling"
+    assert has_ability(obj, "reach", game.state), "should have reach"
+
+
+def test_card_gangly_stompling():
+    """Gangly Stompling: Changeling. Trample. (keyword-only vanilla)"""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Gangly Stompling")
+    assert has_ability(obj, "changeling", game.state), "should have changeling"
+    assert has_ability(obj, "trample", game.state), "should have trample"
+
+
+def test_card_retched_wretch():
+    """Retched Wretch: when it dies WITH a -1/-1 counter, it returns to the
+    battlefield (reanimation). The effect is a self-ZONE_CHANGE, so assert the
+    object's final zone, not a content event."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Retched Wretch")
+    obj.state.counters['-1/-1'] = obj.state.counters.get('-1/-1', 0) + 1
+    game.emit(Event(type=EventType.ZONE_CHANGE, payload={
+        'object_id': obj.id, 'from_zone_type': ZoneType.BATTLEFIELD,
+        'to_zone_type': ZoneType.GRAVEYARD}, source=obj.id))
+    assert obj.zone == ZoneType.BATTLEFIELD, \
+        f"Retched Wretch with a -1/-1 counter should reanimate, in {obj.zone}"
+
+
+def test_card_retched_wretch_no_counter_stays_dead():
+    """Retched Wretch: without a -1/-1 counter the return does NOT fire."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Retched Wretch")
+    game.emit(Event(type=EventType.ZONE_CHANGE, payload={
+        'object_id': obj.id, 'from_zone_type': ZoneType.BATTLEFIELD,
+        'to_zone_type': ZoneType.GRAVEYARD}, source=obj.id))
+    assert obj.zone == ZoneType.GRAVEYARD, \
+        f"Retched Wretch without a -1/-1 counter should stay dead, in {obj.zone}"
+
+
+def test_card_rimefire_torque():
+    """Rimefire Torque: as it enters, choose a creature type; whenever a
+    permanent you control of the chosen type enters, put a charge counter on it.
+    Choose 'Goblin', then enter a Goblin and assert a charge accrues."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Rimefire Torque")
+    pc = game.state.pending_choice
+    assert pc is not None and pc.choice_type == "choose_creature_type", \
+        f"Rimefire Torque: expected a choose_creature_type choice, got {pc and pc.choice_type}"
+    ok, err, _ = game.submit_choice(pc.id, p1.id, ['Goblin'])
+    assert ok, f"Rimefire Torque: type choice submit failed: {err}"
+    assert getattr(obj.state, 'chosen_type', None) == 'Goblin', \
+        "Rimefire Torque: chosen type should be stored on obj.state"
+    # A Goblin you control enters -> charge counter.
+    _spawn(game, p1, subtypes={'Goblin'}, name='Gob')
+    assert obj.state.counters.get('charge', 0) >= 1, \
+        f"Rimefire Torque: a chosen-type permanent entering should add a charge counter (got {obj.state.counters.get('charge', 0)})"
+    _assert_emits(game, ['COUNTER_ADDED'], "Rimefire Torque")
+
+
+def test_card_rimefire_torque_wrong_type_no_charge():
+    """Rimefire Torque: a NON-chosen-type permanent entering adds no charge."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Rimefire Torque")
+    pc = game.state.pending_choice
+    game.submit_choice(pc.id, p1.id, ['Goblin'])
+    _spawn(game, p1, subtypes={'Merfolk'}, name='Fish')  # wrong type
+    assert obj.state.counters.get('charge', 0) == 0, \
+        "Rimefire Torque: a non-chosen-type permanent should not add a charge"
+
+
+def test_card_gathering_stone():
+    """Gathering Stone: as it enters, choose a creature type; spells you cast of
+    the chosen type cost {1} less. Choose 'Goblin' then verify a Goblin spell's
+    effective cost drops by 1 generic, while a Merfolk spell is unchanged."""
+    from src.engine.cost_query import get_effective_mana_cost
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Gathering Stone")
+    pc = game.state.pending_choice
+    assert pc is not None and pc.choice_type == "choose_creature_type", \
+        f"Gathering Stone: expected a choose_creature_type choice, got {pc and pc.choice_type}"
+    ok, err, _ = game.submit_choice(pc.id, p1.id, ['Goblin'])
+    assert ok, f"Gathering Stone: type choice submit failed: {err}"
+    assert getattr(obj.state, 'chosen_type', None) == 'Goblin', \
+        "Gathering Stone: chosen type should be stored on obj.state"
+    gob = game.create_object(
+        name='GobSpell', owner_id=p1.id, zone=ZoneType.HAND,
+        characteristics=Characteristics(types={CardType.CREATURE}, subtypes={'Goblin'},
+                                        colors={Color.RED}, mana_cost='{2}{R}'),
+        card_def=None)
+    eff = get_effective_mana_cost(gob, p1.id, game.state)
+    assert eff.generic == 1, \
+        f"Gathering Stone: a chosen-type spell should cost 1 less generic (got {eff.generic})"
+    fish = game.create_object(
+        name='FishSpell', owner_id=p1.id, zone=ZoneType.HAND,
+        characteristics=Characteristics(types={CardType.CREATURE}, subtypes={'Merfolk'},
+                                        colors={Color.BLUE}, mana_cost='{2}{U}'),
+        card_def=None)
+    eff2 = get_effective_mana_cost(fish, p1.id, game.state)
+    assert eff2.generic == 2, \
+        f"Gathering Stone: a non-chosen-type spell should be unchanged (got {eff2.generic})"
+
+
+def test_card_spiral_into_solitude():
+    """Spiral into Solitude: exile target attacking/blocking creature; its
+    controller makes a 1/1 Kithkin token. -> EXILE + CREATE_TOKEN."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    game.create_object(name='Spiral into Solitude', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Spiral into Solitude'].characteristics, card_def=None)
+    atk = _spawn(game, p2, subtypes={'Goblin'}, power=2, toughness=2, name='Atk')
+    atk.state.attacking = True
+    evs = FAE_BUT_MID_CARDS['Spiral into Solitude'].resolve([], game.state)
+    got = {e.type.name for e in evs}
+    assert 'EXILE' in got and 'CREATE_TOKEN' in got, \
+        f"Spiral into Solitude: expected EXILE + CREATE_TOKEN, got {sorted(got)}"
+    exile = next(e for e in evs if e.type.name == 'EXILE')
+    assert exile.payload.get('object_id') == atk.id, \
+        "Spiral into Solitude: should exile the attacking creature"
+
+
+def test_card_noggle_the_mind():
+    """Noggle the Mind: target player shuffles their hand into library, then
+    draws that many. -> DRAW equal to hand size shuffled."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    game.create_object(name='Noggle the Mind', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Noggle the Mind'].characteristics, card_def=None)
+    for i in range(3):
+        game.create_object(name=f'Hand{i}', owner_id=p1.id, zone=ZoneType.HAND,
+            characteristics=Characteristics(types={CardType.CREATURE}), card_def=None)
+    evs = FAE_BUT_MID_CARDS['Noggle the Mind'].resolve([], game.state)
+    got = {e.type.name for e in evs}
+    assert 'DRAW' in got, f"Noggle the Mind: expected DRAW, got {sorted(got)}"
+    draw = next(e for e in evs if e.type.name == 'DRAW')
+    assert draw.payload.get('amount') == 3, \
+        f"Noggle the Mind: should draw equal to the 3 cards shuffled (got {draw.payload.get('amount')})"
+
+
+def test_card_dream_harvest():
+    """Dream Harvest: each opponent exiles from the top of their library until
+    total MV >= 5. -> EXILE (stops once threshold reached)."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    game.create_object(name='Dream Harvest', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Dream Harvest'].characteristics, card_def=None)
+    for i in range(4):  # 4 cards at MV 2 -> exile 3 (2+2+2=6 >= 5)
+        game.create_object(name=f'Lib{i}', owner_id=p2.id, zone=ZoneType.LIBRARY,
+            characteristics=Characteristics(types={CardType.CREATURE}, mana_cost='{2}'), card_def=None)
+    evs = FAE_BUT_MID_CARDS['Dream Harvest'].resolve([], game.state)
+    got = {e.type.name for e in evs}
+    assert 'EXILE' in got, f"Dream Harvest: expected EXILE, got {sorted(got)}"
+    n_exile = sum(1 for e in evs if e.type.name == 'EXILE')
+    assert n_exile == 3, \
+        f"Dream Harvest: should exile until MV>=5 (3 of the {{2}} cards), got {n_exile}"
+
+
+def test_card_burning_curiosity():
+    """Burning Curiosity: exile the top two cards of your library. -> EXILE x2."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    game.create_object(name='Burning Curiosity', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['Burning Curiosity'].characteristics, card_def=None)
+    for i in range(5):
+        game.create_object(name=f'Lib{i}', owner_id=p1.id, zone=ZoneType.LIBRARY,
+            characteristics=Characteristics(types={CardType.CREATURE}, mana_cost='{1}'), card_def=None)
+    evs = FAE_BUT_MID_CARDS['Burning Curiosity'].resolve([], game.state)
+    got = {e.type.name for e in evs}
+    assert 'EXILE' in got, f"Burning Curiosity: expected EXILE, got {sorted(got)}"
+    assert sum(1 for e in evs if e.type.name == 'EXILE') == 2, \
+        "Burning Curiosity: should exile the top two cards"
+
+
+def test_card_end_blaze_epiphany():
+    """End-Blaze Epiphany: deals X damage to target creature (+ dies-this-turn
+    delayed exile rider). -> DAMAGE of amount X to the creature."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    spell = game.create_object(name='End-Blaze Epiphany', owner_id=p1.id, zone=ZoneType.STACK,
+        characteristics=FAE_BUT_MID_CARDS['End-Blaze Epiphany'].characteristics, card_def=None)
+    spell.state.x_value = 4
+    victim = _spawn(game, p2, power=2, toughness=2, name='Victim')
+    evs = FAE_BUT_MID_CARDS['End-Blaze Epiphany'].resolve([], game.state)
+    got = {e.type.name for e in evs}
+    assert 'DAMAGE' in got, f"End-Blaze Epiphany: expected DAMAGE, got {sorted(got)}"
+    dmg = next(e for e in evs if e.type.name == 'DAMAGE')
+    assert dmg.payload.get('amount') == 4 and dmg.payload.get('target') == victim.id, \
+        f"End-Blaze Epiphany: should deal X(=4) damage to the target creature (got {dmg.payload})"
+
+
+def test_card_aurora_awakener():
+    """Aurora Awakener: Vivid ETB digs the top of your library until X permanent
+    cards (X = colors among your permanents) and puts them in hand. -> LOOK_AT_TOP
+    with the computed X (here a green creature on board => X==1)."""
+    game, p1, p2 = _new_game()
+    obj = create_creature_on_battlefield(game, p1, "Aurora Awakener")
+    got = _content_events(game)
+    assert any(t in got for t in ['LOOK_AT_TOP', 'LOOK_TOP_CARDS']), \
+        f"Aurora Awakener: expected a library-dig LOOK_AT_TOP, got {sorted(got)}"
+    look = next(e for e in game.state.event_log if e.type.name == 'LOOK_AT_TOP')
+    # Aurora itself is green, so at least one color -> X >= 1.
+    assert look.payload.get('put_in_hand', 0) >= 1, \
+        "Aurora Awakener: should put at least one permanent (X>=1) into hand"
+
+
+def test_card_demigod_of_revenge():
+    """Demigod of Revenge: when you cast it, return all cards named Demigod of
+    Revenge from your graveyard to the battlefield. Put one in the GY, place a
+    live one (registers the trigger), then CAST another -> the GY copy returns."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    cd = FAE_BUT_MID_CARDS['Demigod of Revenge']
+    obj = create_creature_on_battlefield(game, p1, "Demigod of Revenge")
+    gy_copy = game.create_object(name='Demigod of Revenge', owner_id=p1.id,
+        zone=ZoneType.GRAVEYARD, characteristics=cd.characteristics, card_def=None)
+    spell = game.create_object(name='Demigod of Revenge', owner_id=p1.id,
+        zone=ZoneType.STACK, characteristics=cd.characteristics, card_def=None)
+    game.emit(Event(type=EventType.CAST, payload={
+        'spell_id': spell.id, 'caster': p1.id, 'name': 'Demigod of Revenge'}, controller=p1.id))
+    got = _content_events(game)
+    assert any(t in got for t in ['RETURN_FROM_GRAVEYARD', 'RETURN_TO_BATTLEFIELD']), \
+        f"Demigod of Revenge: casting it should return GY copies, got {sorted(got)}"
+    assert gy_copy.zone == ZoneType.BATTLEFIELD, \
+        f"Demigod of Revenge: the graveyard copy should return to the battlefield, in {gy_copy.zone}"
+
+
+def test_card_rhys_the_evermore():
+    """Rhys, the Evermore: when it enters, another target creature you control
+    gains persist until end of turn. Place an ally, enter Rhys -> the ally
+    gains persist (GRANT_KEYWORD) and returns to the battlefield when it dies."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    ally = _spawn(game, p1, power=2, toughness=2, name='Persist Ally')
+    obj = create_creature_on_battlefield(game, p1, "Rhys, the Evermore")
+    got = _content_events(game)
+    assert any(t in got for t in ['GRANT_KEYWORD', 'KEYWORD_GRANT', 'GRANT_ABILITY']), \
+        f"Rhys, the Evermore: should grant persist to a creature, got {sorted(got)}"
+    assert has_ability(ally, 'persist', game.state), \
+        "Rhys, the Evermore: the targeted ally should have persist"
+    # Persist payoff: when the ally dies it returns to the battlefield.
+    game.emit(Event(type=EventType.OBJECT_DESTROYED, payload={'object_id': ally.id}, source=ally.id))
+    assert ally.zone == ZoneType.BATTLEFIELD, \
+        f"Rhys, the Evermore: a persisting creature should return on death, in {ally.zone}"
+
+
+def test_card_kinbinding():
+    """Kinbinding: creatures you control get +X/+X where X = creatures that
+    entered under your control this turn. Enter Kinbinding then two creatures;
+    each gets +2/+2 (X==2). Static -> assert get_power/get_toughness delta."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    game.state.turn_number = 1
+    create_creature_on_battlefield(game, p1, "Kinbinding")
+    c1 = _spawn(game, p1, power=2, toughness=2, name='Enterer1')
+    c2 = _spawn(game, p1, power=3, toughness=3, name='Enterer2')
+    # Two creatures entered this turn -> X == 2.
+    assert get_power(c1, game.state) == 2 + 2, \
+        f"Kinbinding: creature should get +2/+2 (X=2), power {get_power(c1, game.state)}"
+    assert get_toughness(c2, game.state) == 3 + 2, \
+        f"Kinbinding: creature should get +2/+2 (X=2), toughness {get_toughness(c2, game.state)}"
+
+
+def test_card_nettlevine_blight():
+    """Nettlevine Blight: enchanted permanent has 'At the beginning of your end
+    step, sacrifice a creature or land. If you do, attach Nettlevine Blight to a
+    permanent you control.' Enchant a host, attach, then fire end step ->
+    OBJECT_DESTROYED (sacrifice) + ATTACH (re-attach)."""
+    game, p1, p2 = _new_game()
+    game.state.active_player = p1.id
+    host = _spawn(game, p1, power=2, toughness=2, name='Blighted Host')
+    _spawn(game, p1, types={CardType.LAND}, name='Sac Land')  # something to sacrifice
+    aura = _enchant_host(game, p1, "Nettlevine Blight", host)
+    _attach(game, aura, host)  # ATTACH installs the granted triggered ability
+    log0 = len(game.state.event_log)
+    game.emit(Event(type=EventType.PHASE_START,
+                    payload={'phase': 'end_step', 'active_player': p1.id}, source=p1.id))
+    new = {e.type.name for e in game.state.event_log[log0:]}
+    assert 'OBJECT_DESTROYED' in new, \
+        f"Nettlevine Blight: your end step should sacrifice a creature/land, got {sorted(new - _PLUMBING)}"
+    assert 'ATTACH' in new, \
+        f"Nettlevine Blight: after sacrificing, it should re-attach, got {sorted(new - _PLUMBING)}"
+
+
+def test_card_shimmerwilds_growth():
+    """Shimmerwilds Growth: enchanted land has '{T}: Add one mana of any color.'
+    Enchant a land, attach (installs the granted mana ability on the land), then
+    activate it -> TAP cost + MANA_ADDED on resolution."""
+    game, p1, p2 = _new_game()
+    _own_main(game, p1)
+    land = _spawn(game, p1, types={CardType.LAND}, name='Enchanted Land')
+    land.state.summoning_sickness = False
+    aura = _enchant_host(game, p1, "Shimmerwilds Growth", land)
+    _attach(game, aura, land)  # ATTACH installs the granted activated ability
+    cost_evts, resolve_evts = _activate(game, p1, land)
+    assert EventType.TAP in [e.type for e in cost_evts], \
+        f"Shimmerwilds Growth: the granted {{T}} ability should tap the land, got {[e.type.name for e in cost_evts]}"
+    assert any(e.type in (EventType.MANA_ADDED, EventType.ADD_MANA) for e in resolve_evts), \
+        f"Shimmerwilds Growth: the granted ability should add mana, got {[e.type.name for e in resolve_evts]}"
+
+
 # ---------------------------------------------------------------------------
 # Runner: count passed / failed / errors / skipped; print a summary table.
 # ---------------------------------------------------------------------------
-_ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_card_adept_watershaper, test_card_brigid_clachan_s_heart, test_card_burdened_stoneback, test_card_champion_of_the_clachan, test_card_clachan_festival, test_card_curious_colossus, test_card_eirdu_carrier_of_dawn, test_card_encumbered_reejerey, test_card_flock_impostor, test_card_gallant_fowlknight, test_card_reluctant_dounguard, test_card_kinsbaile_aspirant, test_card_kinscaer_sentry, test_card_kithkeeper, test_card_liminal_hold, test_card_meanders_guide, test_card_moonlit_lamenter, test_card_shore_lurker, test_card_slumbering_walker, test_card_sun_dappled_celebrant, test_card_thoughtweft_imbuer, test_card_tributary_vaulter, test_card_wanderbrine_preacher, test_card_wanderbrine_trapper, test_card_formidable_speaker, test_card_luminollusk, test_card_lys_alana_informant, test_card_moon_vigil_adherents, test_card_mutable_explorer, test_card_pummeler_for_hire, test_card_selfless_safewright, test_card_bristlebane_battler, test_card_bristlebane_outrider, test_card_champions_of_the_perfect, test_card_chomping_changeling, test_card_crossroads_watcher, test_card_dundoolin_weaver, test_card_prismabasher, test_card_mistmeadow_council, test_card_sapling_nursery, test_card_trystan_callous_cultivator, test_card_virulent_emissary, test_card_wildvine_pummeler, test_card_aquitect_s_defenses, test_card_blossombind, test_card_champions_of_the_shoal, test_card_flitterwing_nuisance, test_card_gravelgill_scoundrel, test_card_illusion_spinners, test_card_disruptor_of_currents, test_card_glamer_gifter, test_card_pestered_wellguard, test_card_rimekin_recluse, test_card_kulrath_mystic, test_card_loch_mare, test_card_omni_changeling, test_card_shinestriker, test_card_silvergill_mentor, test_card_silvergill_peddler, test_card_stratosoarer, test_card_tanufel_rimespeaker, test_card_wanderwine_distracter, test_card_bile_vial_boggart, test_card_bitterbloom_bearer, test_card_blighted_blackthorn, test_card_boggart_mischief, test_card_boggart_prankster, test_card_creakwood_safewright, test_card_dawnhand_eulogist, test_card_dream_seizer, test_card_gnarlbark_elm, test_card_graveshifter, test_card_deceit, test_card_gloom_ripper, test_card_grub_storied_matriarch, test_card_ashling_rekindled, test_card_boldwyr_aggressor, test_card_boneclub_berserker, test_card_brambleback_brute, test_card_elder_auntie, test_card_enraged_flamecaster, test_card_explosive_prodigy, test_card_flamekin_gildweaver, test_card_abigale_eloquent_first_year, test_card_boggart_cursecrafter, test_card_chaos_spewer, test_card_deepchannel_duelist, test_card_deepway_navigator, test_card_eclipsed_boggart, test_card_eclipsed_elf, test_card_eclipsed_flamekin, test_card_eclipsed_kithkin, test_card_eclipsed_merrow, test_card_feisty_spikeling, test_card_flaring_cinder, test_card_glister_bairn, test_card_foraging_wickermaw, test_card_stalactite_dagger, test_card_imperious_perfect, test_card_timber_protector, test_card_oona_queen_of_the_fae, test_card_wydwen_the_biting_gale, test_card_wort_boggart_auntie, test_card_gaddock_teeg, test_card_godhead_of_awe, test_card_oblivion_ring, test_card_preeminent_captain, test_card_merrow_commerce, test_card_surgespanner, test_card_silvergill_adept, test_card_mulldrifter, test_card_caterwauling_boggart, test_card_knucklebone_witch, test_card_wort_the_raidmother, test_card_jagged_scar_archers, test_card_wistful_selkie, test_card_gwyllion_hedge_mage, test_card_selkie_hedge_mage, test_card_ashling_the_extinguisher, test_card_reaper_king, test_card_wicker_warcrawler, test_card_aurora_of_five, test_card_faewild_convocation, test_card_augury_adept, test_card_bitterblossom, test_card_chronicle_of_victory, test_card_cloudgoat_ranger, test_card_cold_eyed_selkie, test_card_creakwood_liege, test_card_dawn_blessed_pennant, test_card_elvish_harbinger, test_card_emptiness, test_card_gutsplitter_gang, test_card_heirloom_auntie, test_card_hexing_squelcher, test_card_hovel_hurler, test_card_kinsbaile_borderguard, test_card_kirol_attentive_first_year, test_card_kitchen_finks, test_card_kulrath_zealot, test_card_lavaleaper, test_card_lluwen_imperfect_naturalist, test_card_masked_admirers, test_card_merrow_skyswimmer, test_card_mischievous_sneakling, test_card_moonglove_extractor, test_card_moonshadow, test_card_mudbutton_cursetosser, test_card_murderous_redcap, test_card_nath_of_the_gilt_leaf, test_card_nightmare_sower, test_card_noggle_robber, test_card_oonas_blackguard, test_card_prismatic_undercurrents, test_card_pucas_eye, test_card_ranger_of_eos, test_card_sanar_innovative_first_year, test_card_shadow_urchin, test_card_shimmercreep, test_card_shriekmaw, test_card_sizzling_changeling, test_card_smoldering_spinebacks, test_card_sourbread_auntie, test_card_spinerock_tyrant, test_card_squawkroaster, test_card_taster_of_wares, test_card_thundercloud_shaman, test_card_treefolk_harbinger, test_card_twinflame_travelers, test_card_vibrance, test_card_wary_farmer, test_card_wistfulness, test_card_wolf_skull_shaman, test_card_balefire_liege, test_card_cinder_pyromancer, test_card_deathbringer_liege, test_card_deus_of_calamity, test_card_high_perfect_morcant, test_card_tam_mindful_first_year, test_card_incandescent_soulstoke, test_card_mindwrack_liege, test_card_murkfiend_liege, test_card_ashenmoor_liege, test_card_morcants_loyalist, test_card_voracious_tome_skimmer, test_card_sygg_river_cutthroat, test_card_reveillark, test_card_ghastlord_of_fugue, test_card_assert_perfection, test_card_aunties_favor, test_card_blight_rot, test_card_bloodline_bidding, test_card_blossoming_defense, test_card_bogslithers_embrace, test_card_boulder_dash, test_card_catharsis, test_card_cinder_strike, test_card_crib_swap, test_card_darkness_descends, test_card_death_denied, test_card_dose_of_dawnglow, test_card_feed_the_flames, test_card_fiery_justice, test_card_firespout, test_card_fodder_launch, test_card_harmonized_crescendo, test_card_hunting_triad, test_card_impolite_entrance, test_card_lasting_tarfire, test_card_lofty_dreams, test_card_makeshift_mannequin, test_card_manamorphose, test_card_midnight_tilling, test_card_mirrorform, test_card_morningtides_light, test_card_peppersmoke, test_card_perfect_intimidation, test_card_personify, test_card_ponder, test_card_protective_response, test_card_pyrrhic_strike, test_card_reckless_ransacking, test_card_requiting_hex, test_card_riverguards_reflexes, test_card_sear, test_card_soul_immolation, test_card_spectral_procession, test_card_spry_and_mighty, test_card_sunderflock, test_card_swat_away, test_card_tarfire, test_card_tend_the_sprigs, test_card_thirst_for_identity, test_card_thoughtweft_charge, test_card_thoughtweft_gambit, test_card_tweeze, test_card_unbury, test_card_unexpected_assistance, test_card_unforgiving_aim, test_card_unmake, test_card_wanderwine_farewell, test_card_winnowing, test_card_wretched_banquet]
+_ALL_TESTS = [test_card_changeling_wayfinder, test_card_rooftop_percher, test_card_adept_watershaper, test_card_brigid_clachan_s_heart, test_card_burdened_stoneback, test_card_champion_of_the_clachan, test_card_clachan_festival, test_card_curious_colossus, test_card_eirdu_carrier_of_dawn, test_card_encumbered_reejerey, test_card_flock_impostor, test_card_gallant_fowlknight, test_card_reluctant_dounguard, test_card_kinsbaile_aspirant, test_card_kinscaer_sentry, test_card_kithkeeper, test_card_liminal_hold, test_card_meanders_guide, test_card_moonlit_lamenter, test_card_shore_lurker, test_card_slumbering_walker, test_card_sun_dappled_celebrant, test_card_thoughtweft_imbuer, test_card_tributary_vaulter, test_card_wanderbrine_preacher, test_card_wanderbrine_trapper, test_card_formidable_speaker, test_card_luminollusk, test_card_lys_alana_informant, test_card_moon_vigil_adherents, test_card_mutable_explorer, test_card_pummeler_for_hire, test_card_selfless_safewright, test_card_bristlebane_battler, test_card_bristlebane_outrider, test_card_champions_of_the_perfect, test_card_chomping_changeling, test_card_crossroads_watcher, test_card_dundoolin_weaver, test_card_prismabasher, test_card_mistmeadow_council, test_card_sapling_nursery, test_card_trystan_callous_cultivator, test_card_virulent_emissary, test_card_wildvine_pummeler, test_card_aquitect_s_defenses, test_card_blossombind, test_card_champions_of_the_shoal, test_card_flitterwing_nuisance, test_card_gravelgill_scoundrel, test_card_illusion_spinners, test_card_disruptor_of_currents, test_card_glamer_gifter, test_card_pestered_wellguard, test_card_rimekin_recluse, test_card_kulrath_mystic, test_card_loch_mare, test_card_omni_changeling, test_card_shinestriker, test_card_silvergill_mentor, test_card_silvergill_peddler, test_card_stratosoarer, test_card_tanufel_rimespeaker, test_card_wanderwine_distracter, test_card_bile_vial_boggart, test_card_bitterbloom_bearer, test_card_blighted_blackthorn, test_card_boggart_mischief, test_card_boggart_prankster, test_card_creakwood_safewright, test_card_dawnhand_eulogist, test_card_dream_seizer, test_card_gnarlbark_elm, test_card_graveshifter, test_card_deceit, test_card_gloom_ripper, test_card_grub_storied_matriarch, test_card_ashling_rekindled, test_card_boldwyr_aggressor, test_card_boneclub_berserker, test_card_brambleback_brute, test_card_elder_auntie, test_card_enraged_flamecaster, test_card_explosive_prodigy, test_card_flamekin_gildweaver, test_card_abigale_eloquent_first_year, test_card_boggart_cursecrafter, test_card_chaos_spewer, test_card_deepchannel_duelist, test_card_deepway_navigator, test_card_eclipsed_boggart, test_card_eclipsed_elf, test_card_eclipsed_flamekin, test_card_eclipsed_kithkin, test_card_eclipsed_merrow, test_card_feisty_spikeling, test_card_flaring_cinder, test_card_glister_bairn, test_card_foraging_wickermaw, test_card_stalactite_dagger, test_card_imperious_perfect, test_card_timber_protector, test_card_oona_queen_of_the_fae, test_card_wydwen_the_biting_gale, test_card_wort_boggart_auntie, test_card_gaddock_teeg, test_card_godhead_of_awe, test_card_oblivion_ring, test_card_mistbind_clique, test_card_mistbind_clique_returns_on_leave, test_card_mistbind_clique_no_faerie_self_sacrifice, test_card_preeminent_captain, test_card_merrow_commerce, test_card_surgespanner, test_card_silvergill_adept, test_card_mulldrifter, test_card_caterwauling_boggart, test_card_knucklebone_witch, test_card_wort_the_raidmother, test_card_jagged_scar_archers, test_card_wistful_selkie, test_card_gwyllion_hedge_mage, test_card_selkie_hedge_mage, test_card_ashling_the_extinguisher, test_card_reaper_king, test_card_wicker_warcrawler, test_card_aurora_of_five, test_card_faewild_convocation, test_card_augury_adept, test_card_bitterblossom, test_card_chronicle_of_victory, test_card_cloudgoat_ranger, test_card_cold_eyed_selkie, test_card_creakwood_liege, test_card_dawn_blessed_pennant, test_card_elvish_harbinger, test_card_emptiness, test_card_gutsplitter_gang, test_card_heirloom_auntie, test_card_hexing_squelcher, test_card_hovel_hurler, test_card_kinsbaile_borderguard, test_card_kirol_attentive_first_year, test_card_kitchen_finks, test_card_kulrath_zealot, test_card_lavaleaper, test_card_lluwen_imperfect_naturalist, test_card_masked_admirers, test_card_merrow_skyswimmer, test_card_mischievous_sneakling, test_card_moonglove_extractor, test_card_moonshadow, test_card_mudbutton_cursetosser, test_card_murderous_redcap, test_card_nath_of_the_gilt_leaf, test_card_nightmare_sower, test_card_noggle_robber, test_card_oonas_blackguard, test_card_prismatic_undercurrents, test_card_pucas_eye, test_card_ranger_of_eos, test_card_sanar_innovative_first_year, test_card_shadow_urchin, test_card_shimmercreep, test_card_shriekmaw, test_card_sizzling_changeling, test_card_smoldering_spinebacks, test_card_sourbread_auntie, test_card_spinerock_tyrant, test_card_squawkroaster, test_card_taster_of_wares, test_card_thundercloud_shaman, test_card_treefolk_harbinger, test_card_twinflame_travelers, test_card_vibrance, test_card_wary_farmer, test_card_wistfulness, test_card_wolf_skull_shaman, test_card_balefire_liege, test_card_cinder_pyromancer, test_card_deathbringer_liege, test_card_deus_of_calamity, test_card_high_perfect_morcant, test_card_tam_mindful_first_year, test_card_incandescent_soulstoke, test_card_mindwrack_liege, test_card_murkfiend_liege, test_card_ashenmoor_liege, test_card_morcants_loyalist, test_card_voracious_tome_skimmer, test_card_sygg_river_cutthroat, test_card_reveillark, test_card_ghastlord_of_fugue, test_card_assert_perfection, test_card_aunties_favor, test_card_blight_rot, test_card_bloodline_bidding, test_card_blossoming_defense, test_card_bogslithers_embrace, test_card_boulder_dash, test_card_catharsis, test_card_cinder_strike, test_card_crib_swap, test_card_gilt_leaf_ambush, test_card_gilt_leaf_ambush_clash_win_grants_deathtouch, test_card_gilt_leaf_ambush_clash_loss_no_deathtouch, test_card_lash_out, test_card_lash_out_clash_win_damages_controller, test_card_lash_out_clash_loss_no_player_damage, test_card_darkness_descends, test_card_death_denied, test_card_dose_of_dawnglow, test_card_feed_the_flames, test_card_fiery_justice, test_card_firespout, test_card_fodder_launch, test_card_harmonized_crescendo, test_card_hunting_triad, test_card_impolite_entrance, test_card_lasting_tarfire, test_card_lofty_dreams, test_card_makeshift_mannequin, test_card_manamorphose, test_card_midnight_tilling, test_card_mirrorform, test_card_morningtides_light, test_card_peppersmoke, test_card_perfect_intimidation, test_card_personify, test_card_ponder, test_card_protective_response, test_card_pyrrhic_strike, test_card_reckless_ransacking, test_card_requiting_hex, test_card_riverguards_reflexes, test_card_sear, test_card_soul_immolation, test_card_spectral_procession, test_card_spry_and_mighty, test_card_sunderflock, test_card_swat_away, test_card_tarfire, test_card_tend_the_sprigs, test_card_thirst_for_identity, test_card_thoughtweft_charge, test_card_thoughtweft_gambit, test_card_tweeze, test_card_unbury, test_card_unexpected_assistance, test_card_unforgiving_aim, test_card_unmake, test_card_wanderwine_farewell, test_card_winnowing, test_card_wretched_banquet,
+    # --- Phase A no-effect cards (implemented + verified) ---
+    test_card_boartusk_liege, test_card_scion_of_oona, test_card_sunrise_sovereign,
+    test_card_wilt_leaf_liege, test_card_thistledown_liege,
+    test_card_barbed_bloodletter, test_card_bark_of_doran, test_card_cloak_and_dagger,
+    test_card_obsidian_battle_axe, test_card_runed_stalactite, test_card_veterans_armaments,
+    test_card_diviners_wand, test_card_thornbite_staff,
+    test_card_gilt_leafs_embrace,
+    test_card_forest, test_card_island, test_card_mountain, test_card_plains, test_card_swamp,
+    test_card_blood_crypt, test_card_hallowed_fountain, test_card_overgrown_tomb,
+    test_card_steam_vents, test_card_temple_garden, test_card_eclipsed_realms,
+    test_card_evolving_wilds,
+    test_card_soulbright_seeker, test_card_sting_slinger, test_card_moonglove_extract,
+    test_card_fulminator_mage, test_card_deity_of_scars, test_card_springleaf_drum, test_card_firdoch_core,
+    # --- Re-exam batch: engine-native creature mana abilities ---
+    test_card_great_forest_druid, test_card_flamebraider, test_card_lys_alana_dignitary,
+    # --- Re-exam batch: creature activated abilities ---
+    test_card_surly_farrier, test_card_safewright_cavalry, test_card_flame_chain_mauler,
+    test_card_bre_of_clan_stoutarm, test_card_gristle_glutton,
+    test_card_glen_elendra_archmage, test_card_goldmeadow_nomad,
+    # --- Re-exam batch: auras / equipment ---
+    test_card_morcants_eyes, test_card_evershrikes_gift, test_card_treefolk_bough_spear,
+    # --- Re-exam batch: static lord-grant of a triggered ability ---
+    test_card_champion_of_the_path,
+    # --- Re-exam batch: spell-cast untap + characteristic-defining P/T ---
+    test_card_nettle_sentinel, test_card_overbeing_of_myth,
+    # --- Re-exam batch: ETB gain-control + Kinship payoff ---
+    test_card_sower_of_temptation, test_card_sensation_gorger,
+    # --- Phase A Batch A (activated / mana) ---
+    test_card_heap_doll, test_card_scarblade_elite, test_card_scarblade_scout,
+    test_card_rhys_the_redeemed, test_card_twilight_diviner, test_card_brion_stoutarm,
+    test_card_devoted_druid, test_card_stoic_grove_guide,
+    # --- Phase A Batch B (activated team/self + custom mana) ---
+    test_card_inner_flame_igniter, test_card_chameleon_colossus, test_card_mirror_entity,
+    test_card_stillmoon_cavalier, test_card_sygg_river_guide, test_card_bloom_tender,
+    test_card_heritage_druid, test_card_pili_pala,
+    # --- Phase A Batch C (reanimate / becomes-creature / surveil) ---
+    test_card_reaping_willow, test_card_horde_of_notions, test_card_figure_of_destiny,
+    test_card_elvish_branchbender, test_card_dawnhand_dissident,
+    # --- Phase A Batch D (aura fight + instant tap/stun) ---
+    test_card_pitiless_fists, test_card_rime_chill,
+    # --- Section 3: counterspells (Foundations CANCEL pattern) ---
+    test_card_broken_ambitions, test_card_faerie_trickery,
+    test_card_faerie_trickery_skips_faerie, test_card_spell_snare,
+    test_card_spell_snare_mv_gate, test_card_wild_unraveling,
+    test_card_glen_elendras_answer, test_card_spellstutter_sprite,
+    test_card_unwelcome_sprite, test_card_glen_elendra_guardian,
+    test_card_vexing_shusher, test_card_tattermunge_maniac,
+    test_card_timid_shieldbearer,
+    # --- Section 4: modal "choose one/two" spells (make_modal_resolve) ---
+    test_card_cryptic_command, test_card_ashlings_command,
+    test_card_brigids_command, test_card_grubs_command,
+    test_card_syggs_command, test_card_trystans_command,
+    test_card_austere_command, test_card_primal_command,
+    test_card_profane_command, test_card_incendiary_command,
+    test_card_giantfall, test_card_keep_out,
+    test_card_run_away_together, test_card_glamermite,
+    test_card_figure_of_fable,
+    # --- Section 5: replacement effects (replacements.py) + conspire grant ---
+    test_card_maralen_fae_ascendant, test_card_mornsong_aria,
+    test_card_doran_besieged_by_time, test_card_collective_inferno,
+    test_card_pollen_lullaby, test_card_goliath_daydreamer,
+    test_card_raiding_schemes,
+    # --- Section 6: framework-wired (planeswalker / saga / gain-control) ---
+    test_card_ajani_outland_chaperone, test_card_garruk_wildspeaker,
+    test_card_goatnap, test_card_the_aurora_cycle,
+    # --- FINISH-TAIL batch (last feasible cards) ---
+    test_card_chitinous_graspling, test_card_gangly_stompling,
+    test_card_retched_wretch, test_card_retched_wretch_no_counter_stays_dead,
+    test_card_rimefire_torque, test_card_rimefire_torque_wrong_type_no_charge,
+    test_card_gathering_stone,
+    test_card_spiral_into_solitude, test_card_noggle_the_mind,
+    test_card_dream_harvest, test_card_burning_curiosity,
+    test_card_end_blaze_epiphany, test_card_aurora_awakener,
+    test_card_demigod_of_revenge, test_card_rhys_the_evermore,
+    test_card_kinbinding, test_card_nettlevine_blight,
+    test_card_shimmerwilds_growth]
 
 
 def _run():
