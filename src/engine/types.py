@@ -1640,6 +1640,12 @@ class GameState:
     priority_player: Optional[str] = None
     turn_number: int = 0
     timestamp: int = 0  # Global timestamp counter
+    # Timestamp captured at the start of the current turn (turn.py run_turn).
+    # A creature is summoning sick iff entered_zone_at >= turn_start_timestamp
+    # (it entered at/after this turn began). 0 = no turn has run yet (combat
+    # falls back to the legacy entered==timestamp probe so direct-combat test
+    # harnesses that never invoke the turn loop keep working).
+    turn_start_timestamp: int = 0
 
     # Land play tracking (for "one land per turn" rule)
     lands_played_this_turn: int = 0

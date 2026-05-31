@@ -532,10 +532,19 @@ class CombatManager:
         if creature.state.tapped:
             return False
 
-        # Check summoning sickness (can't attack unless haste)
-        # Simplified: check if creature entered this turn
-        if creature.entered_zone_at == self.state.timestamp:
-            if not has_ability(creature, 'haste', self.state):
+        # Check summoning sickness (can't attack unless haste).
+        # A creature is summoning sick iff it entered the battlefield at or after
+        # the current turn began. `turn_start_timestamp` is stamped at turn-begin
+        # (turn.py run_turn). The previous check compared entered_zone_at against
+        # the LIVE timestamp, which bumps on every event after entry — so a
+        # creature read as sick for only one tick and could then attack the turn
+        # it was cast. Fall back to that legacy probe only when no turn has run
+        # (turn_start_timestamp == 0), e.g. direct-combat unit harnesses.
+        ez = getattr(creature, 'entered_zone_at', None)
+        if ez is not None:
+            turn_start = getattr(self.state, 'turn_start_timestamp', 0) or 0
+            sick = (ez >= turn_start) if turn_start else (ez == self.state.timestamp)
+            if sick and not has_ability(creature, 'haste', self.state):
                 return False
 
         # Check for "can't attack" abilities. A creature with the temporary
