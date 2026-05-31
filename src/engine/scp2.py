@@ -1,0 +1,858 @@
+"""SCP: SECURE / CONTAIN / SUBVERT — asymmetric engine core.
+
+Foundation (the builder) vs Chaos Insurgency (the disruptor), modeled on Netrunner.
+See docs/design/scp2_rules.md for the full ruleset. This module is the pure-Python
+engine: state model, card constructors, the action verbs, the infiltration (run)
+resolution, and the symmetric win check. No server/frontend dependencies.
+
+Design invariants worth keeping in mind while reading:
+  * There is NO self-inflicted loss. Each faction's win is the other's loss (§7 of the
+    spec). ``check_scp2_win`` is the single arbiter, run as a state-based action.
+  * Installed cards live on the shared ``battlefield`` zone; the board *structure*
+    (which cell, which layer stack, the rig) is tracked in ``state.scp2_state`` indexes,
+    mirroring how scp.py uses ``scp_anomalies`` etc.
+  * Per-object scp2 data (advancement, face-down, rezzed) lives on ``obj.state`` as
+    dynamic ``scp2_*`` attrs (ObjectState is a plain dataclass, no __slots__).
+  * Total Breach is a single shared clock kept on the Foundation's record (its
+    containment is what's failing).
+"""
+
+from __future__ import annotations
+
+import random
+from typing import Any, Callable, Optional
+
+from .types import (
+    CardDefinition,
+    Characteristics,
+    CardType,
+    Event,
+    EventType,
+    GameState,
+    GameObject,
+    Player,
+    Zone,
+    ZoneType,
+)
+
+# ---------------------------------------------------------------------------
+# Constants (initial values — tuned in Phase 4; see spec §10)
+# ---------------------------------------------------------------------------
+FOUNDATION = "foundation"
+INSURGENCY = "insurgency"
+
+AP_PER_TURN = 3
+STARTING_CREDITS = 5
+GAIN_AMOUNT = 2
+DRAW_PER_TURN = 1
+MAX_HAND = 5
+
+CONTAINMENT_TARGET = 7      # Foundation primary win
+LIBERATION_TARGET = 7       # Insurgency primary win
+BREACH_CATASTROPHE = 10     # Insurgency secondary win ("unleash")
+
+LAYER_TYPES = ("barrier", "sentry", "sensor")
+CENTRALS = ("hq", "research", "archives")
+
+# Default subroutine per layer type (a card may override via scp2_sub).
+_DEFAULT_SUB = {"barrier": "end_run", "sentry": "neutralize", "sensor": "expose"}
+
+
+# ---------------------------------------------------------------------------
+# Per-player state model
+# ---------------------------------------------------------------------------
+def _player_defaults(faction: str) -> dict[str, Any]:
+    return {
+        "faction": faction,
+        "credits": STARTING_CREDITS,
+        "ap": 0,
+        # win counters
+        "containment_points": 0,   # Foundation
+        "liberation_points": 0,    # Insurgency
+        "total_breach": 0,         # kept on the Foundation record; shared clock
+        # Insurgency status
+        "exposed": 0,              # tag count
+        "burned_out": False,       # flatline flag → Foundation soft-kill win
+        # board structure
+        "cells": [],               # Foundation: [{"id", "anomaly": obj_id|None, "layers": [obj_id]}]
+        "centrals": {c: [] for c in CENTRALS},  # Foundation: layer stacks on HQ/Research/Archives
+        "assets": [],              # Foundation: installed asset obj_ids
+        "rig": [],                 # Insurgency: installed operative/tool obj_ids
+        "next_cell_id": 1,
+    }
+
+
+def ensure_scp2_state(state: GameState, player_id: str, faction: Optional[str] = None) -> dict:
+    rec = state.scp2_state.get(player_id)
+    if rec is None:
+        rec = _player_defaults(faction or FOUNDATION)
+        state.scp2_state[player_id] = rec
+    if faction:
+        rec["faction"] = faction
+    for key, value in _player_defaults(rec["faction"]).items():
+        rec.setdefault(key, value)
+    return rec
+
+
+def setup_scp2_player(game, player: Player, faction: str) -> None:
+    """Initialise a player as a Foundation site or an Insurgency cell network."""
+    player.life = 0
+    player.max_life = 0
+    player.has_lost = False
+    ensure_scp2_state(game.state, player.id, faction)
+    # The shared battlefield zone holds installed cards; create it if missing
+    # (per-player library/hand/graveyard are made by Game.add_player).
+    if "battlefield" not in game.state.zones:
+        game.state.zones["battlefield"] = Zone(type=ZoneType.BATTLEFIELD, owner=None)
+
+
+def rec(state: GameState, player_id: str) -> dict:
+    return ensure_scp2_state(state, player_id)
+
+
+def faction_of(state: GameState, player_id: str) -> str:
+    return ensure_scp2_state(state, player_id)["faction"]
+
+
+def _player_with_faction(state: GameState, faction: str) -> Optional[str]:
+    for pid in state.players:
+        if faction_of(state, pid) == faction:
+            return pid
+    return None
+
+
+def foundation_id(state: GameState) -> Optional[str]:
+    return _player_with_faction(state, FOUNDATION)
+
+
+def insurgency_id(state: GameState) -> Optional[str]:
+    return _player_with_faction(state, INSURGENCY)
+
+
+def opponent_of(state: GameState, player_id: str) -> Optional[str]:
+    for pid in state.players:
+        if pid != player_id:
+            return pid
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Card constructors
+# ---------------------------------------------------------------------------
+def _card(name: str, ctype: CardType, text: str = "", **attrs: Any) -> CardDefinition:
+    cd = CardDefinition(
+        name=name,
+        mana_cost=None,
+        domain="SCP2",
+        text=text,
+        characteristics=Characteristics(types={ctype}),
+    )
+    cd.scp2_kind = ctype
+    for key, value in attrs.items():
+        setattr(cd, "scp2_" + key, value)
+    return cd
+
+
+def make_anomaly(name: str, threshold: int, value: int, *, trap: bool = False,
+                 cost: int = 0, text: str = "", on_contain: Optional[Callable] = None,
+                 on_free: Optional[Callable] = None, on_access: Optional[Callable] = None,
+                 breach_on_free: Optional[int] = None) -> CardDefinition:
+    """Foundation agenda. ``threshold`` advancement to lock; ``value`` points when contained.
+
+    A ``trap`` looks like an anomaly (advanceable, fogged) but punishes on access via
+    ``on_access`` (default: deal 2 damage). ``breach_on_free`` overrides how much a freed
+    real anomaly adds to Total Breach (defaults to its value).
+    """
+    return _card(name, CardType.SCP2_ANOMALY, text, threshold=threshold, value=value,
+                 trap=trap, cost=cost, on_contain=on_contain, on_free=on_free,
+                 on_access=on_access, breach_on_free=breach_on_free)
+
+
+def make_layer(name: str, ltype: str, strength: int, rez: int, *,
+               sub: Optional[str] = None, text: str = "") -> CardDefinition:
+    """Foundation containment layer (ICE). ``ltype`` in LAYER_TYPES; ``sub`` overrides the
+    default subroutine for that type (end_run / neutralize / expose / damage2 / discard)."""
+    assert ltype in LAYER_TYPES, f"bad layer type {ltype}"
+    return _card(name, CardType.SCP2_LAYER, text, ltype=ltype, strength=strength,
+                 rez=rez, sub=sub or _DEFAULT_SUB[ltype])
+
+
+def make_asset(name: str, *, cost: int = 0, text: str = "",
+               on_install: Optional[Callable] = None,
+               on_turn_start: Optional[Callable] = None,
+               ability: Optional[Callable] = None) -> CardDefinition:
+    return _card(name, CardType.SCP2_ASSET, text, cost=cost, on_install=on_install,
+                 on_turn_start=on_turn_start, ability=ability)
+
+
+def make_operation(name: str, *, cost: int = 0, text: str = "",
+                   effect: Optional[Callable] = None) -> CardDefinition:
+    return _card(name, CardType.SCP2_OPERATION, text, cost=cost, effect=effect)
+
+
+def make_operative(name: str, breaks: str, power: int, *, boost: int = 1,
+                   cost: int = 0, text: str = "") -> CardDefinition:
+    """Insurgency breaker. Breaks layers of type ``breaks``; ``power`` base, ``boost`` Cells
+    per +1 power for the encounter."""
+    assert breaks in LAYER_TYPES, f"bad break type {breaks}"
+    return _card(name, CardType.SCP2_OPERATIVE, text, breaks=breaks, power=power,
+                 boost=boost, cost=cost)
+
+
+def make_tool(name: str, *, cost: int = 0, text: str = "",
+              on_install: Optional[Callable] = None,
+              ability: Optional[Callable] = None) -> CardDefinition:
+    return _card(name, CardType.SCP2_TOOL, text, cost=cost, on_install=on_install,
+                 ability=ability)
+
+
+def make_event(name: str, *, cost: int = 0, text: str = "",
+               effect: Optional[Callable] = None) -> CardDefinition:
+    return _card(name, CardType.SCP2_EVENT, text, cost=cost, effect=effect)
+
+
+def make_identity(name: str, faction: str, *, text: str = "",
+                  passive: Optional[Callable] = None) -> CardDefinition:
+    return _card(name, CardType.SCP2_IDENTITY, text, faction=faction, passive=passive)
+
+
+# ---------------------------------------------------------------------------
+# Zones / movement / draw
+# ---------------------------------------------------------------------------
+def _zkey(ztype: ZoneType, owner: str) -> str:
+    return f"{ztype.name.lower()}_{owner}"
+
+
+def hand_ids(state: GameState, player_id: str) -> list[str]:
+    z = state.zones.get(_zkey(ZoneType.HAND, player_id))
+    return list(z.objects) if z else []
+
+
+def deck_ids(state: GameState, player_id: str) -> list[str]:
+    z = state.zones.get(_zkey(ZoneType.LIBRARY, player_id))
+    return list(z.objects) if z else []
+
+
+def discard_ids(state: GameState, player_id: str) -> list[str]:
+    z = state.zones.get(_zkey(ZoneType.GRAVEYARD, player_id))
+    return list(z.objects) if z else []
+
+
+def _relocate(game, obj: GameObject, to_zone: ZoneType, *, source: Optional[str] = None) -> list[Event]:
+    """Move an object between zones, keeping zone object-lists and obj.zone in sync, and
+    emit a ZONE_CHANGE so interceptors/replays observe it."""
+    state = game.state
+    # remove from current zone list
+    from_key = ("battlefield" if obj.zone in (ZoneType.BATTLEFIELD,)
+                else _zkey(obj.zone, obj.owner))
+    fz = state.zones.get(from_key)
+    if fz and obj.id in fz.objects:
+        fz.objects.remove(obj.id)
+    to_key = "battlefield" if to_zone == ZoneType.BATTLEFIELD else _zkey(to_zone, obj.owner)
+    if to_key not in state.zones and to_zone == ZoneType.BATTLEFIELD:
+        state.zones[to_key] = Zone(type=ZoneType.BATTLEFIELD, owner=None)
+    tz = state.zones.get(to_key)
+    obj.zone = to_zone
+    if tz and obj.id not in tz.objects:
+        tz.objects.append(obj.id)
+    return game.emit(Event(
+        type=EventType.ZONE_CHANGE,
+        payload={"object_id": obj.id, "to_zone_type": to_zone, "to_zone": to_key},
+        source=source or obj.id,
+        controller=obj.controller,
+    ))
+
+
+def draw_cards(game, player_id: str, n: int = 1) -> list[Event]:
+    """Move the top ``n`` library cards to hand. Decking out is not an scp2 loss (the
+    spec has no self-inflicted loss); an empty library simply draws nothing."""
+    state = game.state
+    events: list[Event] = []
+    for _ in range(n):
+        dz = state.zones.get(_zkey(ZoneType.LIBRARY, player_id))
+        if not dz or not dz.objects:
+            break
+        top = dz.objects[-1]
+        obj = state.objects.get(top)
+        if obj is None:
+            dz.objects.pop()
+            continue
+        events.extend(_relocate(game, obj, ZoneType.HAND))
+        events.append(Event(type=EventType.DRAW, payload={"player": player_id, "object_id": top}))
+    return events
+
+
+def _emit(game, etype: EventType, controller: Optional[str] = None, **payload: Any) -> list[Event]:
+    return game.emit(Event(type=etype, payload=payload, source="SCP2_SYSTEM", controller=controller))
+
+
+# ---------------------------------------------------------------------------
+# Resource / AP helpers
+# ---------------------------------------------------------------------------
+def reset_turn_resources(state: GameState, player_id: str) -> None:
+    r = ensure_scp2_state(state, player_id)
+    r["ap"] = AP_PER_TURN
+
+
+def _spend_ap(r: dict, n: int = 1) -> bool:
+    if r["ap"] < n:
+        return False
+    r["ap"] -= n
+    return True
+
+
+def _spend_credits(r: dict, n: int) -> bool:
+    if r["credits"] < n:
+        return False
+    r["credits"] -= n
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Shared verbs
+# ---------------------------------------------------------------------------
+def gain_credits(game, player_id: str) -> tuple[bool, str, list[Event]]:
+    r = ensure_scp2_state(game.state, player_id)
+    if not _spend_ap(r):
+        return False, "No actions left", []
+    r["credits"] += GAIN_AMOUNT
+    return True, "", []
+
+
+def draw_action(game, player_id: str) -> tuple[bool, str, list[Event]]:
+    r = ensure_scp2_state(game.state, player_id)
+    if not _spend_ap(r):
+        return False, "No actions left", []
+    return True, "", draw_cards(game, player_id, 1)
+
+
+def play_card(game, player_id: str, card_id: str, *, cell_id: Optional[int] = None,
+              target: Optional[tuple] = None) -> tuple[bool, str, list[Event]]:
+    """Spend 1 AP + the card's credit cost to install a card or resolve a one-shot."""
+    state = game.state
+    r = ensure_scp2_state(state, player_id)
+    obj = state.objects.get(card_id)
+    if not obj or obj.owner != player_id or obj.zone != ZoneType.HAND:
+        return False, "Card not in hand", []
+    cd = obj.card_def
+    kind = getattr(cd, "scp2_kind", None)
+    cost = int(getattr(cd, "scp2_cost", 0) or 0)
+    if r["ap"] < 1:
+        return False, "No actions left", []
+    if r["credits"] < cost:
+        return False, "Insufficient credits", []
+    r["ap"] -= 1
+    r["credits"] -= cost
+    events: list[Event] = []
+
+    if kind == CardType.SCP2_ANOMALY:
+        events.extend(_install_anomaly(game, player_id, obj, cell_id))
+    elif kind == CardType.SCP2_LAYER:
+        events.extend(_install_layer(game, player_id, obj, target, cell_id))
+    elif kind in (CardType.SCP2_ASSET, CardType.SCP2_TOOL, CardType.SCP2_OPERATIVE):
+        events.extend(_install_persistent(game, player_id, obj, kind))
+    elif kind in (CardType.SCP2_OPERATION, CardType.SCP2_EVENT):
+        effect = getattr(cd, "scp2_effect", None)
+        if callable(effect):
+            events.extend(effect(game, player_id) or [])
+        events.extend(_relocate(game, obj, ZoneType.GRAVEYARD))
+    else:
+        return False, f"Cannot play card of kind {kind}", []
+
+    events = _emit(game, EventType.SCP2_INSTALL, controller=player_id,
+                   player=player_id, object_id=card_id,
+                   kind=(kind.name if kind else None)) + events
+    events.extend(check_scp2_win(game))
+    return True, "", events
+
+
+def _new_cell(r: dict) -> dict:
+    cell = {"id": r["next_cell_id"], "anomaly": None, "layers": []}
+    r["next_cell_id"] += 1
+    r["cells"].append(cell)
+    return cell
+
+
+def _find_cell(r: dict, cell_id: Optional[int]) -> Optional[dict]:
+    if cell_id is None:
+        return None
+    for cell in r["cells"]:
+        if cell["id"] == cell_id:
+            return cell
+    return None
+
+
+def _install_anomaly(game, player_id: str, obj: GameObject, cell_id: Optional[int]) -> list[Event]:
+    r = ensure_scp2_state(game.state, player_id)
+    cell = _find_cell(r, cell_id)
+    if cell is None or cell["anomaly"] is not None:
+        cell = _new_cell(r)
+    cell["anomaly"] = obj.id
+    obj.state.scp2_role = "anomaly"
+    obj.state.scp2_facedown = True
+    obj.state.scp2_advancement = 0
+    obj.state.scp2_cell = cell["id"]
+    obj.state.scp2_status = "advancing"
+    return _relocate(game, obj, ZoneType.BATTLEFIELD)
+
+
+def _install_layer(game, player_id: str, obj: GameObject, target: Optional[tuple],
+                   cell_id: Optional[int]) -> list[Event]:
+    r = ensure_scp2_state(game.state, player_id)
+    obj.state.scp2_role = "layer"
+    obj.state.scp2_facedown = True
+    obj.state.scp2_rezzed = False
+    # target = ("central", name) installs on a central; otherwise onto a cell
+    if target and target[0] == "central" and target[1] in CENTRALS:
+        r["centrals"][target[1]].append(obj.id)
+        obj.state.scp2_guard = ("central", target[1])
+    else:
+        cid = cell_id if cell_id is not None else (target[1] if target and target[0] == "cell" else None)
+        cell = _find_cell(r, cid) or (r["cells"][-1] if r["cells"] else _new_cell(r))
+        cell["layers"].append(obj.id)
+        obj.state.scp2_guard = ("cell", cell["id"])
+    return _relocate(game, obj, ZoneType.BATTLEFIELD)
+
+
+def _install_persistent(game, player_id: str, obj: GameObject, kind: CardType) -> list[Event]:
+    r = ensure_scp2_state(game.state, player_id)
+    obj.state.scp2_role = {CardType.SCP2_ASSET: "asset", CardType.SCP2_TOOL: "tool",
+                           CardType.SCP2_OPERATIVE: "operative"}[kind]
+    obj.state.scp2_facedown = (kind == CardType.SCP2_ASSET)  # Foundation assets install hidden
+    (r["assets"] if kind == CardType.SCP2_ASSET else r["rig"]).append(obj.id)
+    events = _relocate(game, obj, ZoneType.BATTLEFIELD)
+    on_install = getattr(obj.card_def, "scp2_on_install", None)
+    if callable(on_install):
+        events.extend(on_install(game, player_id, obj) or [])
+    return events
+
+
+# ---------------------------------------------------------------------------
+# Foundation verbs: advance / contain
+# ---------------------------------------------------------------------------
+def advance(game, player_id: str, anomaly_id: str) -> tuple[bool, str, list[Event]]:
+    """Foundation: spend 1 AP + 1 credit to place an advancement token (public)."""
+    state = game.state
+    r = ensure_scp2_state(state, player_id)
+    obj = state.objects.get(anomaly_id)
+    if not obj or obj.controller != player_id or getattr(obj.state, "scp2_role", None) != "anomaly":
+        return False, "Not your anomaly", []
+    if getattr(obj.state, "scp2_status", None) != "advancing":
+        return False, "Anomaly is not advanceable", []
+    if r["ap"] < 1:
+        return False, "No actions left", []
+    if r["credits"] < 1:
+        return False, "Insufficient credits", []
+    r["ap"] -= 1
+    r["credits"] -= 1
+    obj.state.scp2_advancement = int(getattr(obj.state, "scp2_advancement", 0)) + 1
+    return True, "", _emit(game, EventType.SCP2_ADVANCE, controller=player_id,
+                           player=player_id, object_id=anomaly_id,
+                           advancement=obj.state.scp2_advancement)
+
+
+def contain(game, player_id: str, anomaly_id: str) -> tuple[bool, str, list[Event]]:
+    """Foundation: lock an anomaly whose advancement met its threshold → score its value."""
+    state = game.state
+    r = ensure_scp2_state(state, player_id)
+    obj = state.objects.get(anomaly_id)
+    if not obj or obj.controller != player_id or getattr(obj.state, "scp2_role", None) != "anomaly":
+        return False, "Not your anomaly", []
+    cd = obj.card_def
+    threshold = int(getattr(cd, "scp2_threshold", 0) or 0)
+    if int(getattr(obj.state, "scp2_advancement", 0)) < threshold:
+        return False, "Not enough advancement to contain", []
+    if r["ap"] < 1:
+        return False, "No actions left", []
+    r["ap"] -= 1
+    value = int(getattr(cd, "scp2_value", 0) or 0)
+    obj.state.scp2_status = "contained"
+    obj.state.scp2_facedown = False
+    # remove from its cell's anomaly slot (the cell may keep its layers)
+    for cell in r["cells"]:
+        if cell.get("anomaly") == anomaly_id:
+            cell["anomaly"] = None
+    r["containment_points"] += value
+    events = _emit(game, EventType.SCP2_CONTAIN, controller=player_id,
+                   player=player_id, object_id=anomaly_id, value=value,
+                   containment_points=r["containment_points"])
+    on_contain = getattr(cd, "scp2_on_contain", None)
+    if callable(on_contain):
+        events.extend(on_contain(game, player_id, obj) or [])
+    events.extend(check_scp2_win(game))
+    return True, "", events
+
+
+# ---------------------------------------------------------------------------
+# Insurgency verb: infiltrate (the run) + damage
+# ---------------------------------------------------------------------------
+def _layer_stack(state: GameState, fid: str, target: tuple) -> list[str]:
+    fr = ensure_scp2_state(state, fid)
+    if target[0] == "central":
+        return fr["centrals"].get(target[1], [])
+    cell = _find_cell(fr, target[1])
+    return cell["layers"] if cell else []
+
+
+def _can_break(state: GameState, insurgent_id: str, layer: GameObject) -> tuple[bool, int]:
+    """Does the Insurgency control a breaker that can crack this layer, and at what Cell cost?"""
+    ir = ensure_scp2_state(state, insurgent_id)
+    ltype = getattr(layer.card_def, "scp2_ltype", None)
+    strength = int(getattr(layer.card_def, "scp2_strength", 0) or 0)
+    best: Optional[int] = None
+    for oid in ir["rig"]:
+        op = state.objects.get(oid)
+        if not op or getattr(op.state, "scp2_role", None) != "operative":
+            continue
+        if getattr(op.card_def, "scp2_breaks", None) != ltype:
+            continue
+        power = int(getattr(op.card_def, "scp2_power", 0) or 0)
+        boost = max(1, int(getattr(op.card_def, "scp2_boost", 1) or 1))
+        deficit = max(0, strength - power)
+        cost = deficit * boost
+        if power + (ir["credits"] // boost) >= strength:
+            if best is None or cost < best:
+                best = cost
+    return (best is not None), (best or 0)
+
+
+def deal_damage(game, insurgent_id: str, n: int) -> list[Event]:
+    """Discard ``n`` random cards from the Insurgency's hand. Damage with an empty hand =
+    burned out (flatline) → Foundation soft-kill win (resolved by check_scp2_win)."""
+    state = game.state
+    ir = ensure_scp2_state(state, insurgent_id)
+    events: list[Event] = []
+    for _ in range(n):
+        hand = hand_ids(state, insurgent_id)
+        if not hand:
+            ir["burned_out"] = True
+            break
+        victim = state.objects.get(random.choice(hand))
+        if victim:
+            events.extend(_relocate(game, victim, ZoneType.GRAVEYARD))
+    events.extend(_emit(game, EventType.SCP2_DAMAGE, controller=insurgent_id,
+                        player=insurgent_id, amount=n))
+    return events
+
+
+def _resolve_subroutine(game, insurgent_id: str, layer: GameObject, run: dict) -> list[Event]:
+    """Fire an unbroken layer's subroutine. Returns events; sets run['ended'] for end_run."""
+    state = game.state
+    ir = ensure_scp2_state(state, insurgent_id)
+    sub = getattr(layer.card_def, "scp2_sub", None) or _DEFAULT_SUB.get(
+        getattr(layer.card_def, "scp2_ltype", ""), "expose")
+    events: list[Event] = []
+    if sub == "end_run":
+        run["ended"] = True
+    elif sub == "neutralize":
+        # trash one rig operative; if none, 1 damage
+        operatives = [oid for oid in ir["rig"]
+                      if getattr(state.objects.get(oid), "state", None)
+                      and getattr(state.objects[oid].state, "scp2_role", None) == "operative"]
+        if operatives:
+            victim = state.objects[operatives[0]]
+            ir["rig"].remove(victim.id)
+            events.extend(_relocate(game, victim, ZoneType.GRAVEYARD))
+        else:
+            events.extend(deal_damage(game, insurgent_id, 1))
+    elif sub == "damage2":
+        events.extend(deal_damage(game, insurgent_id, 2))
+    elif sub == "expose":
+        ir["exposed"] = int(ir.get("exposed", 0)) + 1
+        events.extend(_emit(game, EventType.SCP2_EXPOSE, controller=insurgent_id, player=insurgent_id))
+    elif sub == "discard":
+        hand = hand_ids(state, insurgent_id)
+        if hand:
+            victim = state.objects.get(random.choice(hand))
+            if victim:
+                events.extend(_relocate(game, victim, ZoneType.GRAVEYARD))
+    return events
+
+
+def infiltrate(game, insurgent_id: str, target: tuple, *,
+               rez_policy: Optional[Callable] = None,
+               break_policy: Optional[Callable] = None) -> tuple[bool, str, list[Event]]:
+    """Insurgency run. ``target`` = ("cell", cell_id) or ("central", name).
+
+    rez_policy(foundation_rec, layer) -> bool : Foundation's reactive rez choice (default:
+        greedy — rez any affordable, not-yet-rezzed layer).
+    break_policy(insurgent_rec, layer, can_break, cost) -> bool : Insurgency's break choice
+        (default: break whenever able).
+    """
+    state = game.state
+    ir = ensure_scp2_state(state, insurgent_id)
+    fid = foundation_id(state)
+    if fid is None:
+        return False, "No Foundation", []
+    fr = ensure_scp2_state(state, fid)
+    if target[0] not in ("cell", "central"):
+        return False, "Bad target", []
+    if ir["ap"] < 1:
+        return False, "No actions left", []
+    ir["ap"] -= 1
+
+    rezzer = rez_policy or (lambda frec, layer: frec["credits"] >= int(getattr(layer.card_def, "scp2_rez", 0) or 0))
+    breaker = break_policy or (lambda irec, layer, can, cost: can)
+
+    events = _emit(game, EventType.SCP2_INFILTRATE, controller=insurgent_id,
+                   player=insurgent_id, target=list(target))
+    run = {"ended": False}
+
+    for layer_id in list(_layer_stack(state, fid, target)):
+        if run["ended"]:
+            break
+        layer = state.objects.get(layer_id)
+        if not layer:
+            continue
+        rezzed = bool(getattr(layer.state, "scp2_rezzed", False))
+        if not rezzed and rezzer(fr, layer):
+            rez_cost = int(getattr(layer.card_def, "scp2_rez", 0) or 0)
+            if fr["credits"] >= rez_cost:
+                fr["credits"] -= rez_cost
+                layer.state.scp2_rezzed = True
+                layer.state.scp2_facedown = False
+                rezzed = True
+        broken = False
+        if rezzed:
+            can, cost = _can_break(state, insurgent_id, layer)
+            if can and breaker(ir, layer, can, cost):
+                ir["credits"] -= cost
+                broken = True
+            else:
+                events.extend(_resolve_subroutine(game, insurgent_id, layer, run))
+        events.extend(_emit(game, EventType.SCP2_LAYER_ENCOUNTER, controller=insurgent_id,
+                            player=insurgent_id, layer_id=layer_id, rezzed=rezzed, broken=broken))
+
+    if not run["ended"]:
+        events.extend(_access(game, insurgent_id, target))
+    events.extend(check_scp2_win(game))
+    return True, "", events
+
+
+def _access(game, insurgent_id: str, target: tuple) -> list[Event]:
+    state = game.state
+    fid = foundation_id(state)
+    events = _emit(game, EventType.SCP2_ACCESS, controller=insurgent_id,
+                   player=insurgent_id, target=list(target))
+    if target[0] == "central":
+        return events + _access_central(game, insurgent_id, target[1])
+    fr = ensure_scp2_state(state, fid)
+    cell = _find_cell(fr, target[1])
+    if not cell or not cell.get("anomaly"):
+        return events  # empty cell — nothing to free
+    anomaly = state.objects.get(cell["anomaly"])
+    if not anomaly:
+        return events
+    cd = anomaly.card_def
+    if bool(getattr(cd, "scp2_trap", False)):
+        events.extend(_spring_trap(game, insurgent_id, anomaly))
+        cell["anomaly"] = None
+        events.extend(_relocate(game, anomaly, ZoneType.GRAVEYARD))
+        return events
+    events.extend(_free_anomaly(game, insurgent_id, anomaly, cell))
+    return events
+
+
+def _access_central(game, insurgent_id: str, name: str) -> list[Event]:
+    """Espionage/sabotage on a central. v0.1: Research = mill 1; HQ/Archives = observed only."""
+    state = game.state
+    fid = foundation_id(state)
+    if name == "research":
+        dz = state.zones.get(_zkey(ZoneType.LIBRARY, fid))
+        if dz and dz.objects:
+            top = state.objects.get(dz.objects[-1])
+            if top:
+                return _relocate(game, top, ZoneType.GRAVEYARD)
+    return []
+
+
+def _spring_trap(game, insurgent_id: str, anomaly: GameObject) -> list[Event]:
+    on_access = getattr(anomaly.card_def, "scp2_on_access", None)
+    if callable(on_access):
+        return on_access(game, insurgent_id, anomaly) or []
+    return deal_damage(game, insurgent_id, 2)  # default trap bite
+
+
+def _free_anomaly(game, insurgent_id: str, anomaly: GameObject, cell: dict) -> list[Event]:
+    state = game.state
+    fid = foundation_id(state)
+    ir = ensure_scp2_state(state, insurgent_id)
+    fr = ensure_scp2_state(state, fid)
+    cd = anomaly.card_def
+    value = int(getattr(cd, "scp2_value", 0) or 0)
+    ir["liberation_points"] += value
+    breach = getattr(cd, "scp2_breach_on_free", None)
+    breach = value if breach is None else int(breach)
+    fr["total_breach"] += breach
+    cell["anomaly"] = None
+    events = _emit(game, EventType.SCP2_FREE, controller=insurgent_id,
+                   player=insurgent_id, object_id=anomaly.id, value=value,
+                   liberation_points=ir["liberation_points"])
+    events.extend(_emit(game, EventType.SCP2_BREACH, controller=insurgent_id,
+                        amount=breach, total_breach=fr["total_breach"]))
+    on_free = getattr(cd, "scp2_on_free", None)
+    if callable(on_free):
+        events.extend(on_free(game, insurgent_id, anomaly) or [])
+    events.extend(_relocate(game, anomaly, ZoneType.GRAVEYARD))
+    return events
+
+
+# ---------------------------------------------------------------------------
+# Win check (the single arbiter; run as a state-based action)
+# ---------------------------------------------------------------------------
+def _declare_win(game, winner: str, loser: str, reason: str) -> list[Event]:
+    state = game.state
+    if state.players[loser].has_lost:
+        return []
+    state.players[loser].has_lost = True
+    return game.emit(Event(
+        type=EventType.SCP2_WIN,
+        payload={"winner": winner, "loser": loser, "reason": reason},
+        source="SCP2_SYSTEM", controller=winner,
+    )) + game.emit(Event(
+        type=EventType.PLAYER_LOSES,
+        payload={"player": loser, "reason": reason, "winner": winner},
+        source="SCP2_SYSTEM", controller=winner,
+    ))
+
+
+def check_scp2_win(game) -> list[Event]:
+    state = game.state
+    fid = foundation_id(state)
+    iid = insurgency_id(state)
+    if fid is None or iid is None:
+        return []
+    if state.players[fid].has_lost or state.players[iid].has_lost:
+        return []
+    f = ensure_scp2_state(state, fid)
+    i = ensure_scp2_state(state, iid)
+    if f["containment_points"] >= CONTAINMENT_TARGET:
+        return _declare_win(game, fid, iid, "containment")
+    if i.get("burned_out"):
+        return _declare_win(game, fid, iid, "burnout")
+    if i["liberation_points"] >= LIBERATION_TARGET:
+        return _declare_win(game, iid, fid, "liberation")
+    if f["total_breach"] >= BREACH_CATASTROPHE:
+        return _declare_win(game, iid, fid, "total_breach")
+    return []
+
+
+# ---------------------------------------------------------------------------
+# Fog of war: redaction logic (wired into the per-viewer serializer in Phase 5)
+# ---------------------------------------------------------------------------
+def card_hidden_from(state: GameState, obj: GameObject, viewer_id: Optional[str]) -> bool:
+    """True if ``obj``'s identity must be hidden from ``viewer_id`` (face-down and not theirs).
+    The advancement token COUNT stays public even when the identity is hidden."""
+    if viewer_id is not None and obj.owner == viewer_id:
+        return False
+    return bool(getattr(obj.state, "scp2_facedown", False))
+
+
+def public_board(state: GameState, viewer_id: Optional[str]) -> dict:
+    """A viewer-specific board snapshot with face-down identities redacted. Used by the
+    frontend serializer (Phase 5); kept here so the redaction rule lives with the engine
+    and can be unit-tested in Phase 1."""
+    out: dict[str, Any] = {"players": {}}
+    for pid in state.players:
+        r = ensure_scp2_state(state, pid)
+        rec_out: dict[str, Any] = {
+            "faction": r["faction"],
+            "credits": r["credits"],
+            "ap": r["ap"],
+            "containment_points": r["containment_points"],
+            "liberation_points": r["liberation_points"],
+            "total_breach": r["total_breach"],
+            "exposed": r["exposed"],
+        }
+        cells_out = []
+        for cell in r["cells"]:
+            anomaly = state.objects.get(cell["anomaly"]) if cell.get("anomaly") else None
+            anomaly_view = None
+            if anomaly is not None:
+                hidden = card_hidden_from(state, anomaly, viewer_id)
+                anomaly_view = {
+                    "advancement": int(getattr(anomaly.state, "scp2_advancement", 0)),  # public
+                    "name": ("[FACE-DOWN]" if hidden else anomaly.name),
+                    "hidden": hidden,
+                }
+            layers_out = []
+            for lid in cell["layers"]:
+                layer = state.objects.get(lid)
+                if not layer:
+                    continue
+                hidden = card_hidden_from(state, layer, viewer_id)
+                layers_out.append({
+                    "name": ("[FACE-DOWN]" if hidden else layer.name),
+                    "rezzed": bool(getattr(layer.state, "scp2_rezzed", False)),
+                    "hidden": hidden,
+                })
+            cells_out.append({"id": cell["id"], "anomaly": anomaly_view, "layers": layers_out})
+        rec_out["cells"] = cells_out
+        out["players"][pid] = rec_out
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Turn-manager support + game setup
+# ---------------------------------------------------------------------------
+def fire_turn_start_assets(game, player_id: str) -> list[Event]:
+    """Run start-of-turn hooks on the active player's installed assets."""
+    state = game.state
+    r = ensure_scp2_state(state, player_id)
+    events: list[Event] = []
+    for oid in list(r["assets"]):
+        obj = state.objects.get(oid)
+        if not obj:
+            continue
+        hook = getattr(obj.card_def, "scp2_on_turn_start", None)
+        if callable(hook):
+            events.extend(hook(game, player_id, obj) or [])
+    return events
+
+
+def discard_to_max(game, player_id: str) -> list[Event]:
+    """End-of-turn cleanup: discard at random down to MAX_HAND. (AI/human pick which card
+    in practice; the engine enforces only the cap.)"""
+    state = game.state
+    events: list[Event] = []
+    while len(hand_ids(state, player_id)) > MAX_HAND:
+        victim = state.objects.get(random.choice(hand_ids(state, player_id)))
+        if not victim:
+            break
+        events.extend(_relocate(game, victim, ZoneType.GRAVEYARD))
+    return events
+
+
+def setup_scp2_game(game, foundation_player: Player, insurgency_player: Player, *,
+                    foundation_deck: list[CardDefinition], insurgency_deck: list[CardDefinition],
+                    foundation_identity: Optional[CardDefinition] = None,
+                    insurgency_identity: Optional[CardDefinition] = None,
+                    shuffle: bool = True, rng: Optional[random.Random] = None,
+                    opening_hand: int = 5) -> None:
+    """Wire up a full scp2 game: factions, libraries, identities, opening hands, turn order
+    (Foundation first). Decks are lists of CardDefinition (templates)."""
+    rng = rng or random
+    setup_scp2_player(game, foundation_player, FOUNDATION)
+    setup_scp2_player(game, insurgency_player, INSURGENCY)
+
+    for player, deck, identity in (
+        (foundation_player, foundation_deck, foundation_identity),
+        (insurgency_player, insurgency_deck, insurgency_identity),
+    ):
+        cards = list(deck)
+        if shuffle:
+            rng.shuffle(cards)
+        for cd in cards:
+            game.create_object(name=cd.name, owner_id=player.id, zone=ZoneType.LIBRARY,
+                               characteristics=cd.characteristics, card_def=cd)
+        if identity is not None:
+            ident = game.create_object(name=identity.name, owner_id=player.id,
+                                       zone=ZoneType.BATTLEFIELD,
+                                       characteristics=identity.characteristics, card_def=identity)
+            ident.state.scp2_role = "identity"
+            ensure_scp2_state(game.state, player.id)["identity"] = ident.id
+        draw_cards(game, player.id, opening_hand)
+
+    tm = game.turn_manager
+    if hasattr(tm, "set_turn_order"):
+        tm.set_turn_order([foundation_player.id, insurgency_player.id])

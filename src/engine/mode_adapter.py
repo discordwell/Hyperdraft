@@ -878,6 +878,32 @@ class SCPModeAdapter(GameModeAdapter):
         return True
 
 
+class SCP2ModeAdapter(GameModeAdapter):
+    """SCP: SECURE / CONTAIN / SUBVERT — asymmetric Foundation-vs-Insurgency mode."""
+    mode: str = "scp2"
+
+    def default_max_hand_size(self):
+        return 999  # scp2 enforces MAX_HAND itself at end of turn (scp2.discard_to_max)
+
+    def create_mana_system(self, state):
+        return None
+
+    def create_turn_manager(self, state):
+        from .scp2_turn import SCP2TurnManager
+        return SCP2TurnManager(state)
+
+    async def setup_starting_hands(self, game, player_ids):
+        # scp2's canonical setup is scp2.setup_scp2_game (factions + decks + hands).
+        return True
+
+    def register_ai_player(self, game, player_id):
+        if hasattr(game.turn_manager, "set_ai_player"):
+            game.turn_manager.set_ai_player(player_id)
+
+    def includes_game_log_in_state(self):
+        return True
+
+
 # =============================================================================
 # Depths (submarine fleet)
 # =============================================================================
@@ -917,6 +943,7 @@ _REGISTRY: dict[str, GameModeAdapter] = {
     "yugioh": YugiohModeAdapter(),
     "minecraft": MinecraftModeAdapter(),
     "scp": SCPModeAdapter(),
+    "scp2": SCP2ModeAdapter(),
     "depths": _build_depths_adapter(),
     "finance": _build_finance_adapter(),
     "cats": _build_cats_adapter(),
