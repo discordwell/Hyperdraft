@@ -125,4 +125,14 @@ describe('PokemonGatherer (lab posture)', () => {
     // current empty-state).
     expect(screen.getByTestId('pokemon-gatherer-grid')).toBeInTheDocument();
   });
+
+  it('exposes a visible masthead "← Lab" back-link to HYPERDRAFT main', () => {
+    renderPage();
+    // The masthead now carries a "← Lab" button (matching MTG Gatherer) so
+    // the card browser is not a navigational dead-end. Query by accessible
+    // name to target the masthead button, not the pre-existing footer crumb.
+    const back = screen.getByRole('button', { name: /Back to lab home/ });
+    expect(back).toBeInTheDocument();
+    expect(back).toHaveTextContent('← Lab');
+  });
 });

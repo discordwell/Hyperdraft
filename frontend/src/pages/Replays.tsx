@@ -111,6 +111,26 @@ export function Replays() {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 11,
+                fontWeight: 500,
+                letterSpacing: '.1em',
+                textTransform: 'uppercase',
+                color: 'var(--ink-3)',
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 0,
+                marginRight: 4,
+              }}
+              aria-label="Back to lab home"
+            >
+              ← Lab
+            </button>
             <span
               style={{
                 fontFamily: 'var(--font-mono)',

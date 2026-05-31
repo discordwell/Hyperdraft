@@ -10,7 +10,7 @@
  * /game/:matchId/scp link works; reads the viewer-redacted state via useSCPGame.
  */
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useGameStore } from '../stores/gameStore';
 import { matchAPI } from '../services/api';
 import {
@@ -179,6 +179,7 @@ function SeatBoard({
 
 export function SCPGameView() {
   const { matchId } = useParams<{ matchId: string }>();
+  const navigate = useNavigate();
   const storeMatchId = useGameStore((s) => s.matchId);
   const storePlayerId = useGameStore((s) => s.playerId);
   const setConnection = useGameStore((s) => s.setConnection);
@@ -206,7 +207,14 @@ export function SCPGameView() {
 
   if (!state || !state.me) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-300 flex items-center justify-center">
+      <div className="min-h-screen bg-slate-950 text-slate-300 flex items-center justify-center relative">
+        <button
+          onClick={() => navigate('/')}
+          className="absolute left-4 top-4 text-[11px] uppercase tracking-widest text-slate-500 hover:text-slate-200 transition-colors"
+          aria-label="Back to HYPERDRAFT main"
+        >
+          ← Home
+        </button>
         <div className="text-sm tracking-widest uppercase text-slate-500">
           {isConnected ? 'Loading containment site…' : 'Connecting…'}
         </div>
@@ -234,6 +242,13 @@ export function SCPGameView() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3 border-b border-slate-800 pb-3">
         <div>
+          <button
+            onClick={() => navigate('/')}
+            className="mb-1 text-[11px] uppercase tracking-widest text-slate-500 hover:text-slate-200 transition-colors"
+            aria-label="Back to HYPERDRAFT main"
+          >
+            ← Home
+          </button>
           <div className="text-lg font-semibold tracking-tight">SCP — SECURE / CONTAIN / SUBVERT</div>
           <div className="text-[11px] uppercase tracking-widest text-slate-500">
             {state.gameOver ? `GAME OVER · ${state.winReason ?? ''}` : state.yourTurn ? 'YOUR TURN' : "OPPONENT'S TURN"}

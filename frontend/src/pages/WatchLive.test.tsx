@@ -155,8 +155,13 @@ describe('WatchLive (lab posture)', () => {
     expect(screen.getByTestId('spectate-game')).toBeInTheDocument();
   });
 
-  it('exposes the "← Lab" footer back-link', () => {
+  it('exposes a visible masthead "← Lab" back-link', () => {
     renderPage();
-    expect(screen.getByRole('button', { name: /← Lab/ })).toBeInTheDocument();
+    // The lobby now carries a visible masthead "← Lab" pill (in addition to
+    // the footer crumb). Query it by accessible name so we assert the new
+    // masthead affordance specifically, not the footer fallback.
+    const back = screen.getByRole('button', { name: /Back to lab home/ });
+    expect(back).toBeInTheDocument();
+    expect(back).toHaveTextContent('← Lab');
   });
 });

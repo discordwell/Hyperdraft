@@ -360,6 +360,14 @@ export function WatchLive() {
           </div>
 
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              style={lobbyPillButtonStyle}
+              aria-label="Back to lab home"
+            >
+              ← Lab
+            </button>
             <span className="lab-chip" data-testid="live-count">
               <span className="dot lobby-pulse-dot" />
               {liveCount} live
