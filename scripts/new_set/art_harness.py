@@ -304,6 +304,19 @@ def to_filename(name: str) -> str:
     )
 
 
+def slug_for_card(name: str, card: Any) -> str:
+    """Filename slug for a card. Prefers an explicit ``id`` field on the card
+    (canonical for engines like PIP30 where ``id`` is the lookup key in
+    runtime code), falling back to the slugified display name. This keeps
+    MTG-style sets — whose Python dicts don't carry ``id`` — working as
+    before while letting JSON-driven sets keep filename === id parity.
+    """
+    candidate = getattr(card, "id", None)
+    if isinstance(candidate, str) and candidate:
+        return candidate
+    return to_filename(name)
+
+
 # =============================================================================
 # Mode implementations
 # =============================================================================
@@ -345,7 +358,7 @@ def run_manual_mode(
     entries: list[dict[str, str]] = []
     skipped = 0
     for name, card in sorted(cards.items()):
-        slug = to_filename(name)
+        slug = slug_for_card(name, card)
         filename = f"{slug}.png"
         if slug in completed_ids and not force:
             skipped += 1
@@ -395,7 +408,7 @@ def run_local_mode(
     palette_keys = list(style.category_flavors.keys()) or ["object"]
 
     for name, card in sorted(cards.items()):
-        out = out_dir / f"{to_filename(name)}.png"
+        out = out_dir / f"{slug_for_card(name, card)}.png"
         if out.exists() and not force:
             continue
         seed = int(hashlib.sha256(name.encode("utf-8")).hexdigest(), 16) % (2**32)

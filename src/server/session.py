@@ -1859,7 +1859,7 @@ class GameSession:
         brain = (profile.get("brain") or "").strip().lower()
         model = (profile.get("model") or "").strip() or None
 
-        from src.ai.llm import LLMConfig, OpenAIProvider, AnthropicProvider, OllamaProvider
+        from src.ai.llm import LLMConfig, OpenAIProvider, ClaudeCodeProvider, OllamaProvider
 
         config = LLMConfig()
 
@@ -1870,9 +1870,11 @@ class GameSession:
                 timeout=config.timeout,
             )
         elif brain == "anthropic":
-            provider = AnthropicProvider(
-                api_key=config.anthropic_key,
-                model=model or config.anthropic_model,
+            # Anthropic is now reached via the Claude Code CLI subprocess
+            # (OAuth creds at ~/.claude), not the HTTP API — no key needed.
+            # The "anthropic" brain value is kept for profile back-compat.
+            provider = ClaudeCodeProvider(
+                model=model or config.claude_code_model,
                 timeout=config.timeout,
             )
         elif brain == "ollama":

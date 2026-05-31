@@ -136,16 +136,17 @@ export function leaveMatch(matchId: string): void {
 /**
  * Send a player action via WebSocket
  */
-export function sendAction(matchId: string, action: PlayerActionRequest): void {
+export function sendAction(matchId: string, action: PlayerActionRequest): boolean {
   if (!socket?.connected) {
     console.error('Socket not connected');
-    return;
+    return false;
   }
 
   socket.emit('player_action', {
     match_id: matchId,
     ...action,
   });
+  return true;
 }
 
 /**

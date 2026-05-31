@@ -26,9 +26,9 @@ services:
       HYPERDRAFT_INTERNAL_SECRET: "${HYPERDRAFT_INTERNAL_SECRET:-}"
       HYPERDRAFT_ADMIN_SECRET: "${HYPERDRAFT_ADMIN_SECRET:-}"
 
-      # Per-decision Claude API key (the ``brain=anthropic`` path used by some
-      # AI adapters, independent of the subprocess-based ultra agent).
-      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      # Note: Claude is only reached via the Claude Code CLI subprocess
+      # (launch_ultra_agent.sh + auto_repair.py + admin /ultra-loop), which
+      # authenticates from /root/.claude. No ANTHROPIC_API_KEY is plumbed in.
 
       # Auto-repair tunables (Phase 3). Defaults match the infer-takehome reference.
       REPAIR_ENABLED: "${REPAIR_ENABLED:-true}"

@@ -135,12 +135,12 @@ export function useSocket(options: UseSocketOptions = {}) {
 
   // Send action helper
   const sendGameAction = useCallback(
-    (action: PlayerActionRequest) => {
+    (action: PlayerActionRequest): boolean => {
       if (!matchId) {
         console.error('No match ID set');
-        return;
+        return false;
       }
-      sendAction(matchId, action);
+      return sendAction(matchId, action);
     },
     [matchId]
   );

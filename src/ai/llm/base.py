@@ -1,7 +1,7 @@
 """
 LLM Provider Base Classes
 
-Abstract interface for LLM providers (Ollama, OpenAI, Anthropic).
+Abstract interface for LLM providers (Ollama, OpenAI, Claude Code).
 """
 
 from abc import ABC, abstractmethod

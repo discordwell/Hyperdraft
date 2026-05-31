@@ -184,8 +184,8 @@ async def main_async(args) -> int:
         # Map model arg to provider-specific model field.
         if config.provider == ProviderType.OPENAI:
             config.openai_model = args.model
-        elif config.provider == ProviderType.ANTHROPIC:
-            config.anthropic_model = args.model
+        elif config.provider == ProviderType.CLAUDE_CODE:
+            config.claude_code_model = args.model
         elif config.provider == ProviderType.OLLAMA:
             config.ollama_model = args.model
 
@@ -307,7 +307,7 @@ async def main_async(args) -> int:
 
 def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(description="Precompute MTG CardStrategy layer into LLMCache")
-    p.add_argument("--provider", choices=["ollama", "openai", "anthropic"], default=None)
+    p.add_argument("--provider", choices=["ollama", "openai", "claude_code"], default=None)
     p.add_argument("--model", default=None, help="Provider model name override")
     p.add_argument("--workers", type=int, default=6, help="Concurrent workers (default: 6)")
     p.add_argument("--set-code", default=None, help="Restrict to a set code (e.g., MKM, OTJ, BIG)")

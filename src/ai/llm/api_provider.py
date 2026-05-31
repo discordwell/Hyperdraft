@@ -1,12 +1,16 @@
 """
 API LLM Providers
 
-Fallback providers for OpenAI and Anthropic APIs.
-Used when local Ollama is unavailable.
+Fallback providers for when local Ollama is unavailable:
+- OpenAIProvider: HTTP to api.openai.com
+- ClaudeCodeProvider: shells out to `claude -p` (uses OAuth creds at
+  ~/.claude/.credentials.json, no API key needed)
 """
 
+import asyncio
 import json
 import re
+import shutil
 from typing import Optional
 
 try:
@@ -174,40 +178,41 @@ Respond with JSON matching this schema:
         return result
 
 
-class AnthropicProvider(LLMProvider):
+class ClaudeCodeProvider(LLMProvider):
     """
-    LLM provider using Anthropic API.
+    LLM provider that shells out to the `claude` CLI in non-interactive
+    (-p) mode. Uses the OAuth credentials in ~/.claude/.credentials.json,
+    so no API key is required.
 
-    Requires ANTHROPIC_API_KEY environment variable.
+    Trades latency (subprocess spawn per call) for zero-cost-per-token
+    via the Claude Code subscription.
     """
 
     def __init__(
         self,
-        api_key: str,
-        model: str = "claude-3-haiku-20240307",
-        timeout: float = 30.0
+        model: str = "",
+        timeout: float = 120.0,
+        claude_bin: str = "claude",
     ):
         """
-        Initialize Anthropic provider.
-
         Args:
-            api_key: Anthropic API key
-            model: Model name (e.g., "claude-3-haiku-20240307")
-            timeout: Request timeout in seconds
+            model: Optional model alias passed to `claude --model` (e.g.
+                "haiku", "sonnet", "opus", or a full model ID). Empty
+                string lets the CLI pick its default.
+            timeout: Subprocess timeout in seconds.
+            claude_bin: Path or name of the claude CLI binary.
         """
-        self.api_key = api_key
         self.model = model
         self.timeout = timeout
+        self.claude_bin = claude_bin
 
     @property
     def is_available(self) -> bool:
-        """Check if API key is set."""
-        return bool(self.api_key)
+        return shutil.which(self.claude_bin) is not None
 
     @property
     def model_name(self) -> str:
-        """Return the model identifier."""
-        return self.model
+        return self.model or "claude-code"
 
     async def complete(
         self,
@@ -215,50 +220,40 @@ class AnthropicProvider(LLMProvider):
         system: Optional[str] = None,
         temperature: float = 0.3
     ) -> LLMResponse:
-        """Generate a completion using Anthropic API."""
-        if not AIOHTTP_AVAILABLE:
-            raise RuntimeError("aiohttp not installed. Run: pip install aiohttp")
-
-        payload = {
-            "model": self.model,
-            "max_tokens": 1024,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": temperature
-        }
-
+        cmd = [self.claude_bin, "-p", "--output-format", "text"]
+        if self.model:
+            cmd.extend(["--model", self.model])
         if system:
-            payload["system"] = system
+            cmd.extend(["--append-system-prompt", system])
 
-        timeout = aiohttp.ClientTimeout(total=self.timeout)
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
 
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": self.api_key,
-                    "anthropic-version": "2023-06-01",
-                    "Content-Type": "application/json"
-                },
-                json=payload
-            ) as resp:
-                if resp.status != 200:
-                    error_text = await resp.text()
-                    raise RuntimeError(f"Anthropic error {resp.status}: {error_text}")
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(prompt.encode("utf-8")),
+                timeout=self.timeout,
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise RuntimeError(f"claude -p timed out after {self.timeout}s")
 
-                data = await resp.json()
+        if proc.returncode != 0:
+            err = stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"claude -p exit {proc.returncode}: {err}")
 
-                content = ""
-                for block in data.get("content", []):
-                    if block.get("type") == "text":
-                        content += block.get("text", "")
-
-                return LLMResponse(
-                    content=content,
-                    model=self.model,
-                    tokens_used=data.get("usage", {}).get("input_tokens", 0) +
-                               data.get("usage", {}).get("output_tokens", 0),
-                    raw_response=data
-                )
+        content = stdout.decode("utf-8", errors="replace").strip()
+        return LLMResponse(
+            content=content,
+            model=self.model_name,
+            tokens_used=0,
+            raw_response=None,
+        )
 
     async def complete_json(
         self,
@@ -267,7 +262,6 @@ class AnthropicProvider(LLMProvider):
         system: Optional[str] = None,
         temperature: float = 0.1
     ) -> dict:
-        """Generate a JSON-structured completion."""
         schema_str = json.dumps(schema, indent=2)
         json_prompt = f"""{prompt}
 
@@ -275,22 +269,19 @@ Respond with ONLY valid JSON matching this schema:
 {schema_str}
 
 JSON:"""
-
         json_system = (system or "") + "\nRespond with valid JSON only. No explanations."
 
         response = await self.complete(
             prompt=json_prompt,
             system=json_system,
-            temperature=temperature
+            temperature=temperature,
         )
 
         return self._parse_json_response(response.content, schema)
 
     def _parse_json_response(self, content: str, schema: dict) -> dict:
-        """Parse JSON from response."""
         content = content.strip()
 
-        # Remove markdown code blocks
         if content.startswith("```"):
             content = re.sub(r'^```(?:json)?\s*', '', content)
             content = re.sub(r'\s*```$', '', content)
@@ -300,7 +291,6 @@ JSON:"""
         except json.JSONDecodeError:
             pass
 
-        # Try to find JSON object
         json_match = re.search(r'\{[\s\S]*\}', content)
         if json_match:
             try:
@@ -311,7 +301,6 @@ JSON:"""
         return self._defaults_from_schema(schema)
 
     def _defaults_from_schema(self, schema: dict) -> dict:
-        """Generate default values from schema."""
         result = {}
         for key, value in schema.items():
             if isinstance(value, str):
@@ -343,7 +332,7 @@ def get_provider(config) -> LLMProvider:
     Falls back through providers if primary is unavailable:
     1. Ollama (if configured and available)
     2. OpenAI (if API key available)
-    3. Anthropic (if API key available)
+    3. Claude Code subprocess (if `claude` CLI is on PATH)
 
     Args:
         config: LLMConfig instance
@@ -366,23 +355,23 @@ def get_provider(config) -> LLMProvider:
         if provider.is_available:
             return provider
 
-        # Fallback to API
         if config.openai_key:
             return OpenAIProvider(
                 api_key=config.openai_key,
                 model=config.openai_model,
                 timeout=config.timeout
             )
-        if config.anthropic_key:
-            return AnthropicProvider(
-                api_key=config.anthropic_key,
-                model=config.anthropic_model,
-                timeout=config.timeout
-            )
+        cc = ClaudeCodeProvider(
+            model=config.claude_code_model,
+            timeout=max(config.timeout, 60.0),
+        )
+        if cc.is_available:
+            return cc
 
         raise RuntimeError(
-            "Ollama not available and no API keys configured. "
-            f"Run 'ollama pull {config.ollama_model}' or set OPENAI_API_KEY/ANTHROPIC_API_KEY"
+            "Ollama not available, no OPENAI_API_KEY set, and `claude` CLI "
+            f"not found on PATH. Run 'ollama pull {config.ollama_model}', "
+            "set OPENAI_API_KEY, or install Claude Code."
         )
 
     elif config.provider == ProviderType.OPENAI:
@@ -394,13 +383,16 @@ def get_provider(config) -> LLMProvider:
             timeout=config.timeout
         )
 
-    elif config.provider == ProviderType.ANTHROPIC:
-        if not config.anthropic_key:
-            raise RuntimeError("ANTHROPIC_API_KEY not set")
-        return AnthropicProvider(
-            api_key=config.anthropic_key,
-            model=config.anthropic_model,
-            timeout=config.timeout
+    elif config.provider == ProviderType.CLAUDE_CODE:
+        provider = ClaudeCodeProvider(
+            model=config.claude_code_model,
+            timeout=max(config.timeout, 60.0),
         )
+        if not provider.is_available:
+            raise RuntimeError(
+                "`claude` CLI not found on PATH. Install Claude Code or "
+                "pick a different provider."
+            )
+        return provider
 
     raise RuntimeError(f"Unknown provider type: {config.provider}")

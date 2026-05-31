@@ -46,31 +46,28 @@ export function useGame() {
   const autoPassingRef = useRef(false);
 
   // Initialize socket connection
-  const { sendAction: socketSendAction, isConnected } = useSocket({
+  const { isConnected } = useSocket({
     matchId: matchId || undefined,
     playerId: playerId || undefined,
     isSpectator,
     onError: (msg) => setError(msg),
   });
 
-  // Send action (via WebSocket or REST)
+  // Send action through REST; Socket.IO stays connected for live pushes.
   const sendAction = useCallback(async () => {
     const request = buildActionRequest();
     if (!request || !matchId) return;
 
     setLoading(true);
     try {
-      // Prefer WebSocket if connected
-      if (isConnected) {
-        socketSendAction(request);
-      } else {
-        // Fallback to REST - update state from response
-        const result = await matchAPI.submitAction(matchId, request);
-        if (result.success && result.new_state) {
-          store.setGameState(result.new_state);
-        } else if (!result.success) {
-          setError(result.message);
-        }
+      // REST is the authoritative action path. The socket remains connected
+      // for live pushes, but the HTTP response gives this client a guaranteed
+      // post-action state even when Socket.IO room membership is stale.
+      const result = await matchAPI.submitAction(matchId, request);
+      if (result.success && result.new_state) {
+        store.setGameState(result.new_state);
+      } else if (!result.success) {
+        setError(result.message);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send action');
@@ -83,8 +80,6 @@ export function useGame() {
   }, [
     buildActionRequest,
     matchId,
-    isConnected,
-    socketSendAction,
     setLoading,
     setError,
     selectAction,
@@ -120,16 +115,11 @@ export function useGame() {
       setLoading(true);
     }
     try {
-      if (isConnected) {
-        socketSendAction(request);
-      } else {
-        // REST fallback - also refetch state after action
-        const result = await matchAPI.submitAction(matchId, request);
-        if (result.success && result.new_state) {
-          store.setGameState(result.new_state);
-        } else if (!result.success) {
-          setError(result.message);
-        }
+      const result = await matchAPI.submitAction(matchId, request);
+      if (result.success && result.new_state) {
+        store.setGameState(result.new_state);
+      } else if (!result.success) {
+        setError(result.message);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to pass');
@@ -139,7 +129,7 @@ export function useGame() {
         selectAction(null);
       }
     }
-  }, [playerId, matchId, isConnected, socketSendAction, setLoading, setError, selectAction, store]);
+  }, [playerId, matchId, setLoading, setError, selectAction, store]);
 
   // Auto-pass effect: when game state changes and we have priority, check if we should auto-pass
   useEffect(() => {

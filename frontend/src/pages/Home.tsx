@@ -64,7 +64,7 @@ export function Home() {
   const [hsVariant, setHsVariant] = useState<string | null>('riftclash');
   const [heroClass, setHeroClass] = useState<string>('Pyromancer');
   const [playerName, setPlayerName] = useState('Player');
-  const [difficulty, setDifficulty] = useState<AIDifficulty>('ultra');
+  const [difficulty, setDifficulty] = useState<AIDifficulty>('medium');
   const [decks, setDecks] = useState<DeckInfo[]>([]);
   const [playerDeck, setPlayerDeck] = useState<string>('');
   const [aiDeck, setAiDeck] = useState<string>('');

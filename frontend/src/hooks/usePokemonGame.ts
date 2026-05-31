@@ -20,7 +20,7 @@ export function usePokemonGame() {
     setError,
   } = store;
 
-  const { sendAction: socketSendAction, isConnected } = useSocket({
+  const { isConnected } = useSocket({
     matchId: matchId || undefined,
     playerId: playerId || undefined,
     isSpectator: false,
@@ -47,20 +47,16 @@ export function usePokemonGame() {
     };
 
     try {
-      if (isConnected) {
-        socketSendAction(request);
-      } else {
-        const result = await matchAPI.submitAction(matchId, request);
-        if (result.success && result.new_state) {
-          setGameState(result.new_state);
-        } else if (!result.success) {
-          setError(result.message);
-        }
+      const result = await matchAPI.submitAction(matchId, request);
+      if (result.success && result.new_state) {
+        setGameState(result.new_state);
+      } else if (!result.success) {
+        setError(result.message);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Action failed');
     }
-  }, [playerId, matchId, isConnected, socketSendAction, setGameState, setError]);
+  }, [playerId, matchId, setGameState, setError]);
 
   // Play a card from hand (basic Pokemon, trainer)
   const playCard = useCallback((cardId: string) => {

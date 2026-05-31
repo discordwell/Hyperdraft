@@ -14,7 +14,7 @@ class ProviderType(str, Enum):
     """Supported LLM provider types."""
     OLLAMA = "ollama"
     OPENAI = "openai"
-    ANTHROPIC = "anthropic"
+    CLAUDE_CODE = "claude_code"
 
 
 class ModelTier(str, Enum):
@@ -58,8 +58,10 @@ class LLMConfig:
     # OpenAI settings
     openai_model: str = "gpt-4o-mini"
 
-    # Anthropic settings
-    anthropic_model: str = "claude-3-haiku-20240307"
+    # Claude Code settings (subprocess to `claude -p`)
+    # Empty string lets the CLI pick its default; otherwise pass through
+    # to `claude --model` (e.g. "haiku", "sonnet", "opus", or full model ID).
+    claude_code_model: str = ""
 
     # Generation settings
     temperature: float = 0.3
@@ -70,16 +72,10 @@ class LLMConfig:
     enable_cache: bool = True
     cache_ttl_seconds: int = 86400  # 24 hours
 
-    # API keys from environment
     @property
     def openai_key(self) -> str:
         """Get OpenAI API key from environment."""
         return os.environ.get("OPENAI_API_KEY", "")
-
-    @property
-    def anthropic_key(self) -> str:
-        """Get Anthropic API key from environment."""
-        return os.environ.get("ANTHROPIC_API_KEY", "")
 
     @classmethod
     def for_tier(cls, tier: ModelTier) -> 'LLMConfig':
@@ -93,11 +89,10 @@ class LLMConfig:
     @classmethod
     def for_api_fallback(cls) -> 'LLMConfig':
         """Create config for API fallback when local unavailable."""
-        # Prefer Anthropic if key available, else OpenAI
-        if os.environ.get("ANTHROPIC_API_KEY"):
-            return cls(provider=ProviderType.ANTHROPIC)
+        import shutil
+        if shutil.which("claude"):
+            return cls(provider=ProviderType.CLAUDE_CODE)
         elif os.environ.get("OPENAI_API_KEY"):
             return cls(provider=ProviderType.OPENAI)
         else:
-            # Default to Ollama even if not available
             return cls(provider=ProviderType.OLLAMA)
