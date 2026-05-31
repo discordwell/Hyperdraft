@@ -75,8 +75,8 @@ export function Home() {
   const [aiMinecraftDeck, setAiMinecraftDeck] = useState<string>('raider');
   const [playerDepthsDeck, setPlayerDepthsDeck] = useState<string>('SUBS_wolfpack');
   const [aiDepthsDeck, setAiDepthsDeck] = useState<string>('SUBS_silent_hunter');
-  const [playerSCPDeck, setPlayerSCPDeck] = useState<string>('secure_contain_research');
-  const [aiSCPDeck, setAiSCPDeck] = useState<string>('keter_risk');
+  const [playerSCPDeck, setPlayerSCPDeck] = useState<string>('SCP_site19_containment');
+  const [aiSCPDeck, setAiSCPDeck] = useState<string>('SCP_black_queen_cell');
   const [playerCatsDeck, setPlayerCatsDeck] = useState<string>('Couch Empire');
   const [aiCatsDeck, setAiCatsDeck] = useState<string>('Naptime Tyrants');
   const [playerClankersDeck, setPlayerClankersDeck] = useState<string>('CLAN_forge');
@@ -815,15 +815,16 @@ export function Home() {
                 )}
                 {gameMode === 'scp' && (
                   <DeckPair
-                    label="Site briefings"
+                    label="Faction decks (you play the Foundation)"
                     player={playerSCPDeck}
                     ai={aiSCPDeck}
                     onPlayer={setPlayerSCPDeck}
                     onAi={setAiSCPDeck}
                     options={[
-                      { value: 'secure_contain_research', label: 'Secure / Contain / Research' },
-                      { value: 'keter_risk', label: 'Keter Risk Office' },
-                      { value: 'veil_control', label: 'Veil Control' },
+                      { value: 'SCP_site19_containment', label: 'Foundation · Site-19 Containment' },
+                      { value: 'SCP_blackfile_bait', label: 'Foundation · Black-File Bait' },
+                      { value: 'SCP_black_queen_cell', label: 'Insurgency · Black Queen Cell' },
+                      { value: 'SCP_containment_breach', label: 'Insurgency · Containment Breach' },
                     ]}
                   />
                 )}
