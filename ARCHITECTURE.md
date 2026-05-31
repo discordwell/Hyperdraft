@@ -96,6 +96,12 @@ Zone shapes differ by zone: **slotted** zones (`monster_zone`, `spell_trap_zone`
 
 AI: `src/ai/yugioh_adapter.py:YugiohAIAdapter(difficulty=str)` — four tiers, per-deck `AI_STRATEGY` dicts (priorities, summon priority, set priority) for the optimized decks in `ygo_optimized.py`.
 
+### SCP — Secure / Contain / Subvert (asymmetric)
+
+`src/engine/scp.py` is the only **asymmetric** engine, modeled on Netrunner. One player is the **Foundation** (build & contain — owns the primary win/lose-con); the other is the **Chaos Insurgency** (infiltrate & subvert — wins through conflict). There is **no self-inflicted loss** — each faction's win is the other's loss, arbitrated by the single `check_scp_win`. The Foundation installs anomalies **face-down** and advances them over turns (a telegraphed "heat" counter) to lock them for **Containment** points (win at 6), defended by face-down **layer** stacks on its cells + central servers (HQ/Research/Archives). The Insurgency builds a **rig** of breakers and runs those sites (rez → break subroutine → access) to **free** anomalies for **Liberation** points (win at 7) or push **Total Breach** to catastrophe (win at 14). `src/engine/scp_turn.py:SCPTurnManager` is strict alternation, both draw 1, **no breach tick** (the old engine's self-damage is gone).
+
+Fog of war lives with the engine: `scp.public_board(state, viewer_id)` redacts face-down anomaly/layer identities to `[FACE-DOWN]` for the non-owner while keeping advancement heat public; the server's `_serialize_scp_state` reuses it (spectator/replay fall back to the Foundation's perspective). AI: `src/ai/scp_adapter.py:SCPAIAdapter` branches by faction (FoundationAI build/advance/defend/bluff; InsurgencyAI rig-build/target-under-fog/infiltrate/bank). The server mode (`src/server/modes/scp.py`) is **transactional** like cats/clankers. Full ruleset: `docs/design/scp_rules.md`. (This replaced the retired symmetric "SCP Containment TCG" on 2026-05-31; the old engine + its FBN/MNR/SZB card sets were removed wholesale.)
+
 ## F. AI Layer
 
 - **MTG**: shared `src/ai/engine.py` dispatches to `strategies/`. `evaluator.py` scores board states; `heuristics.py` supplies cheap game-state proxies. Strategies: Aggro, Control, Midrange, Ultra.
