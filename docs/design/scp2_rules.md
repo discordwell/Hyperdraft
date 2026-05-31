@@ -254,10 +254,22 @@ of freeing. Result over 100 games: **51% / 49%**, all four win conditions live (
 50, total_breach 42, liberation 7, burnout 1), avg ~21 turns, zero stalls. Guarded by
 `tests/test_scp2_balance.py`.
 
-**Known follow-up (deck-pinnacle pass, not faction balance):** the Insurgency *Containment
-Breach* (breach-rush) deck beats both Foundation decks; *Black Queen Cell* (liberation/tempo)
-loses to both — the liberation axis is underpowered (only 7/100 wins). Buff the liberation
-path / Black Queen Cell before shipping it as a pinnacle.
+**Liberation-axis buff (done).** The liberation axis was underpowered (7/100 wins) — the
+*Black Queen Cell* steal/tempo deck couldn't close on its own axis. Fixed by making the
+**Black Queen Cell identity** a steal-engine — each freed anomaly banks **+1 bonus
+Liberation** (engine `free_bonus_lib`, set by the identity passive at setup) — and rebuilding
+the deck into a focused steal pinnacle (deep breaker suite + econ + Sabotage mill, plus a
+3-card breach *reach* package so a kill deck that walls it out can't grind to a stall). Over
+120 games: 49%/51% faction split, **liberation now 34 wins** (containment 59, breach 27), 0
+stalls; Black Queen Cell is competitive vs the build deck (≈47%).
+
+**Remaining deck-pinnacle gap (post-wet-test pass):** *Containment Breach* (breach-rush) is
+still the strongest deck (~62–67% of its games) and hard-counters the build deck; *Black Queen
+Cell* stays soft to the *Black-File Bait* kill deck (Sentry walls neutralise its operatives).
+Faction balance is healthy, so this is deck-vs-deck tuning best informed by real play — trim
+Containment Breach's breach density / shore up the steal deck vs Sentries after wet-testing.
+(`BREACH_FREE_MULTIPLIER` 0.5 was probed — nudges Containment Breach 67→62% — but kept at 1.0
+for cleaner "freeing adds its Value to Breach" rules.)
 
 ---
 

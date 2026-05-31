@@ -810,7 +810,8 @@ def _free_anomaly(game, insurgent_id: str, anomaly: GameObject, cell: dict) -> l
     fr = ensure_scp2_state(state, fid)
     cd = anomaly.card_def
     value = int(getattr(cd, "scp2_value", 0) or 0)
-    ir["liberation_points"] += value
+    # A steal-engine identity (e.g. Black Queen Cell) banks bonus Liberation per free.
+    ir["liberation_points"] += value + int(ir.get("free_bonus_lib", 0))
     breach = getattr(cd, "scp2_breach_on_free", None)
     breach = value if breach is None else int(breach)
     breach = int(round(breach * BREACH_FREE_MULTIPLIER))

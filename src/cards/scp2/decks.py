@@ -93,17 +93,21 @@ def blackfile_bait() -> list[CardDefinition]:
 # Insurgency A — "Black Queen Cell" (criminal tempo)
 # ===========================================================================
 def black_queen_cell() -> list[CardDefinition]:
+    # Focused steal-tempo pinnacle: wins purely by liberation (no breach events). Deep breaker
+    # suite to crack kill-walls, econ to fund repeated runs, Sabotage to mill the Foundation's
+    # containment. The Black Queen Cell identity banks +1 Liberation per free on top.
     return _deck(
-        # Operatives — 12 (full breaker suite)
+        # Operatives — 14 (deep breaker suite, sentry-heavy to beat the kill deck)
         (I.INFILTRATOR, 3), (I.MASTER_INFILTRATOR, 2),
-        (I.SABOTEUR, 2), (I.VETERAN_SABOTEUR, 1),
+        (I.SABOTEUR, 3), (I.VETERAN_SABOTEUR, 2),
         (I.GHOST, 2), (I.GHOST_IN_THE_MACHINE, 2),
-        # Tools — 9 (econ)
+        # Tools — 9 (econ to fund the runs)
         (I.BLACK_BUDGET, 3), (I.STOLEN_CREDENTIALS, 3), (I.SAFEHOUSE, 3),
-        # Events — 19 (econ / draw / central pressure, breach as closer)
-        (I.BLACK_MARKET, 3), (I.COORDINATED_STRIKE, 2), (I.EXTRACTION, 3),
-        (I.DATA_HEIST, 2), (I.SABOTAGE, 3),
-        (I.ANONYMOUS_TIP, 2), (I.LEAK_TO_THE_PRESS, 2), (I.WETWORK, 2),
+        # Events — 17: econ/draw/mill core + a small breach REACH package (3) so a kill deck
+        # that walls us out of stealing can't grind the game to a stall.
+        (I.BLACK_MARKET, 4), (I.COORDINATED_STRIKE, 2), (I.EXTRACTION, 3),
+        (I.DATA_HEIST, 3), (I.SABOTAGE, 2),
+        (I.LEAK_TO_THE_PRESS, 2), (I.WETWORK, 1),
     )
 
 

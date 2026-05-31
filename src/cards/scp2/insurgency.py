@@ -79,7 +79,10 @@ def _stolen_credentials_install(game, pid, obj):
 
 # --- identity passive ---
 def _black_queen_passive(game, pid, obj):
-    # Black Queen Cell: a well-funded cell — start with extra Cells.
+    # Black Queen Cell: the steal-engine identity. A well-funded cell that turns every
+    # liberation into extra Liberation — makes the steal-tempo axis a real win path.
+    r = scp2.ensure_scp2_state(game.state, pid)
+    r["free_bonus_lib"] = 1
     return scp2.add_credits(game.state, pid, 2)
 
 
@@ -155,7 +158,7 @@ WETWORK = make_event("Wetwork", cost=2,
 # ===========================================================================
 BLACK_QUEEN_CELL = make_identity(
     "Black Queen Cell", scp2.INSURGENCY,
-    text="Identity. Begin the game with 2 extra Cells.",
+    text="Identity. Begin with 2 extra Cells; each anomaly you free banks +1 bonus Liberation.",
     passive=_black_queen_passive)
 
 

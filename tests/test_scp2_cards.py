@@ -360,7 +360,21 @@ def test_identities_apply_at_setup():
                          foundation_identity=F.SITE_19_COMMAND,
                          insurgency_identity=I.BLACK_QUEEN_CELL)
     assert scp2.ensure_scp2_state(g.state, f.id)["max_hand"] == 6, "Site-19 Command"
-    assert scp2.ensure_scp2_state(g.state, i.id)["credits"] == scp2.STARTING_CREDITS + 2, "Black Queen Cell"
+    ir = scp2.ensure_scp2_state(g.state, i.id)
+    assert ir["credits"] == scp2.STARTING_CREDITS + 2, "Black Queen Cell starting Cells"
+    assert ir["free_bonus_lib"] == 1, "Black Queen Cell steal-engine bonus"
+
+
+def test_black_queen_cell_banks_bonus_liberation_per_free():
+    # The steal-engine identity: each freed anomaly banks value + 1 Liberation.
+    g, f, i = _setup()
+    scp2.ensure_scp2_state(g.state, i.id)["free_bonus_lib"] = 1  # what the identity sets
+    _ready(g, f.id)
+    obj = _play(g, f.id, F.ANOMALOUS_SPECIMEN)  # value 2, undefended
+    cell = _last_cell(g, f.id)
+    ir = _ready(g, i.id, ap=3, credits=10)
+    scp2.infiltrate(g, i.id, ("cell", cell["id"]))
+    assert ir["liberation_points"] == 3, "value 2 + 1 steal-engine bonus"
 
 
 # =========================================================================== decks
