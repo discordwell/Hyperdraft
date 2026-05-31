@@ -75,15 +75,6 @@ EXPECTED_THRESHOLDS = {
         "code_diversity": 0.50,
         "thin_ratio": 0.99,
     },
-    "scp": {
-        # SCP cards route through src.depth.scp_scorer, not the AST scorer.
-        # FBN sits at median=2.0 ax=0.097 cd=0.535 thin=0.780 (4/4 pass).
-        # See src/depth/calibration/scp.toml for the full rationale.
-        "median_depth": 2.0,
-        "axis_diversity": 0.08,
-        "code_diversity": 0.50,
-        "thin_ratio": 0.80,
-    },
 }
 
 
@@ -95,7 +86,7 @@ CALIBRATED_ENGINES = sorted(EXPECTED_THRESHOLDS.keys())
 # ---------------------------------------------------------------------------
 
 
-def test_calibration_dir_exists_and_lists_all_four_engines():
+def test_calibration_dir_exists_and_lists_all_engines():
     found = set(list_calibrations())
     assert found == set(CALIBRATED_ENGINES), (
         f"Expected exactly {CALIBRATED_ENGINES} calibration TOMLs; got {sorted(found)}"

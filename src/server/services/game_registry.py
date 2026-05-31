@@ -31,7 +31,9 @@ from src.cards.clankers.CLAN import CLAN_CARDS
 from src.cards.finance import FINANCE_CARDS
 from src.cards.hearthstone import ALL_CARDS as HS_CARDS_LIST
 from src.cards.minecraft import MINECRAFT_CARDS
-from src.cards.scp import ALL_CARDS as SCP_CARDS
+from src.cards.scp import ALL_CARDS as _SCP_LIST
+# Deckbuilder pools are name-keyed dicts; the scp pool ships as a flat list.
+SCP_CARDS = {c.name: c for c in _SCP_LIST}
 from src.cards.pokemon.sv_starter import SV_STARTER_CARDS as POKEMON_CARDS
 from src.cards.yugioh import ALL_YGO_CARDS as YGO_CARDS
 

@@ -13,6 +13,7 @@ fallback). Fog of war is enforced by the per-viewer serializer (``_serialize_scp
 
 from __future__ import annotations
 
+import asyncio
 import time
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -108,6 +109,15 @@ class SCPModeAdapter(ModeAdapter):
                     print(f"[scp] run_turn failed: {e}")
                     break
                 turns += 1
+                if session.record_actions_for_replay:
+                    active = session.game.get_active_player()
+                    session._record_frame(action={
+                        "kind": "turn_complete",
+                        "player_id": active,
+                        "player_name": session.player_names.get(active, active or ""),
+                        "action_type": "SCP_TURN_COMPLETE",
+                        "turn": getattr(tm, "turn_number", 0),
+                    })
                 if self._finish_if_over(session):
                     await self._broadcast(session)
                     break
@@ -117,8 +127,38 @@ class SCPModeAdapter(ModeAdapter):
         await self._broadcast(session)
 
     async def get_human_action(self, session: "GameSession", player_id, game_state) -> dict:
-        """Unused — scp uses the transactional per-action path."""
-        return {"action_type": "SCP_END_TURN"}
+        """Block until the client submits an action.
+
+        scp normally drives the human seat transactionally (handle_action), so this
+        blocking path is only hit for LLM-pilot waits. Mirrors the other adapters'
+        dead-LLM short-circuit: three consecutive timeouts finish the match rather
+        than hanging, and each timeout falls back to SCP_END_TURN.
+        """
+        if session._action_processed_event:
+            session._action_processed_event.set()
+            session._action_processed_event = None
+
+        loop = asyncio.get_event_loop()
+        session._pending_action_future = loop.create_future()
+        session._pending_player_id = player_id
+        session._action_processed_event = asyncio.Event()
+
+        if session.on_state_change:
+            for pid in session.player_ids:
+                state = session.get_client_state(pid)
+                await session.on_state_change(pid, state.model_dump())
+
+        try:
+            action = await asyncio.wait_for(session._pending_action_future, timeout=300.0)
+            session._scp_consecutive_timeouts = 0
+            return action
+        except asyncio.TimeoutError:
+            session._scp_consecutive_timeouts = (
+                getattr(session, "_scp_consecutive_timeouts", 0) + 1
+            )
+            if session._scp_consecutive_timeouts >= 3:
+                session.is_finished = True
+            return {"action_type": "SCP_END_TURN"}
 
     # ─── Action dispatch ────────────────────────────────────────────────
     async def handle_action(
@@ -229,7 +269,8 @@ class SCPModeAdapter(ModeAdapter):
 
     def _finish_if_over(self, session: "GameSession") -> bool:
         state = session.game.state
-        losers = [pid for pid, p in state.players.items() if getattr(p, "has_lost", False)]
+        players = getattr(state, "players", None) or {}
+        losers = [pid for pid, p in players.items() if getattr(p, "has_lost", False)]
         if losers or session.game.is_game_over():
             session.is_finished = True
             for pid in session.player_ids:
@@ -267,7 +308,5 @@ class SCPModeAdapter(ModeAdapter):
         if not session.on_state_change:
             return
         for pid in session.player_ids:
-            socket = session.player_sockets.get(pid)
-            if socket:
-                state = session.get_client_state(pid)
-                await session.on_state_change(pid, state.model_dump())
+            state = session.get_client_state(pid)
+            await session.on_state_change(pid, state.model_dump())
