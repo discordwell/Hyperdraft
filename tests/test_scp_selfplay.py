@@ -26,6 +26,8 @@ TURN_CAP = 160  # 80 turns/side; healthy games close well under this
 
 
 async def _play_game(foundation_label, insurgency_label, seed, difficulty="medium"):
+    random.seed(seed)  # seed the GLOBAL rng too: in-game choices (damage/discard/HQ pick) use it,
+    #                    so this makes the whole matrix reproducible and the census non-flaky.
     g = Game(mode="scp")
     f = g.add_player("Foundation")
     i = g.add_player("Insurgency")
@@ -52,6 +54,9 @@ async def _play_game(foundation_label, insurgency_label, seed, difficulty="mediu
             # Track the rez/break mini-game: a rezzed layer is either broken or eaten (subroutine fires).
             if e.type.name == "SCP_LAYER_ENCOUNTER" and e.payload.get("rezzed"):
                 census["_encounter_broken" if e.payload.get("broken") else "_encounter_eaten"] += 1
+            # A central run that actually disrupted (not a no-op against an empty hand/deck).
+            if e.type.name == "SCP_SABOTAGE" and e.payload.get("effect") not in (None, "none"):
+                census["_sabotage_effective"] += 1
             if e.type.name == "SCP_WIN":
                 win = e.payload
     return {
@@ -104,6 +109,9 @@ def test_core_verbs_all_fire_in_selfplay(matrix):
     # The rez/break mini-game must actually be *played*: runs both break layers and eat subroutines.
     assert agg.get("_encounter_broken", 0) > 0, "no rezzed layer was ever broken (break path dead)"
     assert agg.get("_encounter_eaten", 0) > 0, "no rezzed layer was ever eaten (subroutine choice dead)"
+    # Central runs must actually *disrupt* (mill/trash/draw), not just fire the SCP_SABOTAGE marker
+    # on a no-op run against an empty hand/deck (wired ≠ fires, one level up).
+    assert agg.get("_sabotage_effective", 0) > 0, "central runs fired but never disrupted anything"
 
 
 def test_report_win_split(matrix):

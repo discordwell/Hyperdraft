@@ -83,14 +83,27 @@ def foundation_rez_policy(game, insurgent_id: str):
         can_break, _cost = scp._can_break(state, insurgent_id, layer)
         ir = scp.ensure_scp_state(state, insurgent_id)
         if ltype == "barrier":
-            # A barrier the runner can crack is wasted Funding to rez — pass it (and keep the bluff).
-            # Rez only when it actually ends the run.
-            return not can_break
+            if not can_break:
+                return True  # individually unbreakable → rez, it ends the run
+            # A LONE breakable barrier is wasted Funding to rez (they crack it and we paid the rez
+            # for nothing). But a STACK must be rezzed: judging each barrier in isolation (each
+            # breakable alone) hands the runner a free pass through a wall whose *cumulative* break
+            # cost would have exhausted their Cells. Rez when 2+ barriers guard this target.
+            guard = getattr(layer.state, "scp_guard", None)
+            n_barriers = 0
+            if guard:
+                for lid in scp._layer_stack(state, layer.owner, guard):
+                    l2 = state.objects.get(lid)
+                    if l2 and getattr(l2.card_def, "scp_ltype", None) == "barrier":
+                        n_barriers += 1
+            return n_barriers >= 2
         if ltype == "sentry":
             # Worth rezzing when it bites: it neutralises an operative they'd lose, or stops them.
             return (not can_break) or _has_operative(state, ir)
-        # sensor: a cheap tag. Rez to expose unless they'll just break it for free this run.
-        return not can_break
+        # sensor: rez to expose when they can't break it for free, OR when a tag plan is already live
+        # (exposed≥1) — stacking exposure powers the soft-kill (Enhanced Interrogation) and is what
+        # makes the runner's "break once over-exposed" choice meaningful instead of dead.
+        return (not can_break) or int(ir.get("exposed", 0)) >= 1
 
     return _policy
 

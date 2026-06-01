@@ -221,9 +221,12 @@ class SCPModeAdapter(ModeAdapter):
             # A human Insurgency run still resolves synchronously, but let a bot Foundation defend
             # reactively (rez to stop, not decorate) rather than the engine's greedy auto-rez.
             # (Fully interactive per-layer human rez is deferred — see docs/design/scp_rules.md.)
+            # Derive the Foundation by faction (authoritative), and only attach when the actor is
+            # genuinely the Insurgency and the Foundation is a bot.
             from src.ai.scp_adapter import foundation_rez_policy
-            foundation_seat = session.player_ids[0] if session.player_ids else None
-            if foundation_seat and foundation_seat not in session.human_players:
+            foundation_seat = scp.foundation_id(state)
+            if (foundation_seat and foundation_seat not in session.human_players
+                    and scp.faction_of(state, pid) == scp.INSURGENCY):
                 action["rez_policy"] = foundation_rez_policy(game, pid)
         elif atype == "SCP_ACTIVATE":
             if not request.card_id:

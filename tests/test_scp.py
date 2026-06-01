@@ -325,6 +325,28 @@ def test_smart_break_breaks_sensor_once_exposure_is_in_softkill_range():
     assert ir["credits"] == 4, "paid 1 Cell to boost Ghost through strength 2"
 
 
+def test_smart_rez_walls_a_barrier_stack_the_runner_cant_fully_break():
+    """Stack-aware rez (review Finding 1): two barriers each breakable *in isolation* must both be
+    rezzed so the runner's Cells drain across the whole wall. Judging each alone (the old bug) would
+    decline both and hand the runner a free pass through a wall that cumulatively stops them."""
+    from src.ai.scp_adapter import foundation_rez_policy
+    g, f, i = _setup()
+    obj, cell = _install_anomaly(g, f.id, value=2)
+    _add_layer(g, f.id, cell, ltype="barrier", strength=4, rez=4)
+    _add_layer(g, f.id, cell, ltype="barrier", strength=4, rez=4)
+    fr = scp.ensure_scp_state(g.state, f.id); fr["credits"] = 20  # can afford both rezzes
+    op = scp.make_operative("Infiltrator", "barrier", 2, boost=1)
+    oh = _hand(g, i.id, op); _ready(g, i.id, ap=3, credits=3)
+    scp.play_card(g, i.id, oh.id)
+    ir = scp.ensure_scp_state(g.state, i.id)
+    ir["ap"], ir["credits"] = 3, 3  # breaks ONE barrier (cost 2), leaving 1 — can't break the second
+    ok, msg, _ = scp.infiltrate(g, i.id, ("cell", cell["id"]),
+                                rez_policy=foundation_rez_policy(g, i.id))
+    assert ok, msg
+    assert ir["liberation_points"] == 0, "the 2-barrier wall stops a runner who can only break one"
+    assert cell["anomaly"] == obj.id, "anomaly stays safe behind the wall"
+
+
 def test_saboteur_boost2_break_cost_boundary():
     """Saboteur breaks Sentries at boost 2 (+1 power per 2 Cells) — the previously-untested branch.
     A Sentry doesn't end the run, so we read the *break cost* + the neutralize, not access denial."""

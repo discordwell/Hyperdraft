@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import random
 import time
 from collections import Counter, defaultdict
 from typing import Optional
@@ -33,6 +34,8 @@ DEFAULT_TURN_CAP = 200
 
 async def play_game(foundation_label: str, insurgency_label: str, seed: int,
                     difficulty: str = "medium", turn_cap: int = DEFAULT_TURN_CAP) -> dict:
+    random.seed(seed)  # seed the GLOBAL rng too: in-game choices (damage/discard/HQ pick) use it,
+    #                    so the tournament is reproducible (per the deck-reliability lesson).
     g = Game(mode="scp")
     f = g.add_player("Foundation")
     i = g.add_player("Insurgency")
@@ -40,7 +43,7 @@ async def play_game(foundation_label: str, insurgency_label: str, seed: int,
     iident, ibuild = D.SCP_INSURGENCY_DECKS[insurgency_label]
     scp.setup_scp_game(g, f, i, foundation_deck=fbuild(), insurgency_deck=ibuild(),
                          foundation_identity=fident, insurgency_identity=iident,
-                         rng=__import__("random").Random(seed))
+                         rng=random.Random(seed))
     handler = DispatchSCPAIAdapter({
         f.id: SCPAIAdapter(difficulty),
         i.id: SCPAIAdapter(difficulty),
