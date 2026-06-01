@@ -134,7 +134,11 @@ class SCPTurnManager(TurnManager):
             return scp.contain(game, player_id, action.get("anomaly_id"))
         if at == "SCP_INFILTRATE":
             tgt = action.get("target")
-            return scp.infiltrate(game, player_id, tuple(tgt) if tgt else ("central", "hq"))
+            # Optional reactive policies (default None → engine's greedy rez/break). The server
+            # supplies the bot Foundation's rez policy on a human-Insurgency run.
+            return scp.infiltrate(game, player_id, tuple(tgt) if tgt else ("central", "hq"),
+                                  rez_policy=action.get("rez_policy"),
+                                  break_policy=action.get("break_policy"))
         if at == "SCP_ACTIVATE":
             tgt = action.get("target")
             return scp.activate_ability(game, player_id, action.get("card_id"),

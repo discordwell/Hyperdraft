@@ -218,6 +218,13 @@ class SCPModeAdapter(ModeAdapter):
             tgt = _coerce_target(request.scp_target)
             if tgt:
                 action["target"] = tgt
+            # A human Insurgency run still resolves synchronously, but let a bot Foundation defend
+            # reactively (rez to stop, not decorate) rather than the engine's greedy auto-rez.
+            # (Fully interactive per-layer human rez is deferred — see docs/design/scp_rules.md.)
+            from src.ai.scp_adapter import foundation_rez_policy
+            foundation_seat = session.player_ids[0] if session.player_ids else None
+            if foundation_seat and foundation_seat not in session.human_players:
+                action["rez_policy"] = foundation_rez_policy(game, pid)
         elif atype == "SCP_ACTIVATE":
             if not request.card_id:
                 return False, "SCP_ACTIVATE requires card_id"

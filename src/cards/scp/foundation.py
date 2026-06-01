@@ -107,6 +107,16 @@ def _op_amnestics(game, pid):
     return scp.deal_damage(game, iid, 1) if iid else []
 
 
+def _op_interrogation(game, pid):
+    # "Enhanced Interrogation": the Black-File Bait closer — damage scales with how exposed the
+    # Insurgency is, so a kill deck that has tagged them out can flatline a thin hand (burnout).
+    iid = scp.insurgency_id(game.state)
+    if iid is None:
+        return []
+    ir = scp.ensure_scp_state(game.state, iid)
+    return scp.deal_damage(game, iid, max(1, int(ir.get("exposed", 0))))
+
+
 def _op_draw(n):
     def _f(game, pid):
         return scp.draw_cards(game, pid, n)
@@ -252,6 +262,11 @@ MANDATORY_AUDIT = make_operation(
     text="Draw 2 cards.",
     effect=_op_draw(2))
 
+ENHANCED_INTERROGATION = make_operation(
+    "Enhanced Interrogation", cost=2,
+    text="Deal damage to the Insurgency equal to how exposed they are (minimum 1).",
+    effect=_op_interrogation)
+
 
 # ===========================================================================
 # IDENTITY
@@ -276,7 +291,8 @@ FOUNDATION_LAYERS = [
     TRIPWIRE, SURVEILLANCE_GRID, AMNESTIC_MIST,
 ]
 FOUNDATION_ASSETS = [CONTAINMENT_BUDGET, BLACK_SITE_FUNDING, MOBILE_TASK_FORCE, SITE_DIRECTOR]
-FOUNDATION_OPERATIONS = [EMERGENCY_LOCKDOWN, REDACTION_ORDER, AMNESTICS, MANDATORY_AUDIT]
+FOUNDATION_OPERATIONS = [EMERGENCY_LOCKDOWN, REDACTION_ORDER, AMNESTICS, MANDATORY_AUDIT,
+                         ENHANCED_INTERROGATION]
 FOUNDATION_IDENTITIES = [SITE_19_COMMAND]
 
 FOUNDATION_CARDS = (FOUNDATION_ANOMALIES + FOUNDATION_LAYERS

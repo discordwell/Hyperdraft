@@ -83,9 +83,10 @@ def blackfile_bait() -> list[CardDefinition]:
         # Assets — 6
         (F.CONTAINMENT_BUDGET, 2), (F.BLACK_SITE_FUNDING, 2),
         (F.MOBILE_TASK_FORCE, 1), (F.SITE_DIRECTOR, 1),
-        # Operations — 6 (soft-kill payoff)
-        (F.REDACTION_ORDER, 2), (F.AMNESTICS, 2),
-        (F.EMERGENCY_LOCKDOWN, 1), (F.MANDATORY_AUDIT, 1),
+        # Operations — 6 (soft-kill payoff: tag with Redaction, chip with Amnestics, burst with
+        # Interrogation; keep Audit for card flow so the bait plan doesn't brick into a stall)
+        (F.REDACTION_ORDER, 2), (F.MANDATORY_AUDIT, 1),
+        (F.AMNESTICS, 1), (F.ENHANCED_INTERROGATION, 2),
     )
 
 
@@ -97,10 +98,12 @@ def black_queen_cell() -> list[CardDefinition]:
     # suite to crack kill-walls, econ to fund repeated runs, Sabotage to mill the Foundation's
     # containment. The Black Queen Cell identity banks +1 Liberation per free on top.
     return _deck(
-        # Operatives — 14 (deep breaker suite, sentry-heavy to beat the kill deck)
+        # Operatives — 14 (deep breaker suite, Sentry-heavy to survive the kill deck's neutralize
+        # walls; Veteran Saboteur is the load-bearing anti-Sentry tech — power 3, boost 1 — while a
+        # Ghost trims out since smart-break now eats Sensor tags rather than paying to break them)
         (I.INFILTRATOR, 3), (I.MASTER_INFILTRATOR, 2),
-        (I.SABOTEUR, 3), (I.VETERAN_SABOTEUR, 2),
-        (I.GHOST, 2), (I.GHOST_IN_THE_MACHINE, 2),
+        (I.SABOTEUR, 3), (I.VETERAN_SABOTEUR, 3),
+        (I.GHOST, 2), (I.GHOST_IN_THE_MACHINE, 1),
         # Tools — 9 (econ to fund the runs)
         (I.BLACK_BUDGET, 3), (I.STOLEN_CREDENTIALS, 3), (I.SAFEHOUSE, 3),
         # Events — 17: econ/draw/mill core + a small breach REACH package (3) so a kill deck

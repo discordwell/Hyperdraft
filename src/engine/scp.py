@@ -49,7 +49,11 @@ MAX_HAND = 5
 
 CONTAINMENT_TARGET = 6      # Foundation primary win (Phase-4 tuned 7→6)
 LIBERATION_TARGET = 7       # Insurgency primary win
-BREACH_CATASTROPHE = 14     # Insurgency secondary win, "unleash" (Phase-4 tuned 10→14)
+BREACH_CATASTROPHE = 16     # Insurgency secondary win, "unleash" (Phase-4 10→14; Phase-D 14→16:
+                            # once the central/rez-break mechanics went live, breach-rush ran ~72-76%
+                            # of its matchups; a runtime-probe sweep showed +2 to the threshold — not
+                            # nerfing the free→breach value (kept at 1.0) — restored a 50/50 faction
+                            # split while leaving breach-rush a strong-but-fair ~62%. See scp_breach_probe.py.
 # How much of a freed anomaly's value (or its breach_on_free override) flows into the shared
 # Total Breach clock. 1.0 = full (a freed anomaly's Value is also its Breach). A balance knob
 # (Phase 4): freeing already banks Liberation, so the Breach contribution can be < 1.0 to keep
@@ -784,16 +788,35 @@ def _access(game, insurgent_id: str, target: tuple) -> list[Event]:
 
 
 def _access_central(game, insurgent_id: str, name: str) -> list[Event]:
-    """Espionage/sabotage on a central. v0.1: Research = mill 1; HQ/Archives = observed only."""
+    """Espionage/sabotage on a central — the Insurgency's disruption surface when no cell is
+    worth cracking. Centrals never grant Liberation (no anomaly); their payoff is tempo so the
+    run still does *something* when the cells are walled. Deliberately no breach here (that would
+    over-feed the breach-rush axis):
+
+      HQ       → trash 1 random card from the Foundation's hand (espionage / hand attrition).
+      Research → trash the top 2 of the Foundation's deck (sabotage / mill).
+      Archives → the Insurgency draws 1 (intel pulled from the archived files).
+    """
     state = game.state
     fid = foundation_id(state)
-    if name == "research":
-        dz = state.zones.get(_zkey(ZoneType.LIBRARY, fid))
-        if dz and dz.objects:
-            top = state.objects.get(dz.objects[-1])
-            if top:
-                return _relocate(game, top, ZoneType.GRAVEYARD)
-    return []
+    events: list[Event] = []
+    effect = "none"
+    if name == "hq" and fid is not None:
+        hand = hand_ids(state, fid)
+        if hand:
+            victim = state.objects.get(random.choice(hand))
+            if victim:
+                events.extend(_relocate(game, victim, ZoneType.GRAVEYARD))
+                effect = "hand_trash"
+    elif name == "research" and fid is not None:
+        events.extend(mill(game, fid, 2))
+        effect = "mill"
+    elif name == "archives":
+        events.extend(draw_cards(game, insurgent_id, 1))
+        effect = "draw"
+    events.extend(_emit(game, EventType.SCP_SABOTAGE, controller=insurgent_id,
+                        player=insurgent_id, central=name, effect=effect))
+    return events
 
 
 def _spring_trap(game, insurgent_id: str, anomaly: GameObject) -> list[Event]:

@@ -160,6 +160,48 @@ def test_scp_advance_and_credits_flow():
     asyncio.run(_run())
 
 
+def test_insurgency_view_redacts_facedown_central_layers():
+    """Hard-wet fog check for the live central-access surface: a Foundation layer installed
+    face-down on a central (HQ/Research/Archives) must be redacted to the Insurgency exactly
+    like a cell layer — its identity (type/strength) never reaches the runner's wire payload."""
+    async def _run():
+        response = await create_match(
+            request=CreateMatchRequest(
+                mode="human_vs_bot", game_mode="scp", ai_difficulty="medium",
+                player_name="TestHuman"),
+            background_tasks=BackgroundTasks())
+        session = session_manager.get_session(response.match_id)
+        random.seed(2024)
+        await session.mode_adapter.setup_game(session)
+        session.is_started = True
+
+        from src.engine import scp
+        from src.engine.types import ZoneType
+        from src.cards.scp import foundation as F
+        human_id = response.player_id                                   # Foundation (seat 0)
+        ai_id = next(p for p in session.player_ids if p != human_id)    # Insurgency
+
+        game = session.game
+        r = scp.ensure_scp_state(game.state, human_id)
+        r["ap"], r["credits"] = 5, 10
+        layer = game.create_object(name=F.BLAST_DOOR.name, owner_id=human_id, zone=ZoneType.HAND,
+                                   characteristics=F.BLAST_DOOR.characteristics, card_def=F.BLAST_DOOR)
+        ok, msg, _ = scp.play_card(game, human_id, layer.id, target=("central", "hq"))
+        assert ok, msg
+
+        ai_view = session.get_client_state(ai_id)
+        blob = json.dumps(ai_view.scp)
+        assert F.BLAST_DOOR.name not in blob, \
+            "fog leak: the Insurgency payload contains a face-down central layer's identity"
+        hq_stack = ai_view.scp["opponent"]["centrals"]["hq"]
+        assert hq_stack and hq_stack[0]["hidden"] is True and hq_stack[0]["name"] == "[FACE-DOWN]", \
+            "the face-down central layer must be present-but-redacted to the Insurgency"
+
+        await session_manager.remove_session(response.match_id)
+
+    asyncio.run(_run())
+
+
 def test_spectator_view_populates_both_seats():
     """Regression (review finding): _serialize_scp_state with no viewer (spectator /
     replay frames) must show the Foundation's perspective with both seats + central

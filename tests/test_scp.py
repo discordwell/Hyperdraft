@@ -194,6 +194,166 @@ def test_trap_punishes_and_yields_no_liberation():
     assert cell["anomaly"] is None, "the trap is consumed"
 
 
+# --------------------------------------------------------------------------- central access (live HQ/Research/Archives)
+def test_central_hq_trashes_a_foundation_hand_card():
+    g, f, i = _setup()
+    _hand(g, f.id, scp.make_anomaly("F-card", 3, 1))  # the Foundation card HQ will strip
+    assert len(scp.hand_ids(g.state, f.id)) == 1
+    _ready(g, i.id, ap=3, credits=10)
+    ok, msg, evs = scp.infiltrate(g, i.id, ("central", "hq"))
+    assert ok, msg
+    assert len(scp.hand_ids(g.state, f.id)) == 0, "HQ run trashes a Foundation hand card"
+    assert any(e.type.name == "SCP_SABOTAGE" and e.payload.get("effect") == "hand_trash" for e in evs)
+
+
+def test_central_research_mills_top_two():
+    g, f, i = _setup()
+    for n in range(4):
+        cd = scp.make_anomaly(f"D{n}", 3, 1)
+        g.create_object(name=cd.name, owner_id=f.id, zone=ZoneType.LIBRARY,
+                        characteristics=cd.characteristics, card_def=cd)
+    before = len(scp.deck_ids(g.state, f.id))
+    _ready(g, i.id, ap=3, credits=10)
+    ok, msg, evs = scp.infiltrate(g, i.id, ("central", "research"))
+    assert ok, msg
+    assert len(scp.deck_ids(g.state, f.id)) == before - 2, "Research run mills the top 2"
+    assert any(e.type.name == "SCP_SABOTAGE" and e.payload.get("effect") == "mill" for e in evs)
+
+
+def test_central_archives_draws_for_the_insurgency():
+    g, f, i = _setup()
+    for n in range(3):
+        cd = scp.make_event(f"I{n}")
+        g.create_object(name=cd.name, owner_id=i.id, zone=ZoneType.LIBRARY,
+                        characteristics=cd.characteristics, card_def=cd)
+    h0, d0 = len(scp.hand_ids(g.state, i.id)), len(scp.deck_ids(g.state, i.id))
+    _ready(g, i.id, ap=3, credits=10)
+    ok, msg, evs = scp.infiltrate(g, i.id, ("central", "archives"))
+    assert ok, msg
+    assert len(scp.hand_ids(g.state, i.id)) == h0 + 1, "Archives run draws 1 for the Insurgency"
+    assert len(scp.deck_ids(g.state, i.id)) == d0 - 1
+    assert any(e.type.name == "SCP_SABOTAGE" and e.payload.get("effect") == "draw" for e in evs)
+
+
+def test_defended_central_stops_the_run_before_sabotage():
+    g, f, i = _setup()
+    _ready(g, f.id)
+    gate = _hand(g, f.id, scp.make_layer("Gate", "barrier", 4, 4))
+    ok, msg, _ = scp.play_card(g, f.id, gate.id, target=("central", "hq"))
+    assert ok, msg
+    _hand(g, f.id, scp.make_anomaly("F-card", 3, 1))  # would be trashed if the run completed
+    fr = scp.ensure_scp_state(g.state, f.id); fr["credits"] = 10  # enough to rez
+    _ready(g, i.id, ap=3, credits=10)  # but no breaker
+    hand_before = len(scp.hand_ids(g.state, f.id))
+    ok, msg, evs = scp.infiltrate(g, i.id, ("central", "hq"))
+    assert ok, msg
+    assert len(scp.hand_ids(g.state, f.id)) == hand_before, "a rezzed barrier ends the HQ run"
+    assert not any(e.type.name == "SCP_SABOTAGE" for e in evs), "no sabotage when the run is stopped"
+
+
+# --------------------------------------------------------------------------- rez/break mini-game (smart AI policies)
+def test_smart_rez_declines_a_breakable_barrier():
+    """Rez to stop, not decorate: a barrier the runner can crack is wasted Funding — pass it."""
+    from src.ai.scp_adapter import foundation_rez_policy
+    g, f, i = _setup()
+    obj, cell = _install_anomaly(g, f.id, value=2)
+    _add_layer(g, f.id, cell, ltype="barrier", strength=3, rez=2)
+    fr = scp.ensure_scp_state(g.state, f.id); fr["credits"] = 10  # could afford to rez
+    op = scp.make_operative("Infiltrator", "barrier", 2, boost=1)
+    oh = _hand(g, i.id, op); _ready(g, i.id, ap=3, credits=5)
+    scp.play_card(g, i.id, oh.id)
+    ir = scp.ensure_scp_state(g.state, i.id); ir["ap"], ir["credits"] = 3, 5
+    ok, msg, _ = scp.infiltrate(g, i.id, ("cell", cell["id"]),
+                                rez_policy=foundation_rez_policy(g, i.id))
+    assert ok, msg
+    assert ir["liberation_points"] == 2, "the run accesses and frees"
+    assert ir["credits"] == 5, "barrier passed unrezzed → no boost paid"
+    assert fr["credits"] == 10, "Foundation spent no Funding on a futile rez"
+
+
+def test_smart_rez_stops_an_unbreakable_barrier():
+    from src.ai.scp_adapter import foundation_rez_policy
+    g, f, i = _setup()
+    obj, cell = _install_anomaly(g, f.id, value=2)
+    _add_layer(g, f.id, cell, ltype="barrier", strength=5, rez=3)
+    fr = scp.ensure_scp_state(g.state, f.id); fr["credits"] = 10
+    op = scp.make_operative("Infiltrator", "barrier", 2, boost=1)
+    oh = _hand(g, i.id, op); _ready(g, i.id, ap=3, credits=2)
+    scp.play_card(g, i.id, oh.id)
+    ir = scp.ensure_scp_state(g.state, i.id); ir["ap"], ir["credits"] = 3, 2  # 2 + 2 = 4 < 5
+    ok, msg, _ = scp.infiltrate(g, i.id, ("cell", cell["id"]),
+                                rez_policy=foundation_rez_policy(g, i.id))
+    assert ok, msg
+    assert ir["liberation_points"] == 0, "an unbreakable barrier ends the run"
+    assert fr["credits"] == 7, "Foundation paid 3 to rez the stopping barrier"
+
+
+def test_smart_break_eats_a_sensor_to_conserve_cells():
+    """Greedy rez (default) fires the sensor; the smart break policy eats the expose to save Cells."""
+    from src.ai.scp_adapter import insurgency_break_policy
+    g, f, i = _setup()
+    obj, cell = _install_anomaly(g, f.id, value=2)
+    _add_layer(g, f.id, cell, ltype="sensor", strength=2, rez=2)
+    fr = scp.ensure_scp_state(g.state, f.id); fr["credits"] = 10
+    op = scp.make_operative("Ghost", "sensor", 1, boost=1)
+    oh = _hand(g, i.id, op); _ready(g, i.id, ap=3, credits=5)
+    scp.play_card(g, i.id, oh.id)
+    ir = scp.ensure_scp_state(g.state, i.id); ir["ap"], ir["credits"] = 3, 5
+    ok, msg, _ = scp.infiltrate(g, i.id, ("cell", cell["id"]),
+                                break_policy=insurgency_break_policy(g))
+    assert ok, msg
+    assert ir["exposed"] == 1, "ate the sensor's expose instead of breaking it"
+    assert ir["credits"] == 5, "no Cells spent on the sensor"
+    assert ir["liberation_points"] == 2, "run still reached and freed the anomaly"
+
+
+def test_smart_break_breaks_sensor_once_exposure_is_in_softkill_range():
+    from src.ai.scp_adapter import insurgency_break_policy
+    g, f, i = _setup()
+    obj, cell = _install_anomaly(g, f.id, value=2)
+    _add_layer(g, f.id, cell, ltype="sensor", strength=2, rez=2)
+    fr = scp.ensure_scp_state(g.state, f.id); fr["credits"] = 10
+    op = scp.make_operative("Ghost", "sensor", 1, boost=1)
+    oh = _hand(g, i.id, op); _ready(g, i.id, ap=3, credits=5)
+    scp.play_card(g, i.id, oh.id)
+    ir = scp.ensure_scp_state(g.state, i.id)
+    ir["ap"], ir["credits"], ir["exposed"] = 3, 5, 2  # already tagged twice → don't climb further
+    ok, msg, _ = scp.infiltrate(g, i.id, ("cell", cell["id"]),
+                                break_policy=insurgency_break_policy(g))
+    assert ok, msg
+    assert ir["exposed"] == 2, "broke the sensor rather than eat another tag"
+    assert ir["credits"] == 4, "paid 1 Cell to boost Ghost through strength 2"
+
+
+def test_saboteur_boost2_break_cost_boundary():
+    """Saboteur breaks Sentries at boost 2 (+1 power per 2 Cells) — the previously-untested branch.
+    A Sentry doesn't end the run, so we read the *break cost* + the neutralize, not access denial."""
+    # Enough Cells: power 2 + (4 // boost 2 = +2) ≥ str 4 → breaks, pays (4-2)×2 = 4, operative lives.
+    g, f, i = _setup()
+    obj, cell = _install_anomaly(g, f.id, value=2)
+    _add_layer(g, f.id, cell, ltype="sentry", strength=4, rez=3)
+    scp.ensure_scp_state(g.state, f.id)["credits"] = 20
+    oh = _hand(g, i.id, scp.make_operative("Saboteur", "sentry", 2, boost=2))
+    _ready(g, i.id, ap=3, credits=4); scp.play_card(g, i.id, oh.id)
+    ir = scp.ensure_scp_state(g.state, i.id); ir["ap"], ir["credits"] = 3, 4
+    scp.infiltrate(g, i.id, ("cell", cell["id"]))
+    assert oh.id in ir["rig"], "broke the Sentry → the operative survives"
+    assert ir["credits"] == 0, "paid 4 Cells (deficit 2 × boost 2)"
+    assert ir["liberation_points"] == 2
+
+    # Too few Cells: power 2 + (3 // 2 = +1) = 3 < str 4 → can't break → the Saboteur is neutralised.
+    g2, f2, i2 = _setup()
+    obj2, cell2 = _install_anomaly(g2, f2.id, value=2)
+    _add_layer(g2, f2.id, cell2, ltype="sentry", strength=4, rez=3)
+    scp.ensure_scp_state(g2.state, f2.id)["credits"] = 20
+    oh2 = _hand(g2, i2.id, scp.make_operative("Saboteur", "sentry", 2, boost=2))
+    _ready(g2, i2.id, ap=3, credits=3); scp.play_card(g2, i2.id, oh2.id)
+    ir2 = scp.ensure_scp_state(g2.state, i2.id); ir2["ap"], ir2["credits"] = 3, 3
+    scp.infiltrate(g2, i2.id, ("cell", cell2["id"]))
+    assert oh2.id not in ir2["rig"], "couldn't break → the Saboteur is neutralised"
+    assert ir2["credits"] == 3, "no Cells spent when it can't break"
+
+
 # --------------------------------------------------------------------------- win conditions
 def test_foundation_wins_at_containment_target():
     g, f, i = _setup()

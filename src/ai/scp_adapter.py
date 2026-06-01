@@ -56,6 +56,73 @@ def _installed(state: GameState, ids: list, role: str) -> list:
     return out
 
 
+def _has_operative(state: GameState, irec: dict) -> bool:
+    return any(
+        getattr(state.objects.get(o), "state", None) is not None
+        and getattr(state.objects[o].state, "scp_role", None) == "operative"
+        for o in irec.get("rig", [])
+    )
+
+
+# --------------------------------------------------------------------------- reactive run policies
+# The rez/break mini-game (rules §6) is the heart of the asymmetry. The engine's *defaults* are
+# greedy (rez everything affordable / always break) and back the Phase-1 unit tests; these are the
+# AI's *smart* overrides, passed into scp.infiltrate by the Insurgency adapter (and by the server on
+# a human-Insurgency run). Both are closures over game state so they can read the (face-up) rig and
+# predict breaks via scp._can_break — fog-honest, since the engine sees everything anyway.
+def foundation_rez_policy(game, insurgent_id: str):
+    """Reactive rez choice for the Foundation: *rez to stop, not to decorate*. Matches
+    infiltrate's rez_policy(frec, layer) signature."""
+    state = game.state
+
+    def _policy(frec, layer) -> bool:
+        rez_cost = int(getattr(layer.card_def, "scp_rez", 0) or 0)
+        if frec["credits"] < rez_cost:
+            return False  # can't afford — pass it
+        ltype = getattr(layer.card_def, "scp_ltype", None)
+        can_break, _cost = scp._can_break(state, insurgent_id, layer)
+        ir = scp.ensure_scp_state(state, insurgent_id)
+        if ltype == "barrier":
+            # A barrier the runner can crack is wasted Funding to rez — pass it (and keep the bluff).
+            # Rez only when it actually ends the run.
+            return not can_break
+        if ltype == "sentry":
+            # Worth rezzing when it bites: it neutralises an operative they'd lose, or stops them.
+            return (not can_break) or _has_operative(state, ir)
+        # sensor: a cheap tag. Rez to expose unless they'll just break it for free this run.
+        return not can_break
+
+    return _policy
+
+
+def insurgency_break_policy(game):
+    """Reactive break choice for the Insurgency: break **barriers** (else the run ends and the AP is
+    wasted), but *eat* cheap sentry/sensor subroutines to conserve Cells — breaking is a choice, not
+    a reflex. Matches infiltrate's break_policy(irec, layer, can, cost) signature."""
+    state = game.state
+
+    def _policy(irec, layer, can, cost) -> bool:
+        if not can:
+            return False
+        ltype = getattr(layer.card_def, "scp_ltype", None)
+        if ltype == "barrier":
+            return True  # must break or the infiltration ends
+        sub = getattr(layer.card_def, "scp_sub", None) or scp._DEFAULT_SUB.get(ltype, "expose")
+        if sub == "neutralize" and _has_operative(state, irec):
+            return True  # don't feed an operative to the Sentry
+        if sub == "damage2":
+            return cost <= irec["credits"]  # break the heavy hitter whenever affordable
+        if sub == "expose":
+            # Tolerate the tag to save Cells — but don't let exposure climb into soft-kill range.
+            if int(irec.get("exposed", 0)) >= 2:
+                return cost <= irec["credits"]
+            return cost == 0
+        # discard / 1-damage neutralize-with-no-operative: cheap; eat it unless breaking is free.
+        return cost == 0
+
+    return _policy
+
+
 class SCPAIAdapter:
     """Faction-branching heuristic AI. Construct per game (stateless across turns)."""
 
@@ -170,6 +237,25 @@ class SCPAIAdapter:
             if ok:
                 return True, evs
 
+        # 8b. Tax the Insurgency's central runs with spare AP — a sensor on an open central exposes
+        #     them on every grind, setting up the soft-kill burst. Only once our own anomalies are
+        #     covered and they've shown they actually run (have a rig).
+        spare_layers = _of_kind(objs, CardType.SCP_LAYER)
+        iid = scp.insurgency_id(state)
+        ir = scp.ensure_scp_state(state, iid) if iid else {}
+        # Hard-only for now: a sensor here only matters once the soft-kill payoff exists (Phase C);
+        # until then, spending tempo to tax central runs just bleeds the Foundation's own clock.
+        if spare_layers and self.difficulty == "hard" and ir.get("rig"):
+            cells_covered = all(len(c["layers"]) >= 1 for c in cells if c.get("anomaly"))
+            open_central = next((c for c in scp.CENTRALS if not r["centrals"].get(c)), None)
+            if cells_covered and open_central:
+                sensors = [o for o in spare_layers if getattr(o.card_def, "scp_ltype", None) == "sensor"]
+                lc = min(sensors or spare_layers, key=_cost)
+                if _affordable(lc, r):
+                    ok, _m, evs = scp.play_card(game, pid, lc.id, target=("central", open_central))
+                    if ok:
+                        return True, evs
+
         # 9. Draw if thin, else bank Funding.
         if len(scp.hand_ids(state, pid)) < 3:
             ok, _m, evs = scp.draw_action(game, pid)
@@ -193,6 +279,14 @@ class SCPAIAdapter:
                 if substr in name.lower():
                     return o
             return None
+
+        # Soft-kill burst: once the Insurgency is tagged up, Interrogation scales with exposure and
+        # can flatline a thin hand. We can't see their hand (fog), so we fire on the *threat* —
+        # landing burnout when the hand happens to be thin, and pressuring them to hold cards.
+        if int(ir.get("exposed", 0)) >= 2:
+            interro = find("interrogation")
+            if interro:
+                return interro
 
         if len(scp.hand_ids(state, pid)) < 2:
             audit = find("audit")
@@ -234,6 +328,14 @@ class SCPAIAdapter:
         fid = scp.foundation_id(state)
         fr = scp.ensure_scp_state(state, fid) if fid else None
 
+        # Reactive run policies (rules §6): the Foundation rezzes to stop (not decorate); we break
+        # barriers but choose to eat cheap subroutines. Passed into every infiltrate this turn.
+        rez_pol = foundation_rez_policy(game, pid)
+        brk_pol = insurgency_break_policy(game)
+
+        def _run(target):
+            return scp.infiltrate(game, pid, target, rez_policy=rez_pol, break_policy=brk_pol)
+
         # Public read of the Foundation's cells (no face-down identities).
         targets = []  # (cell, advancement, n_layers)
         if fr:
@@ -248,7 +350,7 @@ class SCPAIAdapter:
         # 1. Free an undefended anomaly — a sure steal.
         for (cell, adv, n_layers) in targets:
             if n_layers == 0:
-                ok, _m, evs = scp.infiltrate(game, pid, ("cell", cell["id"]))
+                ok, _m, evs = _run(("cell", cell["id"]))
                 if ok:
                     return True, evs
 
@@ -284,7 +386,7 @@ class SCPAIAdapter:
             hot = sorted([t for t in targets if t[1] >= 3], key=lambda t: (t[1], -t[2]), reverse=True)
             for (cell, adv, n_layers) in hot:
                 if r["credits"] >= 2 * max(1, n_layers):
-                    ok, _m, evs = scp.infiltrate(game, pid, ("cell", cell["id"]))
+                    ok, _m, evs = _run(("cell", cell["id"]))
                     if ok:
                         return True, evs
 
@@ -303,6 +405,30 @@ class SCPAIAdapter:
             ec = min(events_in_hand, key=_cost)
             if _affordable(ec, r):
                 ok, _m, evs = scp.play_card(game, pid, ec.id)
+                if ok:
+                    return True, evs
+
+        # 6b. Walled-out fallback: a committed runner with spare AP and no profitable cell run this
+        #     turn grinds an undefended central for value instead of just banking — the steal deck's
+        #     answer to being walled by a kill build. Prefer Archives (dig for more rig when
+        #     starved); else strip the Foundation's hand via HQ when they're hoarding answers.
+        #     (Research-mill is a live human/engine option but the AI avoids it: milling the shared
+        #     material into the ground only stalls a game with no deck-out loss.)
+        #     Gated on `targets`: only grind when the Foundation is actually presenting an anomaly we
+        #     couldn't free/strike this turn (genuinely walled) — not as a routine card engine. (An
+        #     `exposed`-based relaxation was probed to help the steal-vs-kill matchup but it fed the
+        #     breach deck's draw too and tipped faction balance; the steal matchup is addressed at the
+        #     deck level instead — see decks.py black_queen anti-Sentry tech.)
+        if r["rig"] and targets and fr is not None:
+            def _open_central(c):
+                return not [l for l in fr["centrals"].get(c, []) if state.objects.get(l)]
+            if len(scp.hand_ids(state, pid)) < 3 and _open_central("archives"):
+                ok, _m, evs = _run(("central", "archives"))
+                if ok:
+                    return True, evs
+            f_hand = len(scp.hand_ids(state, fid)) if fid else 0
+            if f_hand >= 3 and _open_central("hq"):
+                ok, _m, evs = _run(("central", "hq"))
                 if ok:
                     return True, evs
 

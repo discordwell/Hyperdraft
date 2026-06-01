@@ -102,7 +102,7 @@ Installed face-down in front of a cell or central. On encounter (§5) the Founda
 | **Sentry** | "Response Team" | Neutralize 1 operative (or deal 1 damage). |
 | **Sensor** | "Surveillance Grid" | Trace: if unbroken, **expose** the Insurgency (tag). |
 
-**Foundation actions (3 AP):** play a card · **Advance** · **Secure Funding (+2)** · draw · activate
+**Foundation actions (4 AP):** play a card · **Advance** · **Secure Funding (+2)** · draw · activate
 an asset ability · **Contain** a ready anomaly.
 
 **Soft kill path.** "Expose" (tag) lets Foundation assets/operations punish the Insurgency
@@ -137,11 +137,13 @@ Research / Archives):
 3. **Access** (if the Insurgency survives all layers):
    - **Cell w/ anomaly →** *free* it: bank **Value** as Liberation, add Value to **Total Breach**,
      remove it. If it's a **trap**, suffer the trap instead.
-   - **HQ →** reveal a random card from Foundation hand; may trash it (espionage).
-   - **Research →** look at top card; may trash it (sabotage / mill).
-   - **Archives →** exploit the discard (recursion / intel).
+   - **HQ →** trash 1 random card from the Foundation's hand (espionage / hand attrition).
+   - **Research →** trash the top 2 of the Foundation's deck (sabotage / mill).
+   - **Archives →** the Insurgency draws 1 (intel). *(v0.1: centrals never grant Liberation — their
+     payoff is tempo/disruption, deliberately no Breach so they don't over-feed the breach-rush axis.
+     They give the steal deck a non-cell line to grind when a kill build walls it out.)*
 
-**Insurgency actions (3 AP):** play a card · **Raise Cells (+2)** · draw · **Infiltrate** · activate
+**Insurgency actions (4 AP):** play a card · **Raise Cells (+2)** · draw · **Infiltrate** · activate
 a tool ability.
 
 **Risk (glass cannon).** Operatives and hand cards are spent by Sentry/expose punishment. Running
@@ -217,9 +219,11 @@ lore** (`frontend/public/scp-art/`, the FBN/GOI card names) re-skinned onto thes
 - *Leak to the Press* — Total Breach +2.
 - *Extraction* — if you freed an anomaly this turn, draw 2.
 
-**Identities (optional, give archetypes a base):**
-- Foundation *Site-19 Command* — +1 max hand; first Advance each turn is free.
-- Insurgency *Black Queen Cell* — first run each turn targeting a central costs 0 AP.
+**Identities (optional, give archetypes a base).** *As shipped (v0.1) — the sketched bonus actions
+were dropped in favour of simpler passives that don't distort the AP economy:*
+- Foundation *Site-19 Command* — maximum hand size 6 (a bigger ops room).
+- Insurgency *Black Queen Cell* — begin with +2 Cells; each anomaly you free banks **+1 bonus
+  Liberation** (the steal-engine identity that makes the liberation axis a real win path).
 
 ---
 
@@ -238,9 +242,9 @@ Two archetypes per side keeps the Phase-4 matrix honest (no single dominant line
 
 ---
 
-## 10. Numbers (Phase-4 tuned)
+## 10. Numbers (Phase-4 tuned; Total Breach re-tuned in the asymmetry-rebuild pass)
 AP **4** · start credits 5 · gain +2 · draw 1/turn · max hand 5 · deck 40 · anomaly density ≥18 ·
-Containment target **6** · Liberation target 7 · Total Breach catastrophe **14** · anomaly lines
+Containment target **6** · Liberation target 7 · Total Breach catastrophe **16** · anomaly lines
 3/1, 4/2, 5/3 · layer strength 1–6 · breaker power 1–2 + boost. (Engine constants in
 `src/engine/scp.py`; `BREACH_FREE_MULTIPLIER` left at 1.0.)
 
@@ -263,13 +267,37 @@ the deck into a focused steal pinnacle (deep breaker suite + econ + Sabotage mil
 120 games: 49%/51% faction split, **liberation now 34 wins** (containment 59, breach 27), 0
 stalls; Black Queen Cell is competitive vs the build deck (≈47%).
 
-**Remaining deck-pinnacle gap (post-wet-test pass):** *Containment Breach* (breach-rush) is
-still the strongest deck (~62–67% of its games) and hard-counters the build deck; *Black Queen
-Cell* stays soft to the *Black-File Bait* kill deck (Sentry walls neutralise its operatives).
-Faction balance is healthy, so this is deck-vs-deck tuning best informed by real play — trim
-Containment Breach's breach density / shore up the steal deck vs Sentries after wet-testing.
-(`BREACH_FREE_MULTIPLIER` 0.5 was probed — nudges Containment Breach 67→62% — but kept at 1.0
-for cleaner "freeing adds its Value to Breach" rules.)
+**Asymmetry-rebuild pass (this pass).** Three pillars of the intended asymmetry were dead or on
+autopilot in real play and got made live (each gated by a self-play fire-test, not just an effect
+test):
+- **Central access (HQ/Research/Archives) is live.** HQ trashes a Foundation hand card, Research
+  mills 2, Archives draws 1; the InsurgencyAI grinds an undefended central when genuinely *walled*
+  (a cell it can't crack), giving the steal deck a non-cell line. Effects deliberately grant no
+  Liberation/Breach (so they don't feed breach-rush). `SCP_SABOTAGE` is asserted in the fire gate.
+- **The rez/break mini-game is played, not auto-resolved.** The engine keeps greedy *defaults*
+  (they back the Phase-1 unit tests), but the AI passes smart policies into `infiltrate`: the
+  Foundation rezzes **to stop, not decorate** (only when the runner can't break it, or a Sentry
+  would neutralise an operative), and the Insurgency **eats** cheap Sensor/Sentry subroutines to
+  conserve Cells (breaking once exposure nears soft-kill range). The fire gate asserts both a
+  *broken* and an *eaten* encounter occur. The server supplies the bot Foundation's rez policy on a
+  human-Insurgency run; fully-interactive per-layer human rez is deferred (the run still resolves
+  synchronously).
+- **The soft-kill (burnout) axis has teeth.** New Foundation operation *Enhanced Interrogation*
+  (deal damage = the Insurgency's `exposed` count, min 1) lets the *Black-File Bait* deck convert
+  stacked tags into a flatline; the FoundationAI fires it on the threat (`exposed ≥ 2`). Burnout is
+  a live *minority* win in self-play (it shapes Insurgency hand-management more than it wins games).
+
+**Re-balance.** Once the mechanics went live, breach-rush ran ~72–76% of its matchups. A runtime
+probe (`scripts/play/scp_breach_probe.py`) attributed the edge to the breach *threshold*, not the
+free→breach double-dip (cutting `BREACH_FREE_MULTIPLIER` 1.0→0.5 only moved it 76→65%, and we kept
+the clean 1.0 rule). Raising **Total Breach catastrophe 14→16** restored a ~45–50% / 50–55%
+faction split with breach-rush a strong-but-fair ~62%. The *Black Queen Cell* steal deck — soft to
+the kill deck's Sentry walls — got a targeted buff (+1 *Veteran Saboteur*, the load-bearing
+anti-Sentry breaker; −1 *Ghost*, since smart-break now eats Sensor tags) lifting its worst matchup
+from ~24% toward ~35–45%. All four win axes stay live; ~0.5% of unguarded-seed games can still
+stall at the higher breach threshold (a sudden-death tiebreaker would touch the "no self-inflicted
+loss" invariant and is left as a sign-off-gated follow-up). Guarded by `tests/test_scp_balance.py`
+(band 35–65%); variance is ~15% run-to-run, so only ≥~15pt deltas are trusted.
 
 ---
 

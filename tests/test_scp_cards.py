@@ -285,6 +285,34 @@ def test_operations_fire():
     assert len(scp.deck_ids(g.state, f.id)) == lib_before - 2
 
 
+def test_interrogation_scales_with_exposure_and_can_burn_out():
+    # Scales with exposure: exposed 3 → 3 damage (3 cards discarded).
+    g, f, i = _setup()
+    scp.ensure_scp_state(g.state, i.id)["exposed"] = 3
+    for _ in range(4):
+        _hand(g, i.id, I.BLACK_MARKET)
+    _ready(g, f.id)
+    _play(g, f.id, F.ENHANCED_INTERROGATION)
+    assert len(scp.hand_ids(g.state, i.id)) == 1, "exposed 3 → 3 cards discarded"
+
+    # Floor: even unexposed it deals the minimum 1.
+    g, f, i = _setup()
+    _hand(g, i.id, I.BLACK_MARKET); _hand(g, i.id, I.EXTRACTION)
+    _ready(g, f.id)
+    _play(g, f.id, F.ENHANCED_INTERROGATION)
+    assert len(scp.hand_ids(g.state, i.id)) == 1, "minimum 1 damage even with no exposure"
+
+    # Burnout: a tagged-out Insurgency with a thin hand gets flatlined (the soft-kill axis is live).
+    g, f, i = _setup()
+    ir = scp.ensure_scp_state(g.state, i.id); ir["exposed"] = 3
+    _hand(g, i.id, I.BLACK_MARKET); _hand(g, i.id, I.EXTRACTION)
+    _ready(g, f.id)
+    _play(g, f.id, F.ENHANCED_INTERROGATION)
+    assert ir.get("burned_out") is True, "3 damage vs a 2-card hand burns them out"
+    assert g.state.players[i.id].has_lost
+    assert not g.state.players[f.id].has_lost
+
+
 # =========================================================================== tools
 def test_tools_fire():
     # Black Budget — activated +3 Cells

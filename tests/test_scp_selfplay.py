@@ -49,6 +49,9 @@ async def _play_game(foundation_label, insurgency_label, seed, difficulty="mediu
         turns += 1
         for e in events:
             census[e.type.name] += 1
+            # Track the rez/break mini-game: a rezzed layer is either broken or eaten (subroutine fires).
+            if e.type.name == "SCP_LAYER_ENCOUNTER" and e.payload.get("rezzed"):
+                census["_encounter_broken" if e.payload.get("broken") else "_encounter_eaten"] += 1
             if e.type.name == "SCP_WIN":
                 win = e.payload
     return {
@@ -89,6 +92,7 @@ def test_core_verbs_all_fire_in_selfplay(matrix):
         "SCP_INFILTRATE",     # Insurgency runs
         "SCP_LAYER_ENCOUNTER",  # runs meet defenses
         "SCP_FREE",           # anomalies get stolen
+        "SCP_SABOTAGE",       # central runs (HQ/Research/Archives) actually happen — the disruption axis
         "SCP_ACTIVATE",       # asset/tool abilities get used
         "SCP_BREACH",         # the Total Breach clock moves
         "SCP_WIN",            # games resolve
@@ -97,6 +101,9 @@ def test_core_verbs_all_fire_in_selfplay(matrix):
     assert not missing, f"core verbs never fired across the whole matrix: {missing}\ncensus={dict(agg)}"
     # Some punishment surface (sentry/sensor/trap) must engage too.
     assert agg.get("SCP_DAMAGE", 0) + agg.get("SCP_EXPOSE", 0) > 0, "no defensive punishment ever fired"
+    # The rez/break mini-game must actually be *played*: runs both break layers and eat subroutines.
+    assert agg.get("_encounter_broken", 0) > 0, "no rezzed layer was ever broken (break path dead)"
+    assert agg.get("_encounter_eaten", 0) > 0, "no rezzed layer was ever eaten (subroutine choice dead)"
 
 
 def test_report_win_split(matrix):
