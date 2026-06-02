@@ -418,6 +418,58 @@ def test_burnout_is_foundation_soft_kill():
     assert not g.state.players[f.id].has_lost
 
 
+# --------------------------------------------------------------------------- foundation collapse
+# When the Foundation can no longer reach Containment (its anomaly supply spent by the Insurgency's
+# frees), it has failed its mandate → the Insurgency wins by default. Decisive resolution of the
+# old mutual-exhaustion stall (no draw, no turn-cap spin) and the matching human-play hang.
+def test_foundation_collapse_when_it_can_no_longer_reach_containment():
+    g, f, i = _setup()
+    scp.ensure_scp_state(g.state, f.id)["containment_points"] = scp.CONTAINMENT_TARGET - 1
+    # no anomalies anywhere in F's hand/deck/board → reachable Containment is stuck below target
+    _hand(g, i.id, scp.make_event("Cell-A")); _hand(g, i.id, scp.make_event("Cell-B"))  # hand >= 2
+    evs = scp.check_scp_win(g)
+    assert g.state.players[f.id].has_lost and not g.state.players[i.id].has_lost
+    assert any(e.type.name == "SCP_WIN" and e.payload.get("reason") == "foundation_collapse"
+               for e in evs), "the Insurgency wins by Foundation collapse"
+
+
+def test_no_collapse_while_containment_is_still_reachable():
+    # One value-1 anomaly still in the deck keeps reachable == target → the Foundation can still win,
+    # so collapse must NOT fire (the rule never robs a winnable game).
+    g, f, i = _setup()
+    scp.ensure_scp_state(g.state, f.id)["containment_points"] = scp.CONTAINMENT_TARGET - 1
+    cd = scp.make_anomaly("Last-Anomaly", threshold=1, value=1)
+    g.create_object(name=cd.name, owner_id=f.id, zone=ZoneType.LIBRARY,
+                    characteristics=cd.characteristics, card_def=cd)
+    _hand(g, i.id, scp.make_event("X")); _hand(g, i.id, scp.make_event("Y"))
+    scp.check_scp_win(g)
+    assert not g.state.players[f.id].has_lost, "one anomaly short of the target ≠ collapsed"
+
+
+def test_collapse_defers_to_a_live_burnout_window():
+    # Containment is dead, but the Insurgency hand is nearly empty (<2) — a genuine soft-kill window.
+    # Collapse must defer so the Foundation isn't robbed of a burnout win; it re-resolves once the
+    # Insurgency draws back up to >=2.
+    g, f, i = _setup()
+    scp.ensure_scp_state(g.state, f.id)["containment_points"] = scp.CONTAINMENT_TARGET - 1
+    _hand(g, i.id, scp.make_event("only-card"))  # exactly 1 card in hand
+    scp.check_scp_win(g)
+    assert not g.state.players[f.id].has_lost, "don't preempt a burnout window (Insurgency hand < 2)"
+
+
+def test_no_collapse_at_game_start_with_a_stocked_deck():
+    # A fully-stocked anomaly deck keeps reachable Containment far above the target, so the arbiter
+    # never fires early. (Production games are dealt a real 40-card deck — this guards the rule.)
+    g, f, i = _setup()
+    for n in range(4):
+        cd = scp.make_anomaly(f"A{n}", threshold=3, value=2)  # 4 × value 2 = 8 ≥ target
+        g.create_object(name=cd.name, owner_id=f.id, zone=ZoneType.LIBRARY,
+                        characteristics=cd.characteristics, card_def=cd)
+    _hand(g, i.id, scp.make_event("X")); _hand(g, i.id, scp.make_event("Y"))
+    scp.check_scp_win(g)
+    assert not g.state.players[f.id].has_lost, "a stocked deck is not a collapse"
+
+
 # --------------------------------------------------------------------------- fog of war
 def test_fog_of_war_hides_foundation_facedown_from_insurgency():
     g, f, i = _setup()

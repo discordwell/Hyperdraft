@@ -22,7 +22,7 @@ breaching *himself* out). This rebuild makes the two players actually fight.
 | Fantasy | Secure, Contain, Protect | Steal, Free, Weaponize |
 | Plays | builds a board of hidden, defended sites; advances anomalies into containment | builds a "rig" of operatives & tools; infiltrates the Foundation's sites |
 | Owns | the **primary win & lose con** | nothing self-destructs; everything is earned by acting on the Foundation |
-| Wins by | **Containment** points ≥ 6 (primary); burning out the Insurgency (soft kill, secondary) | **Liberation** points ≥ 7 (primary); **Total Breach** ≥ 14 (secondary) |
+| Wins by | **Containment** points ≥ 6 (primary); burning out the Insurgency (soft kill, secondary) | **Liberation** points ≥ 7 (primary); **Total Breach** ≥ 16 (secondary); **Foundation collapse** (the Foundation can no longer reach Containment) |
 
 Each side's win is the other's loss. There is no self-inflicted loss — the old engine's core sin.
 
@@ -169,10 +169,16 @@ under-defend a real anomaly and dare the Insurgency to commit. Hidden installs +
 | Foundation Containment points ≥ **6** | **Foundation wins** (primary) |
 | Insurgency burned out (damage vs empty hand) | **Foundation wins** (soft kill, secondary) |
 | Insurgency Liberation points ≥ **7** | **Insurgency wins** (primary) |
-| Total Breach ≥ **14** | **Insurgency wins** (secondary — "unleash") |
+| Total Breach ≥ **16** | **Insurgency wins** (secondary — "unleash") |
+| Foundation can **no longer reach Containment 6** — its current points plus the Value of every anomaly it can still contain (uncontained-and-unfreed, in library/hand/on a cell) fall short | **Insurgency wins** (**collapse** — the Foundation failed its mandate) |
 
 No self-inflicted loss exists. Checked after every state-changing action (a single
 `check_scp_win(game)` analogous to `check_scp_victory`, but symmetric across the two win axes).
+The **collapse** clause makes the game decisive: when the Insurgency has loosed so many anomalies
+that the Foundation's quota is mathematically out of reach (and the Insurgency isn't itself one
+damage from a soft-kill — guarded by Insurgency hand ≥ 2), it wins by default rather than the game
+spinning to a no-contest. This is *not* a self-inflicted loss: the arbiter recognizes a failed win
+condition, exactly as it recognizes a met one.
 
 ---
 
@@ -294,10 +300,21 @@ the clean 1.0 rule). Raising **Total Breach catastrophe 14→16** restored a ~45
 faction split with breach-rush a strong-but-fair ~62%. The *Black Queen Cell* steal deck — soft to
 the kill deck's Sentry walls — got a targeted buff (+1 *Veteran Saboteur*, the load-bearing
 anti-Sentry breaker; −1 *Ghost*, since smart-break now eats Sensor tags) lifting its worst matchup
-from ~24% toward ~35–45%. All four win axes stay live; ~0.5% of unguarded-seed games can still
-stall at the higher breach threshold (a sudden-death tiebreaker would touch the "no self-inflicted
-loss" invariant and is left as a sign-off-gated follow-up). Guarded by `tests/test_scp_balance.py`
+from ~24% toward ~35–45%. All four win axes stay live. Guarded by `tests/test_scp_balance.py`
 (band 35–65%); variance is ~15% run-to-run, so only ≥~15pt deltas are trusted.
+
+**Foundation collapse — the stall, resolved (follow-up pass).** At the higher breach threshold
+~0.4% of games (only the *Black-File Bait* vs *Black Queen Cell* matchup) ran to the turn cap as a
+no-contest. A board dump showed why: the **Foundation exhausts its anomaly supply** (all contained
+or freed) while still short of 6, and with no anomalies on the board the Insurgency has nothing left
+to free — a *mutual-exhaustion drawn position*, not a near-win tiebreaker. So the §7 **collapse**
+clause now resolves it decisively: when the Foundation can no longer reach Containment (current
+points + remaining containable Value < 6) and the Insurgency isn't one damage from a soft-kill
+(hand ≥ 2 guard), the Insurgency wins. A clean before/after over two 400-game batches shows the rule
+is surgical — **Foundation winrate unchanged** (47.2/47.2, 42.9/42.9), burnout wins unchanged, the
+only delta the former stalls becoming Insurgency wins — and **stalls drop to 0**. It also fixes the
+matching human-play hang (a human Foundation that decks out of anomalies would otherwise End-Turn
+forever). Engine `check_scp_win` + serializer mirror; covered by the `test_*collapse*` tests.
 
 ---
 

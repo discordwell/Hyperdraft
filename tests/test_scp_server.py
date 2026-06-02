@@ -118,6 +118,53 @@ def test_scp_match_setup_and_fog_of_war():
     asyncio.run(_run())
 
 
+def test_foundation_collapse_reason_serializes_to_client():
+    """When the Foundation can no longer reach Containment (anomaly supply spent), check_scp_win
+    declares an Insurgency win by collapse — and the client serializer must surface that reason
+    (not a blank), mirroring the engine. Guards the session.py win-reason mapping."""
+    async def _run():
+        response = await create_match(
+            request=CreateMatchRequest(
+                mode="human_vs_bot", game_mode="scp", ai_difficulty="medium",
+                player_name="TestHuman"),
+            background_tasks=BackgroundTasks())
+        session = session_manager.get_session(response.match_id)
+        random.seed(7)
+        await session.mode_adapter.setup_game(session)
+        session.is_started = True
+
+        from src.engine import scp
+        from src.engine.types import ZoneType
+        game = session.game
+        human_id = response.player_id                                    # Foundation (seat 0)
+        ai_id = next(p for p in session.player_ids if p != human_id)     # Insurgency
+        fid, iid = scp.foundation_id(game.state), scp.insurgency_id(game.state)
+
+        # Force a collapse position: Foundation one point short of the target with no anomaly value
+        # left anywhere (deck + hand emptied, no cells), Insurgency holding its dealt hand (>=2).
+        fr = scp.ensure_scp_state(game.state, fid)
+        fr["containment_points"] = scp.CONTAINMENT_TARGET - 1
+        fr["cells"] = []
+        for ztype in (ZoneType.LIBRARY, ZoneType.HAND):
+            zone = game.state.zones.get(scp._zkey(ztype, fid))
+            if zone:
+                zone.objects[:] = []
+        assert len(scp.hand_ids(game.state, iid)) >= 2, "Insurgency holds its dealt hand"
+
+        evs = scp.check_scp_win(game)
+        assert any(e.type.name == "SCP_WIN" and e.payload.get("reason") == "foundation_collapse"
+                   for e in evs), "engine declares collapse"
+        view = session.get_client_state(ai_id)
+        assert view.scp["game_over"] is True
+        assert view.scp["winner"] == ai_id
+        assert view.scp["win_reason"] == "foundation_collapse", \
+            "the serializer must surface the collapse reason, not a blank"
+
+        await session_manager.remove_session(response.match_id)
+
+    asyncio.run(_run())
+
+
 def test_scp_advance_and_credits_flow():
     """A Foundation can gain Funding and advance an installed anomaly via the server path."""
     async def _run():

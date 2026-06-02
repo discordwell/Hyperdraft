@@ -871,6 +871,25 @@ def _declare_win(game, winner: str, loser: str, reason: str) -> list[Event]:
     ))
 
 
+def _foundation_reachable_containment(state: GameState, fid: str) -> int:
+    """The most Containment the Foundation could still reach: current points plus the Value of every
+    anomaly it can still contain — uncontained-and-unfreed, in its library, hand, or installed on a
+    cell. Traps (Value 0) add nothing. When this falls below CONTAINMENT_TARGET the Foundation's
+    primary win is mathematically dead — the Insurgency has loosed too many anomalies for it to ever
+    reach the target."""
+    f = ensure_scp_state(state, fid)
+    total = f["containment_points"]
+    for oid in hand_ids(state, fid) + deck_ids(state, fid):
+        obj = state.objects.get(oid)
+        if obj is not None and getattr(obj.card_def, "scp_kind", None) == CardType.SCP_ANOMALY:
+            total += int(getattr(obj.card_def, "scp_value", 0) or 0)
+    for cell in f["cells"]:
+        anomaly = state.objects.get(cell.get("anomaly")) if cell.get("anomaly") else None
+        if anomaly is not None and getattr(anomaly.state, "scp_status", None) != "contained":
+            total += int(getattr(anomaly.card_def, "scp_value", 0) or 0)
+    return total
+
+
 def check_scp_win(game) -> list[Event]:
     state = game.state
     fid = foundation_id(state)
@@ -889,6 +908,18 @@ def check_scp_win(game) -> list[Event]:
         return _declare_win(game, iid, fid, "liberation")
     if f["total_breach"] >= BREACH_CATASTROPHE:
         return _declare_win(game, iid, fid, "total_breach")
+    # Foundation collapse — the decisive resolution of mutual exhaustion (the game has no draw).
+    # The Foundation's mandate is Containment; once it can no longer reach the target — its remaining
+    # anomaly Value spent by the Insurgency's frees (see _foundation_reachable_containment) — it has
+    # failed to contain, and the Insurgency wins by default. This converts the old ~0.4% "ran to the
+    # turn cap" stall (a board where neither side can progress — the Foundation out of anomalies, the
+    # Insurgency out of targets) into a clean Insurgency win, and fixes the matching human-play hang.
+    # Guard: the soft-kill (burnout) needs an *empty* Insurgency hand, so while the Insurgency still
+    # holds cards (>=2) the Foundation cannot flatline it this turn and collapse is the true outcome;
+    # if the hand is nearly empty we defer, leaving a genuine burnout window to resolve on its own.
+    if (_foundation_reachable_containment(state, fid) < CONTAINMENT_TARGET
+            and len(hand_ids(state, iid)) >= 2):
+        return _declare_win(game, iid, fid, "foundation_collapse")
     return []
 
 

@@ -2565,6 +2565,10 @@ class GameSession:
                 reason = "liberation"
             elif f["total_breach"] >= scp.BREACH_CATASTROPHE:
                 reason = "total_breach"
+            elif scp._foundation_reachable_containment(game_state, fid) < scp.CONTAINMENT_TARGET:
+                # The Foundation can no longer reach Containment (anomaly supply spent) → it lost by
+                # collapse; mirrors the engine's check_scp_win so the client shows the real reason.
+                reason = "foundation_collapse"
 
         return {
             "foundation_id": fid, "insurgency_id": iid,
