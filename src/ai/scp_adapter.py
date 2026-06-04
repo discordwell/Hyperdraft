@@ -260,24 +260,20 @@ class SCPAIAdapter:
             if ok:
                 return True, evs
 
-        # 8b. Tax the Insurgency's central runs with spare AP — a sensor on an open central exposes
-        #     them on every grind, setting up the soft-kill burst. Only once our own anomalies are
-        #     covered and they've shown they actually run (have a rig).
-        spare_layers = _of_kind(objs, CardType.SCP_LAYER)
-        iid = scp.insurgency_id(state)
-        ir = scp.ensure_scp_state(state, iid) if iid else {}
-        # Hard-only for now: a sensor here only matters once the soft-kill payoff exists (Phase C);
-        # until then, spending tempo to tax central runs just bleeds the Foundation's own clock.
-        if spare_layers and self.difficulty == "hard" and ir.get("rig"):
-            cells_covered = all(len(c["layers"]) >= 1 for c in cells if c.get("anomaly"))
-            open_central = next((c for c in scp.CENTRALS if not r["centrals"].get(c)), None)
-            if cells_covered and open_central:
-                sensors = [o for o in spare_layers if getattr(o.card_def, "scp_ltype", None) == "sensor"]
-                lc = min(sensors or spare_layers, key=_cost)
-                if _affordable(lc, r):
-                    ok, _m, evs = scp.play_card(game, pid, lc.id, target=("central", open_central))
-                    if ok:
-                        return True, evs
+        # 8b. (hard only) Double-wall a hot, valuable cell — stack a SECOND layer on a real anomaly
+        #     that's near locking and already singly-defended, so the Insurgency can't crack it in
+        #     one run. A genuinely tougher defense. (The old hard step here taxed *central* runs with
+        #     a sensor — but centrals are rarely run, so it bled the Foundation's own tempo for no
+        #     payoff and made hard FOUNDATION strictly WORSE than medium — multi-reviewer finding.)
+        if self.difficulty == "hard":
+            spare_layers = _of_kind(objs, CardType.SCP_LAYER)
+            for (a, cell) in sorted(real_advancing, key=lambda ac: int(getattr(ac[0].state, "scp_advancement", 0)), reverse=True):
+                if spare_layers and len(cell["layers"]) == 1 and int(getattr(a.state, "scp_advancement", 0)) >= 2:
+                    lc = max(spare_layers, key=lambda o: int(getattr(o.card_def, "scp_strength", 0)))
+                    if _affordable(lc, r):
+                        ok, _m, evs = scp.play_card(game, pid, lc.id, target=("cell", cell["id"]))
+                        if ok:
+                            return True, evs
 
         # 9. Draw if thin, else bank Funding.
         if len(scp.hand_ids(state, pid)) < 3:

@@ -700,7 +700,7 @@ class EventType(Enum):
     SCP_LAYER_ENCOUNTER = auto() # A layer was encountered during a run. Payload: {'player','layer_id','rezzed','broken'}
     SCP_ACCESS = auto()          # The Insurgency accessed a target. Payload: {'player','target'}
     SCP_FREE = auto()            # An anomaly was freed/stolen. Payload: {'player','object_id','value','liberation_points'}
-    SCP_BREACH = auto()          # Total Breach increased. Payload: {'amount','total_breach'}
+    SCP_BREACH = auto()          # Total Breach changed (amount may be negative via reduce_breach). Payload: {'amount','total_breach'}
     SCP_DAMAGE = auto()          # Damage dealt to the Insurgency. Payload: {'player','amount'}
     SCP_EXPOSE = auto()          # The Insurgency was exposed (tagged). Payload: {'player'}
     SCP_WIN = auto()             # A faction met a win condition. Payload: {'winner','loser','reason'}

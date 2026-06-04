@@ -165,7 +165,7 @@ export function projectSCPState(raw: Record<string, unknown>): SCPState {
     targets: {
       containment: targets.containment ?? 6,
       liberation: targets.liberation ?? 7,
-      breach: targets.breach ?? 14,
+      breach: targets.breach ?? 24,
     },
     me: projectSeat(raw.me),
     opponent: projectSeat(raw.opponent),

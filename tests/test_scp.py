@@ -498,6 +498,57 @@ def test_easy_insurgency_leaves_defended_anomalies_for_the_player():
     assert cell["anomaly"] is None, "medium Insurgency cracks the defended cell"
 
 
+def test_easy_insurgency_still_takes_undefended_anomalies():
+    # Positive control for the easy gate: easy is weaker, but it still PLAYS the game — it freely
+    # takes UNDEFENDED anomalies (it only declines to crack walls). Guards against easy going inert.
+    import asyncio
+    from src.ai.scp_adapter import SCPAIAdapter
+    g, f, i = _setup()
+    _obj, cell = _install_anomaly(g, f.id, threshold=5, value=2)   # NO layer → undefended
+    _ready(g, i.id, ap=4, credits=10)
+    asyncio.run(SCPAIAdapter("easy").take_turn(scp.insurgency_id(g.state), g.state, g))
+    assert cell["anomaly"] is None, "easy still freely frees an UNDEFENDED anomaly"
+
+
+def test_hard_insurgency_strikes_cells_earlier_than_medium():
+    # Hard strikes at advancement >= 2; medium waits for >= 3. (Hard branch was untested — the
+    # multi-reviewer panel flagged it, and a hard-Foundation regression had slipped through.)
+    import asyncio
+    from src.ai.scp_adapter import SCPAIAdapter
+
+    def board():
+        g, f, i = _setup()
+        _obj, cell = _install_anomaly(g, f.id, threshold=5, value=2)
+        g.state.objects[cell["anomaly"]].state.scp_advancement = 2   # hot for HARD (>=2), not medium (>=3)
+        _add_layer(g, f.id, cell, ltype="sensor", strength=1, rez=1)
+        scp.ensure_scp_state(g.state, f.id)["credits"] = 0           # can't rez → the run passes the sensor
+        oh = _hand(g, i.id, scp.make_operative("Breaker", "sensor", 2, boost=1))
+        _ready(g, i.id, ap=4, credits=20)
+        scp.play_card(g, i.id, oh.id)                               # Insurgency has a rig
+        return g, cell
+
+    g, cell = board()
+    asyncio.run(SCPAIAdapter("medium").take_turn(scp.insurgency_id(g.state), g.state, g))
+    assert cell["anomaly"] is not None, "medium does NOT strike a cell only at advancement 2"
+
+    g, cell = board()
+    asyncio.run(SCPAIAdapter("hard").take_turn(scp.insurgency_id(g.state), g.state, g))
+    assert cell["anomaly"] is None, "hard strikes the adv-2 cell early and frees it"
+
+
+def test_sarkic_breach_bonus_hits_events_not_freeing():
+    # Load-bearing balance invariant: Sarkic's +1 applies to breach EVENTS (add_breach) only, NOT to
+    # freeing (_free_anomaly writes Total Breach directly). Freeing a breach-on-free anomaly under
+    # Sarkic must add the un-bonused amount. (Untested before — multi-reviewer finding.)
+    g, f, i = _setup()
+    scp.ensure_scp_state(g.state, i.id)["breach_event_bonus"] = 1
+    _obj, cell = _install_anomaly(g, f.id, value=3, breach_on_free=5)   # Wurm-like
+    fr = scp.ensure_scp_state(g.state, f.id); before = fr["total_breach"]
+    _ready(g, i.id, ap=3, credits=10)
+    scp.infiltrate(g, i.id, ("cell", cell["id"]))                      # free it (undefended)
+    assert fr["total_breach"] == before + 5, "freeing adds breach_on_free=5 un-bonused (Sarkic is events-only)"
+
+
 # --------------------------------------------------------------------------- fog of war
 def test_fog_of_war_hides_foundation_facedown_from_insurgency():
     g, f, i = _setup()
