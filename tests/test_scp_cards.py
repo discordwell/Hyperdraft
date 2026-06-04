@@ -452,6 +452,34 @@ def test_overseer_council_boosts_damage_only_while_exposed():
     assert len(scp.hand_ids(g.state, i.id)) == 4 - 1, "no bonus when not exposed"
 
 
+def test_euclid_subject_stabilizes_breach_on_contain():
+    # De-dup: the formerly-vanilla Euclid Subject now rolls back Breach when contained (a 2nd,
+    # organic anti-breach answer) — distinct from the plain Anomalous Specimen.
+    g, f, i = _setup()
+    fr = scp.ensure_scp_state(g.state, f.id); fr["total_breach"] = 6
+    _ready(g, f.id)
+    _play(g, f.id, F.EUCLID_SUBJECT)
+    a = g.state.objects[_last_cell(g, f.id)["anomaly"]]
+    a.state.scp_advancement = 4                       # meet threshold
+    scp.contain(g, f.id, a.id)
+    assert fr["total_breach"] == 4, "containing Euclid Subject rolls Total Breach back by 2"
+    assert fr["containment_points"] == 2, "and still scores its value"
+
+
+def test_keter_horror_purges_hand_on_contain():
+    # De-dup: Keter Horror (was a near-clone of the Worldspine Wurm) now attritions the hand when
+    # contained — a distinct, kill-flavored payoff.
+    g, f, i = _setup()
+    for _ in range(4):
+        _hand(g, i.id, I.BLACK_MARKET)
+    _ready(g, f.id)
+    _play(g, f.id, F.KETER_HORROR)
+    a = g.state.objects[_last_cell(g, f.id)["anomaly"]]
+    a.state.scp_advancement = 5                       # meet threshold
+    scp.contain(g, f.id, a.id)
+    assert len(scp.hand_ids(g.state, i.id)) == 4 - 2, "containing Keter Horror deals 2 (discards 2)"
+
+
 def test_foundation_ai_deploys_traps_as_a_bluff():
     # Regression (card-fire sweep): traps were DEAD — the AI's bait step sat after the advance
     # step, which always returned first, so a whole mechanic never fired. The AI must now actually

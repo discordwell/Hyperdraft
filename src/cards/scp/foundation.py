@@ -45,6 +45,24 @@ def _expose_on_contain(game, pid, obj):
     return scp.expose(game, 1)
 
 
+def _stabilize_on_contain(n):
+    # "Euclid Subject": a stabilizing containment — locking it re-secures loose material, rolling
+    # the Total Breach clock back. A second, organic answer to the breach axis woven into the core
+    # contain loop (the Foundation fights breach by doing its job), distinct from the vanilla Euclid.
+    def _f(game, pid, obj):
+        return scp.reduce_breach(game, n)
+    return _f
+
+
+def _purge_on_contain(n):
+    # "Keter Horror": a violent containment — subduing it lets the Foundation strike, attritioning
+    # the Insurgency's hand (feeds the soft-kill). Distinct from the Worldspine Wurm breach-bomb.
+    def _f(game, pid, obj):
+        iid = scp.insurgency_id(game.state)
+        return scp.deal_damage(game, iid, n) if iid else []
+    return _f
+
+
 def _trap_expose_and_trash(game, insurgent_id, anomaly):
     # "Cerebral Relay": a bait file — accessing it tags the cell and fries a tool.
     return scp.expose(game, 1) + scp.trash_a_tool(game)
@@ -163,7 +181,8 @@ ANOMALOUS_SPECIMEN = make_anomaly(
 
 EUCLID_SUBJECT = make_anomaly(
     "SCP-1004 Euclid Subject", 4, 2, cost=0,
-    text="Euclid 4/2.")
+    text="Euclid 4/2. When contained, reduce Total Breach by 2 (re-secure loose material).",
+    on_contain=_stabilize_on_contain(2))
 
 REALITY_BENDER = make_anomaly(
     "SCP-3001 Reality Bender", 4, 2, cost=1,
@@ -181,7 +200,8 @@ WORLDSPINE_WURM = make_anomaly(
 
 KETER_HORROR = make_anomaly(
     "SCP-3199 Keter Horror", 5, 3, cost=1, breach_on_free=5,
-    text="Keter 5/3. If freed, Total Breach +5.")
+    text="Keter 5/3. If freed, Total Breach +5. When contained, deal 2 damage to the Insurgency.",
+    on_contain=_purge_on_contain(2))
 
 CONTAINMENT_LEVIATHAN = make_anomaly(
     "SCP-169 Containment Leviathan", 5, 3, cost=2,
