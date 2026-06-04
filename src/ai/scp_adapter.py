@@ -363,8 +363,11 @@ class SCPAIAdapter:
         # human Foundation got no onboarding ramp). An *easy* Insurgency only takes what the Foundation
         # leaves undefended: it won't crack defended walls, push the breach clock, or grind centrals,
         # and it breaks greedily (wasting Cells). A new player who learns to *defend* can beat it.
-        # Medium/hard play the full game, so the tuned balance is untouched.
+        # Medium/hard play the full game, so the tuned balance is untouched. A *hard* Insurgency is
+        # sharper still — it strikes cells earlier (before they're as developed) and pushes the
+        # breach clock proactively rather than only once it's already moving.
         easy = self.difficulty == "easy"
+        hard = self.difficulty == "hard"
 
         # Reactive run policies (rules §6): the Foundation rezzes to stop (not decorate); we break
         # barriers but choose to eat cheap subroutines. Passed into every infiltrate this turn.
@@ -422,7 +425,8 @@ class SCPAIAdapter:
         # 4. Strike a hot, defended cell before it locks (need a rig + enough bank to boost).
         #    Easy never cracks walls — defended anomalies are safe from it.
         if r["rig"] and not easy:
-            hot = sorted([t for t in targets if t[1] >= 3], key=lambda t: (t[1], -t[2]), reverse=True)
+            strike_at = 2 if hard else 3   # hard strikes earlier, before the cell is as developed
+            hot = sorted([t for t in targets if t[1] >= strike_at], key=lambda t: (t[1], -t[2]), reverse=True)
             for (cell, adv, n_layers) in hot:
                 if r["credits"] >= 2 * max(1, n_layers):
                     ok, _m, evs = _run(("cell", cell["id"]))
@@ -432,7 +436,7 @@ class SCPAIAdapter:
         # 5. Push the Total Breach clock when it's already moving.
         events_in_hand = _of_kind(objs, CardType.SCP_EVENT)
         breach_events = [o for o in events_in_hand if "breach" in (o.card_def.text or "").lower()]
-        if breach_events and fr and fr["total_breach"] >= 2 and not easy:
+        if breach_events and fr and fr["total_breach"] >= (0 if hard else 2) and not easy:
             be = min(breach_events, key=_cost)
             if _affordable(be, r):
                 ok, _m, evs = scp.play_card(game, pid, be.id)
