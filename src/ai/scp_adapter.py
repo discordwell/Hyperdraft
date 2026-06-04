@@ -216,25 +216,35 @@ class SCPAIAdapter:
                 if ok:
                     return True, evs
 
+        # 5b. Bait with a trap — the §6 bluff, made live. (The old step 6b sat *after* the advance
+        #     step, which returns whenever a real anomaly is advancing, so traps NEVER fired — a
+        #     dead mechanic caught by the card-fire sweep.) Once the Insurgency is running (has a
+        #     rig) and we also have a real anomaly (so the board reads as a believable mix), seed a
+        #     decoy and advance its public "heat" so it looks live — the next greedy run eats the
+        #     trap (damage / expose+trash). Capped at 2 decoys; the glacier holds none, so it's a
+        #     no-op there.
+        iid = scp.insurgency_id(state)
+        ir = scp.ensure_scp_state(state, iid) if iid else {}
+        trap_on_board = [(a, c) for (a, c) in advancing
+                         if int(getattr(a.card_def, "scp_value", 0)) == 0]
+        if traps and ir.get("rig") and len(trap_on_board) < 2 and (real_advancing or real_anoms):
+            tc = traps[0]
+            if _affordable(tc, r):
+                ok, _m, evs = scp.play_card(game, pid, tc.id)
+                if ok:
+                    return True, evs
+        for (a, cell) in trap_on_board:   # bait the decoy up to "looks live" heat to attract a run
+            if int(getattr(a.state, "scp_advancement", 0)) < 3 and r["credits"] >= 1:
+                ok, _m, evs = scp.advance(game, pid, a.id)
+                if ok:
+                    return True, evs
+
         # 6. Advance the lead real anomaly toward its lock.
         if real_advancing and r["credits"] >= 1:
             lead = max(real_advancing, key=lambda ac: int(getattr(ac[0].state, "scp_advancement", 0)))
             ok, _m, evs = scp.advance(game, pid, lead[0].id)
             if ok:
                 return True, evs
-
-        # 6b. Bait: drop a trap next to a real threat, and advance it a little so it reads as live.
-        if traps and 1 <= len(advancing) < 3:
-            tc = traps[0]
-            if _affordable(tc, r):
-                ok, _m, evs = scp.play_card(game, pid, tc.id)
-                if ok:
-                    return True, evs
-        for (a, cell) in advancing:
-            if int(getattr(a.card_def, "scp_value", 0)) == 0 and int(getattr(a.state, "scp_advancement", 0)) < 2 and r["credits"] >= 1:
-                ok, _m, evs = scp.advance(game, pid, a.id)
-                if ok:
-                    return True, evs
 
         # 7. A useful operation.
         op = self._pick_foundation_operation(state, pid, objs, r)

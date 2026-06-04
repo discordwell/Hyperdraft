@@ -452,6 +452,24 @@ def test_overseer_council_boosts_damage_only_while_exposed():
     assert len(scp.hand_ids(g.state, i.id)) == 4 - 1, "no bonus when not exposed"
 
 
+def test_foundation_ai_deploys_traps_as_a_bluff():
+    # Regression (card-fire sweep): traps were DEAD — the AI's bait step sat after the advance
+    # step, which always returned first, so a whole mechanic never fired. The AI must now actually
+    # deploy a decoy when the Insurgency is running and a real anomaly is on the board.
+    import asyncio
+    from src.ai.scp_adapter import SCPAIAdapter
+    g, f, i = _setup()
+    _ready(g, f.id); _play(g, f.id, F.ANOMALOUS_SPECIMEN)          # a real anomaly on the board
+    _hand(g, f.id, F.HONEYPOT_CELL)                                 # a trap to bluff with
+    _ready(g, f.id, ap=4, credits=12)
+    _ready(g, i.id); _play(g, i.id, I.INFILTRATOR)                  # Insurgency is running (has a rig)
+    asyncio.run(SCPAIAdapter("medium").take_turn(f.id, g.state, g))
+    fr = scp.ensure_scp_state(g.state, f.id)
+    trap_cells = [c for c in fr["cells"] if c.get("anomaly")
+                  and int(getattr(g.state.objects[c["anomaly"]].card_def, "scp_value", 0)) == 0]
+    assert trap_cells, "Foundation AI must bait a trap when the Insurgency is running (traps were dead)"
+
+
 def test_black_lodge_cell_boosts_mill():
     # Denial identity: applies at setup (mill_bonus + 1 Cell) and trashes +1 per mill effect.
     g = Game(mode="scp")
