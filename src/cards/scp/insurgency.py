@@ -77,13 +77,23 @@ def _stolen_credentials_install(game, pid, obj):
     return scp.add_credits(game.state, pid, 2)
 
 
-# --- identity passive ---
+# --- identity passives ---
 def _black_queen_passive(game, pid, obj):
     # Black Queen Cell: the steal-engine identity. A well-funded cell that turns every
     # liberation into extra Liberation — makes the steal-tempo axis a real win path.
     r = scp.ensure_scp_state(game.state, pid)
     r["free_bonus_lib"] = 1
     return scp.add_credits(game.state, pid, 2)
+
+
+def _sarkic_passive(game, pid, obj):
+    # Sarkic Cult: the breach-doctrine identity. A doomsday flesh-cult that wants the anomalies
+    # LOOSE — it doesn't steal for points, it floods the shared Total Breach clock. Every breach
+    # event hits +1 (Leak/Wetwork/Anonymous Tip), turning the secondary "unleash" axis into this
+    # deck's *primary* win path (no borrowed liberation engine). Modest econ so it still funds runs.
+    r = scp.ensure_scp_state(game.state, pid)
+    r["breach_event_bonus"] = 1
+    return scp.add_credits(game.state, pid, 1)
 
 
 # ===========================================================================
@@ -161,6 +171,11 @@ BLACK_QUEEN_CELL = make_identity(
     text="Identity. Begin with 2 extra Cells; each anomaly you free banks +1 bonus Liberation.",
     passive=_black_queen_passive)
 
+SARKIC_CULT = make_identity(
+    "Sarkic Cult", scp.INSURGENCY,
+    text="Identity. Begin with 1 extra Cell; your Total Breach events add +1 Breach each.",
+    passive=_sarkic_passive)
+
 
 # ===========================================================================
 # Pool aggregates
@@ -174,7 +189,7 @@ INSURGENCY_EVENTS = [
     BLACK_MARKET, COORDINATED_STRIKE, EXTRACTION, SABOTAGE, DATA_HEIST,
     LEAK_TO_THE_PRESS, ANONYMOUS_TIP, WETWORK,
 ]
-INSURGENCY_IDENTITIES = [BLACK_QUEEN_CELL]
+INSURGENCY_IDENTITIES = [BLACK_QUEEN_CELL, SARKIC_CULT]
 
 INSURGENCY_CARDS = (INSURGENCY_OPERATIVES + INSURGENCY_TOOLS
                     + INSURGENCY_EVENTS + INSURGENCY_IDENTITIES)

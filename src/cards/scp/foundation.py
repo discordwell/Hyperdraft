@@ -117,16 +117,30 @@ def _op_interrogation(game, pid):
     return scp.deal_damage(game, iid, max(1, int(ir.get("exposed", 0))))
 
 
+def _op_containment_sweep(game, pid):
+    # "Containment Sweep": the Foundation's answer to the breach axis — re-secures loosed material,
+    # rolling Total Breach back down. Without this the breach-rush deck races an unopposed clock.
+    return scp.reduce_breach(game, 5)
+
+
 def _op_draw(n):
     def _f(game, pid):
         return scp.draw_cards(game, pid, n)
     return _f
 
 
-# --- identity passive ---
+# --- identity passives ---
 def _site19_passive(game, pid, obj):
     # Site-19 Command: a bigger ops room — max hand 6 instead of 5.
     scp.ensure_scp_state(game.state, pid)["max_hand"] = 6
+    return []
+
+
+def _overseer_passive(game, pid, obj):
+    # Overseer Council: the soft-kill identity. Once the Insurgency is tagged (exposed), every
+    # Foundation punishment — Amnestics, Interrogation, Sentry hits, trap bites — deals +1. Turns
+    # the tag-then-burn (burnout) axis into a real win path for the bait deck. (No hand bonus.)
+    scp.ensure_scp_state(game.state, pid)["damage_bonus"] = 1
     return []
 
 
@@ -267,6 +281,11 @@ ENHANCED_INTERROGATION = make_operation(
     text="Deal damage to the Insurgency equal to how exposed they are (minimum 1).",
     effect=_op_interrogation)
 
+CONTAINMENT_SWEEP = make_operation(
+    "Containment Sweep", cost=2,
+    text="Reduce Total Breach by 5 (re-secure loosed anomalies).",
+    effect=_op_containment_sweep)
+
 
 # ===========================================================================
 # IDENTITY
@@ -275,6 +294,11 @@ SITE_19_COMMAND = make_identity(
     "Site-19 Command", scp.FOUNDATION,
     text="Identity. Your maximum hand size is 6.",
     passive=_site19_passive)
+
+OVERSEER_COUNCIL = make_identity(
+    "Overseer Council", scp.FOUNDATION,
+    text="Identity. While the Insurgency is exposed, your damage to them is increased by 1.",
+    passive=_overseer_passive)
 
 
 # ===========================================================================
@@ -292,8 +316,8 @@ FOUNDATION_LAYERS = [
 ]
 FOUNDATION_ASSETS = [CONTAINMENT_BUDGET, BLACK_SITE_FUNDING, MOBILE_TASK_FORCE, SITE_DIRECTOR]
 FOUNDATION_OPERATIONS = [EMERGENCY_LOCKDOWN, REDACTION_ORDER, AMNESTICS, MANDATORY_AUDIT,
-                         ENHANCED_INTERROGATION]
-FOUNDATION_IDENTITIES = [SITE_19_COMMAND]
+                         ENHANCED_INTERROGATION, CONTAINMENT_SWEEP]
+FOUNDATION_IDENTITIES = [SITE_19_COMMAND, OVERSEER_COUNCIL]
 
 FOUNDATION_CARDS = (FOUNDATION_ANOMALIES + FOUNDATION_LAYERS
                     + FOUNDATION_ASSETS + FOUNDATION_OPERATIONS + FOUNDATION_IDENTITIES)

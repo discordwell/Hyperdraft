@@ -405,6 +405,66 @@ def test_black_queen_cell_banks_bonus_liberation_per_free():
     assert ir["liberation_points"] == 3, "value 2 + 1 steal-engine bonus"
 
 
+def test_archetype_identities_apply_at_setup():
+    # The two new archetype-aligned identities set their engine flags + econ at install.
+    g = Game(mode="scp")
+    f = g.add_player("F"); i = g.add_player("I")
+    scp.setup_scp_game(g, f, i, foundation_deck=[F.ANOMALOUS_SPECIMEN] * 12,
+                        insurgency_deck=[I.INFILTRATOR] * 12,
+                        foundation_identity=F.OVERSEER_COUNCIL, insurgency_identity=I.SARKIC_CULT)
+    assert scp.ensure_scp_state(g.state, f.id)["damage_bonus"] == 1, "Overseer Council damage engine"
+    ir = scp.ensure_scp_state(g.state, i.id)
+    assert ir["breach_event_bonus"] == 1, "Sarkic Cult breach engine"
+    assert ir["credits"] == scp.STARTING_CREDITS + 1, "Sarkic Cult +1 Cell"
+
+
+def test_sarkic_cult_boosts_breach_events():
+    # Breach-doctrine identity: every Total Breach event hits +1 (and ONLY breach events).
+    g, f, i = _setup()
+    scp.ensure_scp_state(g.state, i.id)["breach_event_bonus"] = 1  # what the identity sets
+    _ready(g, i.id)
+    fr = scp.ensure_scp_state(g.state, f.id)
+    before = fr["total_breach"]
+    _play(g, i.id, I.LEAK_TO_THE_PRESS)        # base +2
+    assert fr["total_breach"] == before + 3, "Leak +2 → +3 under Sarkic"
+    _play(g, i.id, I.WETWORK)                  # base +3
+    assert fr["total_breach"] == before + 3 + 4, "Wetwork +3 → +4 under Sarkic"
+
+
+def test_overseer_council_boosts_damage_only_while_exposed():
+    # Kill identity: +1 damage, but ONLY while the Insurgency is exposed (tag-then-burn).
+    g, f, i = _setup()
+    scp.ensure_scp_state(g.state, f.id)["damage_bonus"] = 1  # what the identity sets
+    scp.ensure_scp_state(g.state, i.id)["exposed"] = 1
+    for _ in range(4):
+        _hand(g, i.id, I.BLACK_MARKET)
+    _ready(g, f.id)
+    _play(g, f.id, F.AMNESTICS)                 # base 1 damage
+    assert len(scp.hand_ids(g.state, i.id)) == 4 - 2, "Amnestics 1 → 2 damage while exposed"
+
+    # Not exposed → no bonus (the engine flag is set but exposure gates it).
+    g, f, i = _setup()
+    scp.ensure_scp_state(g.state, f.id)["damage_bonus"] = 1
+    for _ in range(4):
+        _hand(g, i.id, I.BLACK_MARKET)          # exposed == 0
+    _ready(g, f.id)
+    _play(g, f.id, F.AMNESTICS)
+    assert len(scp.hand_ids(g.state, i.id)) == 4 - 1, "no bonus when not exposed"
+
+
+def test_containment_sweep_rolls_back_the_breach_clock():
+    # The Foundation's breach counterplay: roll Total Breach back down (clamped at 0).
+    g, f, i = _setup()
+    fr = scp.ensure_scp_state(g.state, f.id)
+    fr["total_breach"] = 12
+    _ready(g, f.id)
+    _play(g, f.id, F.CONTAINMENT_SWEEP)
+    assert fr["total_breach"] == 7, "Containment Sweep reduces Total Breach by 5"
+    fr["total_breach"] = 3
+    _play(g, f.id, F.CONTAINMENT_SWEEP)
+    assert fr["total_breach"] == 0, "Sweep clamps at 0 (no negative breach)"
+
+
 # =========================================================================== decks
 def test_all_decks_are_legal():
     for label, (ident, builder) in D.SCP_DECKS.items():

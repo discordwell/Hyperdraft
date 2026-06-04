@@ -293,6 +293,14 @@ class SCPAIAdapter:
                     return o
             return None
 
+        # Breach counterplay (highest priority): if the Total Breach clock is closing on
+        # catastrophe, re-secure it before the Insurgency cashes in — losing the breach race just
+        # ends the game, and a single Sarkic Wetwork can swing +4. Sweep with a turn of buffer.
+        if scp.ensure_scp_state(state, pid).get("total_breach", 0) >= scp.BREACH_CATASTROPHE - 6:
+            sweep = find("sweep")
+            if sweep:
+                return sweep
+
         # Soft-kill burst: once the Insurgency is tagged up, Interrogation scales with exposure and
         # can flatline a thin hand. We can't see their hand (fog), so we fire on the *threat* —
         # landing burnout when the hand happens to be thin, and pressuring them to hold cards.

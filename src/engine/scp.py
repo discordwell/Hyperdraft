@@ -49,11 +49,13 @@ MAX_HAND = 5
 
 CONTAINMENT_TARGET = 6      # Foundation primary win (Phase-4 tuned 7→6)
 LIBERATION_TARGET = 7       # Insurgency primary win
-BREACH_CATASTROPHE = 16     # Insurgency secondary win, "unleash" (Phase-4 10→14; Phase-D 14→16:
-                            # once the central/rez-break mechanics went live, breach-rush ran ~72-76%
-                            # of its matchups; a runtime-probe sweep showed +2 to the threshold — not
-                            # nerfing the free→breach value (kept at 1.0) — restored a 50/50 faction
-                            # split while leaving breach-rush a strong-but-fair ~62%. See scp_breach_probe.py.
+BREACH_CATASTROPHE = 24     # Insurgency secondary win, "unleash" (10→14→16→24). The 16 era was a
+                            # HOLLOW breach axis: the breach deck ran Black Queen and actually won by
+                            # *liberation*. Giving it the Sarkic Cult identity (breach events +1) made
+                            # breach a real engine — and explosive (~85% vs Foundation at 16). With a
+                            # real engine + Foundation counterplay (Containment Sweep) the bar must be
+                            # higher: 24 restores ~50/50 (mean Found 52% / 480 games) with breach a
+                            # live-but-fair ~1/4 of wins. Re-tune this whenever the breach engine changes.
 # How much of a freed anomaly's value (or its breach_on_free override) flows into the shared
 # Total Breach clock. 1.0 = full (a freed anomaly's Value is also its Breach). A balance knob
 # (Phase 4): freeing already banks Liberation, so the Breach contribution can be < 1.0 to keep
@@ -346,14 +348,33 @@ def add_containment(state: GameState, player_id: str, n: int) -> list[Event]:
 
 
 def add_breach(game, n: int) -> list[Event]:
-    """Raise the shared Total Breach clock (kept on the Foundation record)."""
+    """Raise the shared Total Breach clock (kept on the Foundation record). A breach-doctrine
+    Insurgency identity (Sarkic Cult) adds ``breach_event_bonus`` to every breach event — this is
+    the only path breach events take, so the bonus lands exactly on Leak/Wetwork/Anonymous Tip."""
+    state = game.state
+    fid = foundation_id(state)
+    if fid is None:
+        return []
+    iid = insurgency_id(state)
+    if iid is not None:
+        n += int(ensure_scp_state(state, iid).get("breach_event_bonus", 0))
+    fr = ensure_scp_state(state, fid)
+    fr["total_breach"] += n
+    return _emit(game, EventType.SCP_BREACH, amount=n, total_breach=fr["total_breach"])
+
+
+def reduce_breach(game, n: int) -> list[Event]:
+    """Roll the shared Total Breach clock back down (Foundation counterplay to the breach axis).
+    Clamps at 0 — the Foundation re-contains loosed material rather than reversing past 'safe'."""
     state = game.state
     fid = foundation_id(state)
     if fid is None:
         return []
     fr = ensure_scp_state(state, fid)
-    fr["total_breach"] += n
-    return _emit(game, EventType.SCP_BREACH, amount=n, total_breach=fr["total_breach"])
+    before = fr["total_breach"]
+    fr["total_breach"] = max(0, before - n)
+    return _emit(game, EventType.SCP_BREACH, amount=fr["total_breach"] - before,
+                 total_breach=fr["total_breach"])
 
 
 def expose(game, n: int = 1) -> list[Event]:
@@ -655,6 +676,11 @@ def deal_damage(game, insurgent_id: str, n: int) -> list[Event]:
     burned out (flatline) → Foundation soft-kill win (resolved by check_scp_win)."""
     state = game.state
     ir = ensure_scp_state(state, insurgent_id)
+    # Foundation kill-identity (Overseer Council): punishment bites +1 harder while the Insurgency
+    # is exposed (tag-then-burn). Backward-compatible — damage_bonus defaults to 0 otherwise.
+    fid = foundation_id(state)
+    if fid is not None and int(ir.get("exposed", 0)) > 0:
+        n += int(ensure_scp_state(state, fid).get("damage_bonus", 0))
     events: list[Event] = []
     for _ in range(n):
         hand = hand_ids(state, insurgent_id)

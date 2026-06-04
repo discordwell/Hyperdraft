@@ -62,9 +62,9 @@ def site19_containment() -> list[CardDefinition]:
         # Assets — 6 (Funding engine)
         (F.CONTAINMENT_BUDGET, 3), (F.BLACK_SITE_FUNDING, 1),
         (F.SITE_DIRECTOR, 1), (F.MOBILE_TASK_FORCE, 1),
-        # Operations — 6
-        (F.EMERGENCY_LOCKDOWN, 2), (F.MANDATORY_AUDIT, 2),
-        (F.AMNESTICS, 1), (F.REDACTION_ORDER, 1),
+        # Operations — 6 (Containment Sweep ×2 is the answer to the breach clock)
+        (F.EMERGENCY_LOCKDOWN, 1), (F.MANDATORY_AUDIT, 2),
+        (F.CONTAINMENT_SWEEP, 2), (F.REDACTION_ORDER, 1),
     )
 
 
@@ -83,10 +83,10 @@ def blackfile_bait() -> list[CardDefinition]:
         # Assets — 6
         (F.CONTAINMENT_BUDGET, 2), (F.BLACK_SITE_FUNDING, 2),
         (F.MOBILE_TASK_FORCE, 1), (F.SITE_DIRECTOR, 1),
-        # Operations — 6 (soft-kill payoff: tag with Redaction, chip with Amnestics, burst with
-        # Interrogation; keep Audit for card flow so the bait plan doesn't brick into a stall)
+        # Operations — 6 (soft-kill payoff: tag with Redaction, burst with Interrogation; Audit for
+        # card flow; Containment Sweep ×1 so the bait deck isn't helpless against the breach clock)
         (F.REDACTION_ORDER, 2), (F.MANDATORY_AUDIT, 1),
-        (F.AMNESTICS, 1), (F.ENHANCED_INTERROGATION, 2),
+        (F.ENHANCED_INTERROGATION, 2), (F.CONTAINMENT_SWEEP, 1),
     )
 
 
@@ -132,16 +132,19 @@ def containment_breach() -> list[CardDefinition]:
 
 
 # ===========================================================================
-# Registries — label → (identity, deck-builder). Both Foundation decks share the
-# Site-19 Command identity; both Insurgency decks share Black Queen Cell (one
-# identity per faction in v0.1, per rules §11).
+# Registries — label → (identity, deck-builder). Each archetype now runs its OWN
+# win-condition-aligned identity: the glacier build keeps Site-19 Command (card
+# flow); the bait/kill deck takes Overseer Council (soft-kill damage +1 vs an
+# exposed Insurgency); the steal deck keeps Black Queen Cell (+1 Liberation/free);
+# the breach-rush deck takes Sarkic Cult (breach events +1) instead of borrowing
+# Black Queen's liberation engine it never used.
 # ===========================================================================
 SCP_FOUNDATION_DECKS = {
     "SCP_site19_containment": (F.SITE_19_COMMAND, site19_containment),
-    "SCP_blackfile_bait": (F.SITE_19_COMMAND, blackfile_bait),
+    "SCP_blackfile_bait": (F.OVERSEER_COUNCIL, blackfile_bait),
 }
 SCP_INSURGENCY_DECKS = {
     "SCP_black_queen_cell": (I.BLACK_QUEEN_CELL, black_queen_cell),
-    "SCP_containment_breach": (I.BLACK_QUEEN_CELL, containment_breach),
+    "SCP_containment_breach": (I.SARKIC_CULT, containment_breach),
 }
 SCP_DECKS = {**SCP_FOUNDATION_DECKS, **SCP_INSURGENCY_DECKS}

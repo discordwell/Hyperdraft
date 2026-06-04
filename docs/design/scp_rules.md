@@ -22,7 +22,7 @@ breaching *himself* out). This rebuild makes the two players actually fight.
 | Fantasy | Secure, Contain, Protect | Steal, Free, Weaponize |
 | Plays | builds a board of hidden, defended sites; advances anomalies into containment | builds a "rig" of operatives & tools; infiltrates the Foundation's sites |
 | Owns | the **primary win & lose con** | nothing self-destructs; everything is earned by acting on the Foundation |
-| Wins by | **Containment** points ≥ 6 (primary); burning out the Insurgency (soft kill, secondary) | **Liberation** points ≥ 7 (primary); **Total Breach** ≥ 16 (secondary); **Foundation collapse** (the Foundation can no longer reach Containment) |
+| Wins by | **Containment** points ≥ 6 (primary); burning out the Insurgency (soft kill, secondary) | **Liberation** points ≥ 7 (primary); **Total Breach** ≥ 24 (secondary); **Foundation collapse** (the Foundation can no longer reach Containment) |
 
 Each side's win is the other's loss. There is no self-inflicted loss — the old engine's core sin.
 
@@ -169,7 +169,7 @@ under-defend a real anomaly and dare the Insurgency to commit. Hidden installs +
 | Foundation Containment points ≥ **6** | **Foundation wins** (primary) |
 | Insurgency burned out (damage vs empty hand) | **Foundation wins** (soft kill, secondary) |
 | Insurgency Liberation points ≥ **7** | **Insurgency wins** (primary) |
-| Total Breach ≥ **16** | **Insurgency wins** (secondary — "unleash") |
+| Total Breach ≥ **24** | **Insurgency wins** (secondary — "unleash") |
 | Foundation can **no longer reach Containment 6** — its current points plus the Value of every anomaly it can still contain (uncontained-and-unfreed, in library/hand/on a cell) fall short | **Insurgency wins** (**collapse** — the Foundation failed its mandate) |
 
 No self-inflicted loss exists. Checked after every state-changing action (a single
@@ -250,7 +250,7 @@ Two archetypes per side keeps the Phase-4 matrix honest (no single dominant line
 
 ## 10. Numbers (Phase-4 tuned; Total Breach re-tuned in the asymmetry-rebuild pass)
 AP **4** · start credits 5 · gain +2 · draw 1/turn · max hand 5 · deck 40 · anomaly density ≥18 ·
-Containment target **6** · Liberation target 7 · Total Breach catastrophe **16** · anomaly lines
+Containment target **6** · Liberation target 7 · Total Breach catastrophe **24** · anomaly lines
 3/1, 4/2, 5/3 · layer strength 1–6 · breaker power 1–2 + boost. (Engine constants in
 `src/engine/scp.py`; `BREACH_FREE_MULTIPLIER` left at 1.0.)
 
@@ -316,6 +316,21 @@ only delta the former stalls becoming Insurgency wins — and **stalls drop to 0
 matching human-play hang (a human Foundation that decks out of anomalies would otherwise End-Turn
 forever). Engine `check_scp_win` + serializer mirror; covered by the `test_*collapse*` tests.
 
+**Archetype-aligned identities + breach counterplay (improvement pass).** Two flaws surfaced on a
+fresh census: (a) both decks of a faction shared one identity, and the breach-rush deck ran *Black
+Queen Cell* — whose "+1 Liberation per free" it doesn't want — so the "breach" deck actually won by
+**liberation** (the breach axis was hollow: ~15% of wins); (b) the Foundation had **no way to
+interact with the Total Breach clock** at all. Fixes: each archetype now runs its own
+win-condition-aligned **identity** — glacier→*Site-19 Command* (max hand 6), bait/kill→**Overseer
+Council** (`damage_bonus`: +1 to all Foundation damage while the Insurgency is exposed), steal→*Black
+Queen Cell*, breach→**Sarkic Cult** (`breach_event_bonus`: every Leak/Wetwork/Anonymous Tip +1).
+Sarkic made breach a *real* engine — and explosive (~85% vs Foundation), which exposed flaw (b). New
+Foundation operation **Containment Sweep** (−5 Total Breach, clamped at 0) is the answer; the
+FoundationAI fires it when the clock nears catastrophe (verified live — 33 plays / 80 games). With a
+real breach engine *and* counterplay, the bar rose: **Total Breach catastrophe 16 → 24**, restoring
+~50/50 (mean Foundation **52%** over 480 games, all four axes live, 0 stalls) with breach a
+live-but-fair ~¼ of wins. Each side now has two identity-distinct archetypes that answer each other.
+
 ---
 
 ## 11. Phase-0 decisions (RESOLVED — locked for Phase 1)
@@ -326,8 +341,10 @@ forever). Engine `check_scp_win` + serializer mirror; covered by the `test_*coll
 3. **Economy:** ✅ **Single credit pool per side** (Funding / Cells). No separate advance budget.
 4. **Turn structure:** ✅ **Strict alternation, both draw 1** at start of turn. Asymmetry lives in
    the cards/verbs, not the turn shape.
-5. **Identities:** ✅ **One Identity per faction in v0.1** (Site-19 Command / Black Queen Cell) —
-   base stats + a passive, installed at game setup as the archetype anchor.
+5. **Identities:** ✅ Installed at game setup as the archetype anchor (a passive on the player
+   record). v0.1 shipped one per faction; the improvement pass moved to **one identity per
+   *archetype*** — Foundation: Site-19 Command (glacier) / Overseer Council (kill); Insurgency:
+   Black Queen Cell (steal) / Sarkic Cult (breach) — each aligned to its deck's win condition.
 
 ---
 
