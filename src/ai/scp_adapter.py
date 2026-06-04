@@ -359,10 +359,17 @@ class SCPAIAdapter:
         fid = scp.foundation_id(state)
         fr = scp.ensure_scp_state(state, fid) if fid else None
 
+        # Difficulty (was IGNORED on the Insurgency seat — easy/medium/hard played identically, so a
+        # human Foundation got no onboarding ramp). An *easy* Insurgency only takes what the Foundation
+        # leaves undefended: it won't crack defended walls, push the breach clock, or grind centrals,
+        # and it breaks greedily (wasting Cells). A new player who learns to *defend* can beat it.
+        # Medium/hard play the full game, so the tuned balance is untouched.
+        easy = self.difficulty == "easy"
+
         # Reactive run policies (rules §6): the Foundation rezzes to stop (not decorate); we break
         # barriers but choose to eat cheap subroutines. Passed into every infiltrate this turn.
         rez_pol = foundation_rez_policy(game, pid)
-        brk_pol = insurgency_break_policy(game)
+        brk_pol = None if easy else insurgency_break_policy(game)  # easy: greedy break, wastes Cells
 
         def _run(target):
             return scp.infiltrate(game, pid, target, rez_policy=rez_pol, break_policy=brk_pol)
@@ -413,7 +420,8 @@ class SCPAIAdapter:
                         return True, evs
 
         # 4. Strike a hot, defended cell before it locks (need a rig + enough bank to boost).
-        if r["rig"]:
+        #    Easy never cracks walls — defended anomalies are safe from it.
+        if r["rig"] and not easy:
             hot = sorted([t for t in targets if t[1] >= 3], key=lambda t: (t[1], -t[2]), reverse=True)
             for (cell, adv, n_layers) in hot:
                 if r["credits"] >= 2 * max(1, n_layers):
@@ -424,7 +432,7 @@ class SCPAIAdapter:
         # 5. Push the Total Breach clock when it's already moving.
         events_in_hand = _of_kind(objs, CardType.SCP_EVENT)
         breach_events = [o for o in events_in_hand if "breach" in (o.card_def.text or "").lower()]
-        if breach_events and fr and fr["total_breach"] >= 2:
+        if breach_events and fr and fr["total_breach"] >= 2 and not easy:
             be = min(breach_events, key=_cost)
             if _affordable(be, r):
                 ok, _m, evs = scp.play_card(game, pid, be.id)
@@ -450,7 +458,7 @@ class SCPAIAdapter:
         #     `exposed`-based relaxation was probed to help the steal-vs-kill matchup but it fed the
         #     breach deck's draw too and tipped faction balance; the steal matchup is addressed at the
         #     deck level instead — see decks.py black_queen anti-Sentry tech.)
-        if r["rig"] and targets and fr is not None:
+        if r["rig"] and targets and fr is not None and not easy:
             def _open_central(c):
                 return not [l for l in fr["centrals"].get(c, []) if state.objects.get(l)]
             if len(scp.hand_ids(state, pid)) < 3 and _open_central("archives"):

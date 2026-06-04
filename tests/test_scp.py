@@ -470,6 +470,34 @@ def test_no_collapse_at_game_start_with_a_stocked_deck():
     assert not g.state.players[f.id].has_lost, "a stocked deck is not a collapse"
 
 
+# --------------------------------------------------------------------------- AI difficulty (onboarding)
+def test_easy_insurgency_leaves_defended_anomalies_for_the_player():
+    # Difficulty was cosmetic on the Insurgency seat (easy == medium == hard), so a human Foundation
+    # got no onboarding ramp. Easy must now only take UNDEFENDED anomalies — it won't crack a
+    # defended cell, giving a new player who learns to defend a beatable bot. Medium still cracks it.
+    import asyncio
+    from src.ai.scp_adapter import SCPAIAdapter
+
+    def board():
+        g, f, i = _setup()
+        _obj, cell = _install_anomaly(g, f.id, threshold=5, value=2)
+        g.state.objects[cell["anomaly"]].state.scp_advancement = 3     # "hot" → would attract a strike
+        _add_layer(g, f.id, cell, ltype="sensor", strength=1, rez=1)   # a token defense (1 layer)
+        scp.ensure_scp_state(g.state, f.id)["credits"] = 10
+        oh = _hand(g, i.id, scp.make_operative("Breaker", "sensor", 2, boost=1))
+        _ready(g, i.id, ap=4, credits=20)
+        scp.play_card(g, i.id, oh.id)                                  # Insurgency has a rig
+        return g, f, cell
+
+    g, f, cell = board()
+    asyncio.run(SCPAIAdapter("easy").take_turn(scp.insurgency_id(g.state), g.state, g))
+    assert cell["anomaly"] is not None, "easy Insurgency must leave a DEFENDED anomaly for the player"
+
+    g, f, cell = board()
+    asyncio.run(SCPAIAdapter("medium").take_turn(scp.insurgency_id(g.state), g.state, g))
+    assert cell["anomaly"] is None, "medium Insurgency cracks the defended cell"
+
+
 # --------------------------------------------------------------------------- fog of war
 def test_fog_of_war_hides_foundation_facedown_from_insurgency():
     g, f, i = _setup()
