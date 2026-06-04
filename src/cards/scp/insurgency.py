@@ -96,6 +96,16 @@ def _sarkic_passive(game, pid, obj):
     return scp.add_credits(game.state, pid, 1)
 
 
+def _black_lodge_passive(game, pid, obj):
+    # Black Lodge Cell: the denial-doctrine identity. Doesn't steal anomalies for points or flood
+    # the breach clock — it *destroys the Foundation's containment material* (mills their deck,
+    # frees what's on the board) so they can never reach Containment 6 → win by Foundation collapse.
+    # Every mill effect trashes +1 (Sabotage/Data Heist/Research), accelerating the supply kill.
+    r = scp.ensure_scp_state(game.state, pid)
+    r["mill_bonus"] = 1
+    return scp.add_credits(game.state, pid, 1)
+
+
 # ===========================================================================
 # OPERATIVES (breakers) — breaks · power / boost
 # ===========================================================================
@@ -176,6 +186,12 @@ SARKIC_CULT = make_identity(
     text="Identity. Begin with 1 extra Cell; your Total Breach events add +1 Breach each.",
     passive=_sarkic_passive)
 
+BLACK_LODGE_CELL = make_identity(
+    "Black Lodge Cell", scp.INSURGENCY,
+    text="Identity. Begin with 1 extra Cell; your mill effects trash +1 card each (deny the "
+         "Foundation its containment supply).",
+    passive=_black_lodge_passive)
+
 
 # ===========================================================================
 # Pool aggregates
@@ -189,7 +205,7 @@ INSURGENCY_EVENTS = [
     BLACK_MARKET, COORDINATED_STRIKE, EXTRACTION, SABOTAGE, DATA_HEIST,
     LEAK_TO_THE_PRESS, ANONYMOUS_TIP, WETWORK,
 ]
-INSURGENCY_IDENTITIES = [BLACK_QUEEN_CELL, SARKIC_CULT]
+INSURGENCY_IDENTITIES = [BLACK_QUEEN_CELL, SARKIC_CULT, BLACK_LODGE_CELL]
 
 INSURGENCY_CARDS = (INSURGENCY_OPERATIVES + INSURGENCY_TOOLS
                     + INSURGENCY_EVENTS + INSURGENCY_IDENTITIES)

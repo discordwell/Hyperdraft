@@ -242,9 +242,14 @@ were dropped in favour of simpler passives that don't distort the AP economy:*
 - **Insurgency A — "Black Queen Cell"** (criminal/tempo): cheap breakers + econ tools + central
   pressure; steals anomalies efficiently.
 - **Insurgency B — "Containment Breach"** (anarch/breach-rush): pushes the **Total Breach** axis
-  (Leak to the Press, on-free breach anomalies) for the secondary win.
+  (Leak to the Press, on-free breach anomalies) for the secondary win. Identity: Sarkic Cult.
+- **Insurgency C — "Black Lodge"** (denial/mill): doesn't race liberation or breach — it *destroys
+  the Foundation's containment supply* (heavy Sabotage/Data Heist mill + freeing) until the
+  Foundation can no longer reach Containment 6 and loses by **collapse**. Identity: Black Lodge Cell
+  (every mill trashes +1). This is the archetype that turns the collapse clause into a primary plan.
 
-Two archetypes per side keeps the Phase-4 matrix honest (no single dominant line).
+Two Foundation × three Insurgency archetypes keep the matrix honest (mean ~49% Foundation over 720
+games, all four win axes live incl. collapse ~11% and breach ~8%, 0 stalls).
 
 ---
 
@@ -344,7 +349,8 @@ live-but-fair ~¼ of wins. Each side now has two identity-distinct archetypes th
 5. **Identities:** ✅ Installed at game setup as the archetype anchor (a passive on the player
    record). v0.1 shipped one per faction; the improvement pass moved to **one identity per
    *archetype*** — Foundation: Site-19 Command (glacier) / Overseer Council (kill); Insurgency:
-   Black Queen Cell (steal) / Sarkic Cult (breach) — each aligned to its deck's win condition.
+   Black Queen Cell (steal) / Sarkic Cult (breach) / Black Lodge Cell (denial-mill) — each aligned
+   to its deck's win condition.
 
 ---
 

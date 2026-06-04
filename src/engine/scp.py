@@ -389,8 +389,13 @@ def expose(game, n: int = 1) -> list[Event]:
 
 
 def mill(game, player_id: str, n: int) -> list[Event]:
-    """Trash the top ``n`` cards of ``player_id``'s deck to discard (Research sabotage)."""
+    """Trash the top ``n`` cards of ``player_id``'s deck to discard (Insurgency sabotage). A
+    denial-doctrine Insurgency identity (Black Lodge Cell) trashes ``mill_bonus`` extra per mill —
+    every mill here is Insurgency→Foundation, so the bonus lands on Sabotage/Data Heist/Research."""
     state = game.state
+    iid = insurgency_id(state)
+    if iid is not None and player_id == foundation_id(state):
+        n += int(ensure_scp_state(state, iid).get("mill_bonus", 0))
     events: list[Event] = []
     for _ in range(n):
         dz = state.zones.get(_zkey(ZoneType.LIBRARY, player_id))

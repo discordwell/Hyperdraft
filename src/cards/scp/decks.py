@@ -132,6 +132,27 @@ def containment_breach() -> list[CardDefinition]:
 
 
 # ===========================================================================
+# Insurgency C — "Black Lodge" (denial / mill → Foundation collapse)
+# ===========================================================================
+def black_lodge_cell() -> list[CardDefinition]:
+    # The third Insurgency archetype: doesn't race liberation or breach — it DESTROYS the
+    # Foundation's containment supply (mill their deck, free what's on the board) until they can no
+    # longer reach Containment 6 and lose by *collapse* (engine check_scp_win). The Black Lodge Cell
+    # identity trashes +1 per mill. A small breach package keeps it from being walled into a stall.
+    return _deck(
+        # Operatives — 10 (enough to free on-board anomalies + crack the occasional wall)
+        (I.INFILTRATOR, 3), (I.MASTER_INFILTRATOR, 2),
+        (I.SABOTEUR, 2), (I.VETERAN_SABOTEUR, 1), (I.GHOST, 2),
+        # Tools — 8 (econ to fund mill events + runs)
+        (I.BLACK_BUDGET, 3), (I.STOLEN_CREDENTIALS, 3), (I.SAFEHOUSE, 2),
+        # Events — 22: heavy mill core (Sabotage/Data Heist) + draw/econ + a 5-card breach reach
+        (I.SABOTAGE, 4), (I.DATA_HEIST, 3),
+        (I.EXTRACTION, 4), (I.BLACK_MARKET, 4), (I.COORDINATED_STRIKE, 2),
+        (I.LEAK_TO_THE_PRESS, 2), (I.ANONYMOUS_TIP, 2), (I.WETWORK, 1),
+    )
+
+
+# ===========================================================================
 # Registries — label → (identity, deck-builder). Each archetype now runs its OWN
 # win-condition-aligned identity: the glacier build keeps Site-19 Command (card
 # flow); the bait/kill deck takes Overseer Council (soft-kill damage +1 vs an
@@ -146,5 +167,6 @@ SCP_FOUNDATION_DECKS = {
 SCP_INSURGENCY_DECKS = {
     "SCP_black_queen_cell": (I.BLACK_QUEEN_CELL, black_queen_cell),
     "SCP_containment_breach": (I.SARKIC_CULT, containment_breach),
+    "SCP_black_lodge_cell": (I.BLACK_LODGE_CELL, black_lodge_cell),
 }
 SCP_DECKS = {**SCP_FOUNDATION_DECKS, **SCP_INSURGENCY_DECKS}

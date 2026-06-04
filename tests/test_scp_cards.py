@@ -452,6 +452,22 @@ def test_overseer_council_boosts_damage_only_while_exposed():
     assert len(scp.hand_ids(g.state, i.id)) == 4 - 1, "no bonus when not exposed"
 
 
+def test_black_lodge_cell_boosts_mill():
+    # Denial identity: applies at setup (mill_bonus + 1 Cell) and trashes +1 per mill effect.
+    g = Game(mode="scp")
+    f = g.add_player("F"); i = g.add_player("I")
+    scp.setup_scp_game(g, f, i, foundation_deck=[F.ANOMALOUS_SPECIMEN] * 14,
+                        insurgency_deck=[I.SABOTAGE] * 14,
+                        foundation_identity=F.SITE_19_COMMAND, insurgency_identity=I.BLACK_LODGE_CELL)
+    ir = scp.ensure_scp_state(g.state, i.id)
+    assert ir["mill_bonus"] == 1, "Black Lodge mill engine at setup"
+    assert ir["credits"] == scp.STARTING_CREDITS + 1, "Black Lodge +1 Cell"
+    before = len(scp.deck_ids(g.state, f.id))
+    _ready(g, i.id)
+    _play(g, i.id, I.SABOTAGE)                    # base mill 3 → 4 under the denial engine
+    assert len(scp.deck_ids(g.state, f.id)) == before - 4, "Sabotage 3 → 4 mill under Black Lodge"
+
+
 def test_containment_sweep_rolls_back_the_breach_clock():
     # The Foundation's breach counterplay: roll Total Breach back down (clamped at 0).
     g, f, i = _setup()
