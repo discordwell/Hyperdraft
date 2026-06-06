@@ -103,6 +103,10 @@ export interface SCPState {
   winner: string | null;
   winReason: string | null;
   targets: SCPTargets;
+  // Collapse telegraph: the most Containment the Foundation could still reach (current points +
+  // every anomaly it can still contain). null for the Insurgency viewer (it counts the Foundation's
+  // hidden cards — fog). When it nears the target, the Foundation is being denied toward collapse.
+  foundationReachable: number | null;
   me: SCPSeat | null;
   opponent: SCPSeat | null;
 }
@@ -167,6 +171,8 @@ export function projectSCPState(raw: Record<string, unknown>): SCPState {
       liberation: targets.liberation ?? 7,
       breach: targets.breach ?? 24,
     },
+    foundationReachable:
+      typeof raw.foundation_reachable === 'number' ? raw.foundation_reachable : null,
     me: projectSeat(raw.me),
     opponent: projectSeat(raw.opponent),
   };

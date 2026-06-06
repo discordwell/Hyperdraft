@@ -261,6 +261,31 @@ export function SCPGameView() {
         </div>
       </div>
 
+      {/* Collapse telegraph — Foundation-only (null for Insurgency: it counts hidden cards). Shows
+          when reachable Containment nears the target so a collapse loss is a visible, escalating
+          clock instead of a sudden anticlimax. Hidden until at-risk to avoid clutter. */}
+      {!state.gameOver && state.foundationReachable != null &&
+        state.foundationReachable <= state.targets.containment + 6 && (() => {
+          const reach = state.foundationReachable;
+          const target = state.targets.containment;
+          const margin = reach - target;
+          const tone = margin <= 1
+            ? 'border-rose-600/60 bg-rose-950/40 text-rose-200'
+            : margin <= 3
+              ? 'border-amber-600/50 bg-amber-950/30 text-amber-200'
+              : 'border-slate-700 bg-slate-900/40 text-slate-300';
+          const lead = margin <= 1 ? 'Collapse imminent' : margin <= 3 ? 'Containment at risk' : 'Containment pressure';
+          return (
+            <div className={['rounded-lg border px-4 py-2 text-sm flex items-center gap-3 flex-wrap', tone].join(' ')}>
+              <span className="font-semibold uppercase tracking-widest text-[11px]">{lead}</span>
+              <span className="font-mono">reachable {reach} / {target}</span>
+              <span className="text-[12px] opacity-80">
+                — the Insurgency is denying your anomalies; if your reachable Containment falls below {target} you lose by collapse.
+              </span>
+            </div>
+          );
+        })()}
+
       {state.gameOver && (
         <div className={[
           'rounded-lg border px-4 py-2 text-sm',

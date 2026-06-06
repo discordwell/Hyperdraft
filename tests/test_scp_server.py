@@ -165,6 +165,45 @@ def test_foundation_collapse_reason_serializes_to_client():
     asyncio.run(_run())
 
 
+def test_collapse_telegraph_is_foundation_only_and_tracks_the_supply():
+    """The collapse telegraph (`foundation_reachable`) must reach the FOUNDATION viewer as a live
+    number but be None for the Insurgency — it counts the Foundation's hidden hand/deck, so
+    exposing it would leak fog. And it must drop as the supply is milled, so the UI clock is real."""
+    async def _run():
+        response = await create_match(
+            request=CreateMatchRequest(
+                mode="human_vs_bot", game_mode="scp", ai_difficulty="medium",
+                player_name="TestHuman"),
+            background_tasks=BackgroundTasks())
+        session = session_manager.get_session(response.match_id)
+        random.seed(11)
+        await session.mode_adapter.setup_game(session)
+        session.is_started = True
+
+        from src.engine import scp
+        game = session.game
+        human_id = response.player_id                                    # Foundation
+        ai_id = next(p for p in session.player_ids if p != human_id)     # Insurgency
+        fid = scp.foundation_id(game.state)
+
+        fview = session.get_client_state(human_id)
+        iview = session.get_client_state(ai_id)
+        reach0 = fview.scp["foundation_reachable"]
+        assert isinstance(reach0, int) and reach0 >= scp.CONTAINMENT_TARGET, \
+            "Foundation viewer sees its reachable Containment as a live number"
+        assert iview.scp["foundation_reachable"] is None, \
+            "Insurgency viewer must NOT see it (it counts the Foundation's hidden cards — fog)"
+
+        # Mill the Foundation's deck → reachable Containment must fall (the clock is real).
+        scp.mill(game, fid, 12)
+        reach1 = session.get_client_state(human_id).scp["foundation_reachable"]
+        assert reach1 < reach0, "reachable Containment drops as the anomaly supply is denied"
+
+        await session_manager.remove_session(response.match_id)
+
+    asyncio.run(_run())
+
+
 def test_scp_advance_and_credits_flow():
     """A Foundation can gain Funding and advance an installed anomaly via the server path."""
     async def _run():
