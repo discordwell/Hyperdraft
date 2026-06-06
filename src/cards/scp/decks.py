@@ -145,10 +145,15 @@ def black_lodge_cell() -> list[CardDefinition]:
         (I.SABOTEUR, 2), (I.VETERAN_SABOTEUR, 1), (I.GHOST, 2),
         # Tools — 8 (econ to fund mill events + runs)
         (I.BLACK_BUDGET, 3), (I.STOLEN_CREDENTIALS, 3), (I.SAFEHOUSE, 2),
-        # Events — 22: heavy mill core (Sabotage/Data Heist) + draw/econ + a 5-card breach reach
-        (I.SABOTAGE, 4), (I.DATA_HEIST, 3),
+        # Events — 22: mill core (Sabotage/Data Heist) + draw/econ + a 6-card breach reach.
+        # NERF (balance pass): one Sabotage → a 3rd Leak. This trims the collapse PEAK that made
+        # Lodge ~59% (a same-seed A/B over 300 games moved the Foundation 41→51% — collapse 86→56,
+        # containment 93→124) while a *pure* mill-volume cut (no econ/card-flow added) keeps it
+        # from redirecting into freeing — liberation stayed flat (90→92), breach wins stayed 0.
+        # The heavy-mill denial identity is fully intact (6-mill core + the +1 mill_bonus).
+        (I.SABOTAGE, 3), (I.DATA_HEIST, 3),
         (I.EXTRACTION, 4), (I.BLACK_MARKET, 4), (I.COORDINATED_STRIKE, 2),
-        (I.LEAK_TO_THE_PRESS, 2), (I.ANONYMOUS_TIP, 2), (I.WETWORK, 1),
+        (I.LEAK_TO_THE_PRESS, 3), (I.ANONYMOUS_TIP, 2), (I.WETWORK, 1),
     )
 
 
