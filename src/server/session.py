@@ -2579,6 +2579,13 @@ class GameSession:
             "targets": {"containment": scp.CONTAINMENT_TARGET,
                         "liberation": scp.LIBERATION_TARGET,
                         "breach": scp.BREACH_CATASTROPHE},
+            # Collapse telegraph: the most Containment the Foundation could still reach (current
+            # points + every anomaly it can still contain). When this nears the target the
+            # Foundation is being denied toward a *collapse* loss — surfaced so it's a visible
+            # clock, not a sudden anticlimax. Foundation-only: it counts the Foundation's hidden
+            # hand/deck, so exposing it to the Insurgency would leak fog (None for that viewer).
+            "foundation_reachable": (scp._foundation_reachable_containment(game_state, fid)
+                                     if (fid and eff_viewer == fid) else None),
             "me": _seat(eff_viewer) if eff_viewer else None,
             "opponent": _seat(scp.opponent_of(game_state, eff_viewer)) if eff_viewer else None,
         }
