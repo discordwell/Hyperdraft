@@ -119,6 +119,22 @@ def recontainment_control() -> list[CardDefinition]:
 
 
 # ===========================================================================
+# Foundation D — "Sentry Aggro" (fast tempo / soft-kill race)
+# ===========================================================================
+def sentry_aggro() -> list[CardDefinition]:
+    # Fast tempo: dense CHEAP low-threshold anomalies (lock 3/1 & 4/2 quickly) + sentries that
+    # punish the early rig + Overseer's burn. Races Containment 6 before the rig comes online.
+    # Its role in the meta: a predator for the steal deck (~52%), which out-tempos the grind builds.
+    return _deck(
+        (F.SENTIENT_LOCKBOX, 3), (F.SEALED_VAULT, 3), (F.ANOMALOUS_SPECIMEN, 3), (F.EUCLID_SUBJECT, 3),
+        (F.MEMETIC_ARCHIVE, 2),
+        (F.SNIPER_NEST, 3), (F.RESPONSE_TEAM, 3), (F.KILL_ON_SIGHT, 1), (F.SURVEILLANCE_GRID, 3), (F.TRIPWIRE, 2),
+        (F.CONTAINMENT_BUDGET, 4), (F.MOBILE_TASK_FORCE, 2),
+        (F.MANDATORY_AUDIT, 2), (F.REDACTION_ORDER, 2), (F.ENHANCED_INTERROGATION, 2), (F.AMNESTICS, 2),
+    )
+
+
+# ===========================================================================
 # Insurgency A — "Black Queen Cell" (criminal tempo)
 # ===========================================================================
 def black_queen_cell() -> list[CardDefinition]:
@@ -199,6 +215,10 @@ SCP_FOUNDATION_DECKS = {
     # Recontainment control shares Site-19 Command — its big hand (6) holds the wall + Recovery
     # grind. A dedicated identity is a possible follow-up; the archetype validates well on this one.
     "SCP_recontainment": (F.SITE_19_COMMAND, recontainment_control),
+    # Sentry-Aggro on Overseer (burn/expose race) — a fast-tempo pinnacle (~51%) that preys on the
+    # steal deck the grind builds lose to, rounding out the meta. (A pure-defense "Fortress" build
+    # was prototyped but came in ~38% at scale and overlaps the glacier, so it wasn't shipped.)
+    "SCP_sentry_aggro": (F.OVERSEER_COUNCIL, sentry_aggro),
 }
 SCP_INSURGENCY_DECKS = {
     "SCP_black_queen_cell": (I.BLACK_QUEEN_CELL, black_queen_cell),
