@@ -135,6 +135,26 @@ def sentry_aggro() -> list[CardDefinition]:
 
 
 # ===========================================================================
+# Foundation F — "Dr. Light's Special" (the boss deck — beats all 3 Insurgency pinnacles)
+# ===========================================================================
+def dr_light() -> list[CardDefinition]:
+    # The deliberately-strongest Foundation deck, found by trying to build a "truly unbeatable" deck.
+    # The lesson: unbeatable = SPEED + ANSWERS, not power. Fast low-threshold anomalies (lock before
+    # steal races) + breaker-punishing sentries + Overseer burn + Recovery (vs mill) + Sweep (vs
+    # breach) → no losing matchup: vs steal ~52%, breach ~56%, mill ~61%, overall **56.5%** over 720
+    # games. (The max-power "fortress" of the tallest walls was only 50.7% and LOST to tempo — walls
+    # aren't impenetrable, breakers scale.) Tops the meta; the strongest deck still loses ~43%.
+    return _deck(
+        (F.SENTIENT_LOCKBOX, 3), (F.SEALED_VAULT, 2), (F.ANOMALOUS_SPECIMEN, 3), (F.EUCLID_SUBJECT, 3),
+        (F.MEMETIC_ARCHIVE, 1),
+        (F.KILL_ON_SIGHT, 2), (F.RESPONSE_TEAM, 3), (F.SNIPER_NEST, 2), (F.SURVEILLANCE_GRID, 2), (F.BLAST_DOOR, 3),
+        (F.CONTAINMENT_BUDGET, 3), (F.BLACK_SITE_FUNDING, 1), (F.SITE_DIRECTOR, 2),
+        (F.CONTAINMENT_RECOVERY, 3), (F.CONTAINMENT_SWEEP, 2), (F.MANDATORY_AUDIT, 2),
+        (F.ENHANCED_INTERROGATION, 2), (F.REDACTION_ORDER, 1),
+    )
+
+
+# ===========================================================================
 # Insurgency A — "Black Queen Cell" (criminal tempo)
 # ===========================================================================
 def black_queen_cell() -> list[CardDefinition]:
@@ -219,6 +239,9 @@ SCP_FOUNDATION_DECKS = {
     # steal deck the grind builds lose to, rounding out the meta. (A pure-defense "Fortress" build
     # was prototyped but came in ~38% at scale and overlaps the glacier, so it wasn't shipped.)
     "SCP_sentry_aggro": (F.OVERSEER_COUNCIL, sentry_aggro),
+    # "Dr. Light's Special" — the boss deck (built to be unbeatable; tops out at ~56.5%, beats all
+    # three Insurgency pinnacles, no losing matchup). Deliberately the strongest Foundation deck.
+    "SCP_dr_light": (F.OVERSEER_COUNCIL, dr_light),
 }
 SCP_INSURGENCY_DECKS = {
     "SCP_black_queen_cell": (I.BLACK_QUEEN_CELL, black_queen_cell),
