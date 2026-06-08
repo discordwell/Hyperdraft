@@ -100,7 +100,9 @@ def recontainment_control() -> list[CardDefinition]:
     # Lodge denial → ~57%) or steal from for long; it out-attritions breach too. Its predator is pure
     # steal-tempo (Black Queen ~40% for it), which races before the grind comes online — a clean RPS.
     # Tall BARRIERS matter doubly: a freed cell keeps its walls, so a recovered anomaly returns behind
-    # them. Funding + Site Directors fuel the re-rez + recovery loop. Validated ~49-51% over 360 games.
+    # them. Funding + Site Directors fuel the re-rez + recovery loop. Validated ~48% (a pinnacle).
+    # Recovery is cost 3 (a premium, deliberately not a cheap auto-include splash — see the card);
+    # the funded build-around still affords 4 copies where a lean splash deck can't.
     return _deck(
         # Anomalies — 12 (24 pts; high-Value bombs are the juiciest recovery targets)
         (F.SENTIENT_LOCKBOX, 2), (F.SEALED_VAULT, 1), (F.ANOMALOUS_SPECIMEN, 2), (F.EUCLID_SUBJECT, 2),
