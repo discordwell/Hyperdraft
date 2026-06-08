@@ -527,6 +527,36 @@ def test_containment_sweep_rolls_back_the_breach_clock():
     assert fr["total_breach"] == 0, "Sweep clamps at 0 (no negative breach)"
 
 
+def test_containment_recovery_resecures_a_lost_anomaly_near_locked():
+    # Recontainment engine: re-secure the highest-Value milled/freed anomaly from the discard onto
+    # a cell, 1 advance from locking (threshold-1) — so it locks next turn ahead of the re-free,
+    # beating the liberation-donating treadmill that a part-way re-secure suffers.
+    g, f, i = _setup()
+    low = scp.make_anomaly("Lost-Safe", threshold=3, value=1)
+    high = scp.make_anomaly("Lost-Keter", threshold=5, value=3)
+    for cd in (low, high):
+        g.create_object(name=cd.name, owner_id=f.id, zone=ZoneType.GRAVEYARD,
+                        characteristics=cd.characteristics, card_def=cd)
+    _ready(g, f.id)
+    _play(g, f.id, F.CONTAINMENT_RECOVERY)
+    cells = [c for c in scp.ensure_scp_state(g.state, f.id)["cells"] if c.get("anomaly")]
+    assert cells, "Recovery re-secured an anomaly onto a cell"
+    a = g.state.objects[cells[-1]["anomaly"]]
+    assert a.card_def.name == "Lost-Keter", "it re-secures the HIGHEST-Value anomaly first"
+    assert a.state.scp_advancement == 5 - 1, "re-secured 1 advance from locking (threshold-1)"
+    assert a.state.scp_advancement < int(a.card_def.scp_threshold), "never auto-locks"
+
+
+def test_containment_recovery_draws_when_discard_has_no_anomaly():
+    # Fallback so the card is never dead vs decks that don't fill the Foundation's discard.
+    g, f, i = _setup()
+    _deck_card(g, f.id, F.ANOMALOUS_SPECIMEN)  # something to draw
+    _ready(g, f.id)
+    before = len(scp.deck_ids(g.state, f.id))
+    _play(g, f.id, F.CONTAINMENT_RECOVERY)  # empty discard → draw 1
+    assert len(scp.deck_ids(g.state, f.id)) == before - 1, "no anomaly to recover → draw a card"
+
+
 # =========================================================================== decks
 def test_all_decks_are_legal():
     for label, (ident, builder) in D.SCP_DECKS.items():

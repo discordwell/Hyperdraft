@@ -307,6 +307,22 @@ class SCPAIAdapter:
             if sweep:
                 return sweep
 
+        # Recontainment: reclaim a lost anomaly (milled or freed) straight onto a cell. High value
+        # whenever there's a real anomaly in the discard AND we have a freed-but-still-walled cell to
+        # re-secure it behind, OR our reachable Containment margin is thinning toward collapse.
+        recoverable = any(
+            getattr(o.card_def, "scp_kind", None) == CardType.SCP_ANOMALY
+            and int(getattr(o.card_def, "scp_value", 0) or 0) > 0
+            for o in (state.objects.get(oid) for oid in scp.discard_ids(state, pid))
+            if o is not None)
+        if recoverable:
+            walled_empty = any(c["anomaly"] is None and c["layers"] for c in r["cells"])
+            thin = scp._foundation_reachable_containment(state, pid) <= scp.CONTAINMENT_TARGET + 6
+            if walled_empty or thin:
+                recovery = find("recovery")
+                if recovery:
+                    return recovery
+
         # Soft-kill burst: once the Insurgency is tagged up, Interrogation scales with exposure and
         # can flatline a thin hand. We can't see their hand (fog), so we fire on the *threat* —
         # landing burnout when the hand happens to be thin, and pressuring them to hold cards.

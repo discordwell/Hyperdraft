@@ -239,6 +239,14 @@ were dropped in favour of simpler passives that don't distort the AP economy:*
   + 2×Keter = 20 Containment pts), tall layers, Funding engine. Wins by out-defending the run.
 - **Foundation B — "Black-File Bait"** (trap/kill): traps + Sentry walls + expose/trash; pursues the
   soft-kill axis, punishing reckless runs.
+- **Foundation C — "Reliquary Recontainment"** (grind/control): engine is **Containment Recovery**
+  (×4) — re-secure a milled/freed anomaly from the discard straight onto a cell *1 advance from
+  locking*, so every lost anomaly comes back near-locked. Hard to mill out or steal from; it
+  **hard-counters Black Lodge denial** (~57–62%) and beats breach, but its predator is pure
+  steal-tempo (~40% vs Black Queen, which races before the grind comes online — a clean RPS). The
+  re-secure must land *near-locked*: re-securing part-way just gets the anomaly re-freed before it
+  locks (a liberation-donating treadmill — measured 22% vs 49% near-locked). Identity: Site-19
+  Command (its big hand holds the wall + Recovery grind).
 - **Insurgency A — "Black Queen Cell"** (criminal/tempo): cheap breakers + econ tools + central
   pressure; steals anomalies efficiently.
 - **Insurgency B — "Containment Breach"** (anarch/breach-rush): pushes the **Total Breach** axis
@@ -248,8 +256,10 @@ were dropped in favour of simpler passives that don't distort the AP economy:*
   Foundation can no longer reach Containment 6 and loses by **collapse**. Identity: Black Lodge Cell
   (every mill trashes +1). This is the archetype that turns the collapse clause into a primary plan.
 
-Two Foundation × three Insurgency archetypes keep the matrix honest (mean ~49% Foundation over 720
-games, all four win axes live incl. collapse ~11% and breach ~8%, 0 stalls).
+Three Foundation × three Insurgency archetypes keep the matrix honest (pooled ~50% Foundation over
+540 games, all four win axes live incl. collapse and breach, 0 stalls). Recontainment is the
+strongest Foundation deck (~49%) but in-band, with a clean RPS: it beats mill/breach, loses to
+steal; steal in turn loses to a fast Sentry-Aggro build (both viable but not shipped as starters).
 
 ---
 
@@ -350,7 +360,8 @@ live-but-fair ~¼ of wins. Each side now has two identity-distinct archetypes th
    record). v0.1 shipped one per faction; the improvement pass moved to **one identity per
    *archetype*** — Foundation: Site-19 Command (glacier) / Overseer Council (kill); Insurgency:
    Black Queen Cell (steal) / Sarkic Cult (breach) / Black Lodge Cell (denial-mill) — each aligned
-   to its deck's win condition.
+   to its deck's win condition. The recontainment archetype reuses Site-19 Command (its big hand
+   suits the grind); a dedicated identity is a possible follow-up.
 
 ---
 
