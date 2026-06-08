@@ -409,6 +409,37 @@ def mill(game, player_id: str, n: int) -> list[Event]:
     return events
 
 
+def recover_anomaly(game, fid: str, n: int = 1, *, advancement: int = 0) -> list[Event]:
+    """Foundation recontainment — reclaim the ``n`` highest-Value anomalies from the Foundation's
+    discard. Milled *and* freed anomalies both land in the discard and stop counting toward
+    ``_foundation_reachable_containment``; reclaiming one restores reachable Containment, so a deck
+    built on this is hard to mill out or steal from (every freed/milled anomaly can come back).
+
+    With ``advancement > 0`` it re-secures each anomaly straight onto a cell (face-down) with a head
+    start toward locking, *preferring an empty cell that still has its layers* — when the Insurgency
+    frees an anomaly the cell keeps its walls, so the reclaimed anomaly returns **behind existing
+    defenses** rather than naked. With ``advancement == 0`` it returns to hand. Traps (Value 0) are
+    skipped. Returns [] when the discard holds no real anomaly (the card supplies its own fallback)."""
+    state = game.state
+    r = ensure_scp_state(state, fid)
+    anomalies = [state.objects.get(oid) for oid in discard_ids(state, fid)]
+    anomalies = [o for o in anomalies if o is not None
+                 and getattr(o.card_def, "scp_kind", None) == CardType.SCP_ANOMALY
+                 and int(getattr(o.card_def, "scp_value", 0) or 0) > 0]
+    anomalies.sort(key=lambda o: int(getattr(o.card_def, "scp_value", 0) or 0), reverse=True)
+    events: list[Event] = []
+    for o in anomalies[:n]:
+        if advancement > 0:
+            defended = next((c for c in r["cells"]
+                             if c["anomaly"] is None and c["layers"]), None)
+            events.extend(_install_anomaly(game, fid, o, defended["id"] if defended else None))
+            threshold = int(getattr(o.card_def, "scp_threshold", 0) or 0)
+            o.state.scp_advancement = min(advancement, max(0, threshold - 1))  # never auto-lock
+        else:
+            events.extend(_relocate(game, o, ZoneType.HAND))
+    return events
+
+
 def reinforce(state: GameState, layer_obj: GameObject, n: int) -> list[Event]:
     """Permanently raise a layer's effective strength (Foundation reinforcement tech)."""
     layer_obj.state.scp_strength_mod = int(getattr(layer_obj.state, "scp_strength_mod", 0)) + n

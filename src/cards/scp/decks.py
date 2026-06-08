@@ -91,6 +91,32 @@ def blackfile_bait() -> list[CardDefinition]:
 
 
 # ===========================================================================
+# Foundation C — "Reliquary Recontainment" (grindy control / recursion)
+# ===========================================================================
+def recontainment_control() -> list[CardDefinition]:
+    # The third Foundation archetype: a grind/control build whose engine is **Containment Recovery**
+    # (×4) — re-securing milled/freed anomalies straight onto a cell 1 advance from locking. Because
+    # every lost anomaly comes back near-locked, the deck is hard to mill out (hard-counters Black
+    # Lodge denial → ~57%) or steal from for long; it out-attritions breach too. Its predator is pure
+    # steal-tempo (Black Queen ~40% for it), which races before the grind comes online — a clean RPS.
+    # Tall BARRIERS matter doubly: a freed cell keeps its walls, so a recovered anomaly returns behind
+    # them. Funding + Site Directors fuel the re-rez + recovery loop. Validated ~49-51% over 360 games.
+    return _deck(
+        # Anomalies — 12 (24 pts; high-Value bombs are the juiciest recovery targets)
+        (F.SENTIENT_LOCKBOX, 2), (F.SEALED_VAULT, 1), (F.ANOMALOUS_SPECIMEN, 2), (F.EUCLID_SUBJECT, 2),
+        (F.WORLDSPINE_WURM, 1), (F.KETER_HORROR, 1), (F.CONTAINMENT_LEVIATHAN, 1),
+        (F.REALITY_BENDER, 1), (F.MEMETIC_ARCHIVE, 1),
+        # Walls — 14 (tall barriers keep the recovered anomaly locked; punishing sentries)
+        (F.BLAST_DOOR, 3), (F.REINFORCED_BULKHEAD, 3), (F.CONTAINMENT_FIELD, 2),
+        (F.KILL_ON_SIGHT, 2), (F.RESPONSE_TEAM, 2), (F.SURVEILLANCE_GRID, 2),
+        # Assets — 6 (Funding to re-rez walls + cast Recovery; Site Director card flow)
+        (F.CONTAINMENT_BUDGET, 3), (F.BLACK_SITE_FUNDING, 1), (F.SITE_DIRECTOR, 2),
+        # Operations — 8 (the engine: 4× Recovery + draw + reinforce-all + anti-breach)
+        (F.CONTAINMENT_RECOVERY, 4), (F.MANDATORY_AUDIT, 2), (F.EMERGENCY_LOCKDOWN, 1), (F.CONTAINMENT_SWEEP, 1),
+    )
+
+
+# ===========================================================================
 # Insurgency A — "Black Queen Cell" (criminal tempo)
 # ===========================================================================
 def black_queen_cell() -> list[CardDefinition]:
@@ -168,6 +194,9 @@ def black_lodge_cell() -> list[CardDefinition]:
 SCP_FOUNDATION_DECKS = {
     "SCP_site19_containment": (F.SITE_19_COMMAND, site19_containment),
     "SCP_blackfile_bait": (F.OVERSEER_COUNCIL, blackfile_bait),
+    # Recontainment control shares Site-19 Command — its big hand (6) holds the wall + Recovery
+    # grind. A dedicated identity is a possible follow-up; the archetype validates well on this one.
+    "SCP_recontainment": (F.SITE_19_COMMAND, recontainment_control),
 }
 SCP_INSURGENCY_DECKS = {
     "SCP_black_queen_cell": (I.BLACK_QUEEN_CELL, black_queen_cell),

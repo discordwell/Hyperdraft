@@ -141,6 +141,17 @@ def _op_containment_sweep(game, pid):
     return scp.reduce_breach(game, 5)
 
 
+def _op_recovery(game, pid):
+    # "Containment Recovery": recontainment — re-secure the highest-Value anomaly from the discard
+    # straight onto a cell **1 advance from locking** (advancement caps at threshold-1; the big
+    # value just means "as advanced as legal"). This is load-bearing: re-securing only part-way
+    # gets the anomaly re-freed before it locks (a liberation-donating treadmill — measured 22%);
+    # bringing it back near-locked lets the Foundation lock it next turn, ahead of the re-free, and
+    # the archetype jumps to ~49%. Fallback: draw, so it's never dead when the discard has no anomaly.
+    evs = scp.recover_anomaly(game, pid, 1, advancement=99)
+    return evs if evs else scp.draw_cards(game, pid, 1)
+
+
 def _op_draw(n):
     def _f(game, pid):
         return scp.draw_cards(game, pid, n)
@@ -306,6 +317,12 @@ CONTAINMENT_SWEEP = make_operation(
     text="Reduce Total Breach by 5 (re-secure loosed anomalies).",
     effect=_op_containment_sweep)
 
+CONTAINMENT_RECOVERY = make_operation(
+    "Containment Recovery", cost=2,
+    text="Re-secure the highest-Value anomaly from your discard onto a cell, 1 advance from "
+         "locking (behind your walls where one was freed). If your discard holds none, draw a card.",
+    effect=_op_recovery)
+
 
 # ===========================================================================
 # IDENTITY
@@ -336,6 +353,7 @@ FOUNDATION_LAYERS = [
 ]
 FOUNDATION_ASSETS = [CONTAINMENT_BUDGET, BLACK_SITE_FUNDING, MOBILE_TASK_FORCE, SITE_DIRECTOR]
 FOUNDATION_OPERATIONS = [EMERGENCY_LOCKDOWN, REDACTION_ORDER, AMNESTICS, MANDATORY_AUDIT,
+                         CONTAINMENT_RECOVERY,
                          ENHANCED_INTERROGATION, CONTAINMENT_SWEEP]
 FOUNDATION_IDENTITIES = [SITE_19_COMMAND, OVERSEER_COUNCIL]
 
