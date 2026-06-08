@@ -318,7 +318,12 @@ CONTAINMENT_SWEEP = make_operation(
     effect=_op_containment_sweep)
 
 CONTAINMENT_RECOVERY = make_operation(
-    "Containment Recovery", cost=2,
+    # Cost 3 (not 2): near-locked re-secure is a premium effect. At 2 it improves *every* Foundation
+    # deck ~+5pt — an auto-include staple that homogenizes deckbuilding and tilts the faction. The
+    # extra Funding taxes a lean splash (which can't always afford it) far more than the funded
+    # recontainment build-around (still a ~47% pinnacle), turning a must-run into a *choice* — good
+    # tech vs mill/steal, a dead-ish cantrip vs decks that don't disrupt your anomalies.
+    "Containment Recovery", cost=3,
     text="Re-secure the highest-Value anomaly from your discard onto a cell, 1 advance from "
          "locking (behind your walls where one was freed). If your discard holds none, draw a card.",
     effect=_op_recovery)

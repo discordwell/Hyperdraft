@@ -246,7 +246,10 @@ were dropped in favour of simpler passives that don't distort the AP economy:*
   steal-tempo (~40% vs Black Queen, which races before the grind comes online — a clean RPS). The
   re-secure must land *near-locked*: re-securing part-way just gets the anomaly re-freed before it
   locks (a liberation-donating treadmill — measured 22% vs 49% near-locked). Identity: Site-19
-  Command (its big hand holds the wall + Recovery grind).
+  Command (its big hand holds the wall + Recovery grind). Recovery is **cost 3** — a premium: at 2
+  it's a +5pt auto-include in *every* Foundation deck (homogenizing); 3 keeps the funded build-around
+  a pinnacle while making a casual splash a real *choice* (+3pt situational tech vs mill/steal,
+  a dead-ish cantrip otherwise), so it's freely splashable without becoming mandatory.
 - **Insurgency A — "Black Queen Cell"** (criminal/tempo): cheap breakers + econ tools + central
   pressure; steals anomalies efficiently.
 - **Insurgency B — "Containment Breach"** (anarch/breach-rush): pushes the **Total Breach** axis
