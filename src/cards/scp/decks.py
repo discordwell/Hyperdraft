@@ -222,6 +222,24 @@ def black_lodge_cell() -> list[CardDefinition]:
 
 
 # ===========================================================================
+# Insurgency D — "Discordwell's Gambit" (THE TRUE FINAL BOSS — beats all 5 Foundation decks)
+# ===========================================================================
+def discordwell_gambit() -> list[CardDefinition]:
+    # The strongest deck in the game — the answer to "build an unbeatable Chaos Insurgency deck."
+    # Optimized steal-tempo that beats EVERY Foundation deck, including the Foundation boss Dr. Light
+    # (~53%): overall ~57.6% over 750 games, worst matchup 52.7%. The keys against the boss: a deep
+    # scaling breaker suite (Master Infiltrator for barriers, **Veteran Saboteur ×4** to crack the
+    # neutralizing Kill-on-Sight sentries, **Ghost ×4** to break the sensors and dodge the Overseer
+    # burn) + a heavy econ base to fund the pumps + **Sabotage ×4** to overload Dr. Light's Recovery
+    # and deny its anomaly supply. Breakers scale, so with enough Cells nothing is impenetrable.
+    return _deck(
+        (I.MASTER_INFILTRATOR, 3), (I.VETERAN_SABOTEUR, 4), (I.INFILTRATOR, 3), (I.GHOST, 4), (I.SABOTEUR, 2),  # 16
+        (I.BLACK_BUDGET, 3), (I.STOLEN_CREDENTIALS, 3), (I.SAFEHOUSE, 2),                                        # 8
+        (I.BLACK_MARKET, 4), (I.COORDINATED_STRIKE, 2), (I.EXTRACTION, 3), (I.SABOTAGE, 4), (I.DATA_HEIST, 3),   # 16
+    )
+
+
+# ===========================================================================
 # Registries — label → (identity, deck-builder). Each archetype now runs its OWN
 # win-condition-aligned identity: the glacier build keeps Site-19 Command (card
 # flow); the bait/kill deck takes Overseer Council (soft-kill damage +1 vs an
@@ -247,5 +265,8 @@ SCP_INSURGENCY_DECKS = {
     "SCP_black_queen_cell": (I.BLACK_QUEEN_CELL, black_queen_cell),
     "SCP_containment_breach": (I.SARKIC_CULT, containment_breach),
     "SCP_black_lodge_cell": (I.BLACK_LODGE_CELL, black_lodge_cell),
+    # "Discordwell's Gambit" — THE TRUE FINAL BOSS. The strongest deck in the game: ~57.6% overall,
+    # beats all 5 Foundation decks incl. the Foundation boss Dr. Light (~53%). Deliberately the apex.
+    "SCP_discordwell_gambit": (I.BLACK_QUEEN_CELL, discordwell_gambit),
 }
 SCP_DECKS = {**SCP_FOUNDATION_DECKS, **SCP_INSURGENCY_DECKS}
