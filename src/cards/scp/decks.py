@@ -155,6 +155,42 @@ def dr_light() -> list[CardDefinition]:
 
 
 # ===========================================================================
+# Foundation G — "Black-Site Interrogation" (BURNOUT / discard control)
+# ===========================================================================
+def blacksite_interrogation() -> list[CardDefinition]:
+    # The anti-Gambit Foundation: it ignores the Containment race (so nothing is stolen or
+    # milled-for-collapse) and wins by BURNOUT — grinding the Insurgency's hand to empty with damage.
+    # Two compounding facts make it the structural answer to the denial/collapse Insurgency decks
+    # that wreck the containment-racing Foundations: (a) damage = forced discard, and damage on an
+    # empty hand flatlines them (soft-kill win); (b) the *foundation_collapse* win requires the
+    # Insurgency hand >= 2 — so keeping their hand starved both WINS (burnout) and DISABLES collapse.
+    # Engine: exposure ACCUMULATES and never resets; Mobile Task Force exposes proactively (1 AP ->
+    # +1, no run needed), sensors expose on every run, Overseer Council adds +1 damage while exposed,
+    # and Enhanced Interrogation deals damage = total exposure (a scaling finisher). TRAPS (Honeypot
+    # -3, Reliquary -2, Cerebral Relay) turn the Insurgency's own runs into self-inflicted discards at
+    # zero Liberation cost. Real anomalies are a collapse-buffer played slowly behind the shell, not
+    # raced. ~47% in tournament (wins by burnout, near-immune to collapse: 0-3 collapse losses vs the
+    # steal/breach/Gambit decks) and it FLATLINED Discordwell's Gambit in fog-honest pilot play —
+    # the only Foundation build that beat the boss, because it sidesteps the collapse war entirely.
+    return _deck(
+        # Anomalies — 13: 5 damage-TRAPS (unbreakable on-access punish) + 8 real high-Value held as a
+        # collapse-buffer; Keter deals 2 / Memetic exposes on contain (burn synergy if locked behind walls)
+        (F.HONEYPOT_CELL, 2), (F.RELIQUARY_OF_BAD_IDEAS, 2), (F.CEREBRAL_RELAY, 1),
+        (F.KETER_HORROR, 2), (F.MEMETIC_ARCHIVE, 2), (F.CONTAINMENT_LEVIATHAN, 1),
+        (F.ANOMALOUS_SPECIMEN, 2), (F.EUCLID_SUBJECT, 1),
+        # Walls — 11: SENSORS stack exposure on every run; SENTRIES deal damage + neutralize breakers
+        (F.SURVEILLANCE_GRID, 3), (F.TRIPWIRE, 2), (F.AMNESTIC_MIST, 2),
+        (F.KILL_ON_SIGHT, 2), (F.SNIPER_NEST, 1), (F.RESPONSE_TEAM, 1),
+        # Assets — 6: Mobile Task Force ×3 is the PROACTIVE expose engine (can't be dodged by not running)
+        (F.MOBILE_TASK_FORCE, 3), (F.CONTAINMENT_BUDGET, 2), (F.SITE_DIRECTOR, 1),
+        # Operations — 10: the burn. Enhanced Interrogation = dmg = accumulated exposure (finisher);
+        # Class-A Amnestics steady discard; Redaction expose/trash; Recovery anti-collapse; Sweep ×2 anti-breach
+        (F.ENHANCED_INTERROGATION, 3), (F.AMNESTICS, 3), (F.REDACTION_ORDER, 1),
+        (F.CONTAINMENT_RECOVERY, 1), (F.CONTAINMENT_SWEEP, 2),
+    )
+
+
+# ===========================================================================
 # Insurgency A — "Black Queen Cell" (criminal tempo)
 # ===========================================================================
 def black_queen_cell() -> list[CardDefinition]:
@@ -260,6 +296,10 @@ SCP_FOUNDATION_DECKS = {
     # "Dr. Light's Special" — the boss deck (built to be unbeatable; tops out at ~56.5%, beats all
     # three Insurgency pinnacles, no losing matchup). Deliberately the strongest Foundation deck.
     "SCP_dr_light": (F.OVERSEER_COUNCIL, dr_light),
+    # "Black-Site Interrogation" — BURNOUT/discard control on Overseer Council (+1 dmg while exposed).
+    # Wins by flatlining the Insurgency's hand, not by Containment; near-immune to the collapse line
+    # (it keeps their hand < 2) — the one Foundation build that beat the Gambit in fog-honest play.
+    "SCP_blacksite_interrogation": (F.OVERSEER_COUNCIL, blacksite_interrogation),
 }
 SCP_INSURGENCY_DECKS = {
     "SCP_black_queen_cell": (I.BLACK_QUEEN_CELL, black_queen_cell),

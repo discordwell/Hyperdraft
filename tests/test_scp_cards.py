@@ -585,5 +585,37 @@ def test_full_deck_setup_smoke():
     assert len(scp.deck_ids(g.state, i.id)) == D.DECK_SIZE - 5
 
 
+def test_blacksite_interrogation_is_a_burnout_deck():
+    # The 6th Foundation archetype wins by burnout, not containment — assert it ships the burn package.
+    ident, builder = D.SCP_FOUNDATION_DECKS["SCP_blacksite_interrogation"]
+    names = [c.name for c in builder()]
+    assert len(names) == D.DECK_SIZE
+    assert ident is F.OVERSEER_COUNCIL, "burnout deck runs Overseer Council (+1 damage while exposed)"
+    assert "Enhanced Interrogation" in names, "the scaling finisher (damage = exposure)"
+    assert "Class-A Amnestics" in names, "steady discard"
+    assert names.count("Mobile Task Force") >= 3, "the proactive-expose engine (can't be dodged)"
+    assert any(t in names for t in ("SCP-4011 Honeypot Cell", "SCP-2998 Reliquary of Bad Ideas")), \
+        "damage-traps that punish runs at zero Liberation cost"
+
+
+def test_burnout_flatlines_an_empty_handed_insurgency():
+    # The deck's win condition: damage = forced discard; damage past an empty hand = burned_out → the
+    # single win arbiter awards the Foundation. Overseer Council (+1 while exposed) lands the finisher.
+    g, f, i = _setup()
+    scp.ensure_scp_state(g.state, f.id)["damage_bonus"] = 1  # Overseer Council passive
+    for n in ("x1", "x2"):
+        g.create_object(name=n, owner_id=i.id, zone=ZoneType.HAND,
+                        characteristics=I.BLACK_MARKET.characteristics, card_def=I.BLACK_MARKET)
+    scp.expose(g, 4)
+    ir = scp.ensure_scp_state(g.state, i.id)
+    assert ir["exposed"] >= 1
+    # Enhanced Interrogation = damage = exposure(4) +Overseer(1) = 5 into a 2-card hand → flatline.
+    F.ENHANCED_INTERROGATION.scp_effect(g, f.id)
+    assert len(scp.hand_ids(g.state, i.id)) == 0
+    assert ir["burned_out"] is True, "damage past an empty hand flatlines the Insurgency"
+    scp.check_scp_win(g)
+    assert g.state.players[i.id].has_lost, "burned-out Insurgency loses → Foundation burnout win"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
