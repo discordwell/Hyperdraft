@@ -250,6 +250,20 @@ were dropped in favour of simpler passives that don't distort the AP economy:*
   it's a +5pt auto-include in *every* Foundation deck (homogenizing); 3 keeps the funded build-around
   a pinnacle while making a casual splash a real *choice* (+3pt situational tech vs mill/steal,
   a dead-ish cantrip otherwise), so it's freely splashable without becoming mandatory.
+- **Foundation D — "Sentry-Aggro"** (fast tempo): cheap low-threshold anomalies + breaker-punishing
+  sentries + Overseer burn; races Containment before the rig comes online. Preys on steal-tempo.
+- **Foundation E — "Dr. Light's Special"** (boss/midrange): speed + answers (Recovery vs mill, Sweep
+  vs breach, sentries + burn vs steal) → no losing matchup, ~56.5% vs the field. The strongest
+  *containment* Foundation — but under skilled play a hand-locking Gambit collapses it (it can't
+  same-turn-lock from hand, so its only safe scoring is Recovery, which the hand-strip denies).
+- **Foundation F — "Black-Site Interrogation"** (BURNOUT/discard control): the structural answer to
+  the denial/collapse Insurgency. It ignores the Containment race (nothing to steal or mill-collapse)
+  and wins by **burnout** — Mobile Task Force exposes proactively, sensors expose on every run,
+  exposure never resets, and Enhanced Interrogation deals damage = total exposure (Overseer +1) to
+  flatline their hand; damage-traps (Honeypot/Reliquary) punish runs at zero Liberation cost.
+  Crucially, keeping their hand starved *both* wins (burnout) *and* trips below the hand≥2 gate the
+  **collapse** win requires — so it's near-immune to collapse (0–3 losses to it) and is the only
+  Foundation build to beat Discordwell's Gambit in fog-honest pilot play. ~47% in tournament.
 - **Insurgency A — "Black Queen Cell"** (criminal/tempo): cheap breakers + econ tools + central
   pressure; steals anomalies efficiently.
 - **Insurgency B — "Containment Breach"** (anarch/breach-rush): pushes the **Total Breach** axis
@@ -259,10 +273,12 @@ were dropped in favour of simpler passives that don't distort the AP economy:*
   Foundation can no longer reach Containment 6 and loses by **collapse**. Identity: Black Lodge Cell
   (every mill trashes +1). This is the archetype that turns the collapse clause into a primary plan.
 
-Three Foundation × three Insurgency archetypes keep the matrix honest (pooled ~50% Foundation over
-540 games, all four win axes live incl. collapse and breach, 0 stalls). Recontainment is the
-strongest Foundation deck (~49%) but in-band, with a clean RPS: it beats mill/breach, loses to
-steal; steal in turn loses to a fast Sentry-Aggro build (both viable but not shipped as starters).
+Six Foundation × four Insurgency archetypes keep the matrix honest (pooled ~50% Foundation, all
+five win axes live — containment / liberation / collapse / burnout / breach — 0 stalls). A clean
+RPS runs through it: Recontainment beats mill/breach but loses to steal; steal loses to Sentry-Aggro;
+the **Gambit's** hand-lock+mill collapse beats every *containment* Foundation (incl. the Dr. Light
+boss) under skilled play — but **Black-Site Interrogation** answers it from the other side, winning
+the race by burnout while its hand-starvation disables the collapse line. Each axis has a counter.
 
 ---
 
