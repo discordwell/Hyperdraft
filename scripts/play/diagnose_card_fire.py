@@ -66,15 +66,17 @@ def _resolve_pokemon_deck(name: str):
 def _resolve_engine(engine: Optional[str], p1_deck: str) -> str:
     """Resolve the engine: explicit --engine wins, else infer from the --p1 deck.
 
-    An SCP deck name (a key in scp_tournament.SCP_STARTER_DECKS) implies the SCP
-    engine; otherwise default to Pokemon (the historical default).
+    An SCP deck name (a key in ``src.cards.scp.decks.SCP_FOUNDATION_DECKS`` /
+    ``SCP_INSURGENCY_DECKS``) implies the SCP engine; otherwise default to Pokemon
+    (the historical default).
     """
     if engine:
         return engine
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         try:
-            from scripts.play.scp_tournament import SCP_STARTER_DECKS
-            if p1_deck in SCP_STARTER_DECKS:
+            from src.cards.scp import decks as _scp_decks
+            if (p1_deck in _scp_decks.SCP_FOUNDATION_DECKS
+                    or p1_deck in _scp_decks.SCP_INSURGENCY_DECKS):
                 return "scp"
         except Exception:
             pass
@@ -123,13 +125,17 @@ class CardTelemetry:
     times_attacked_from_active: int = 0
     deck_count_p1: int = 0
     deck_count_p2: int = 0
-    # -- SCP-engine fields (unused by the Pokemon path; default 0/False) -------
-    scp_has_ability: bool = False        # card carries an activated/modal ability
-    scp_on_battlefield_turns: int = 0    # turns the card was deployed (any player)
-    scp_times_fired: int = 0             # SCP_ABILITY_ACTIVATED events for this card
-    scp_gain: list[float] = field(default_factory=list)  # _estimate_ability_value captures
-    scp_cost: list[float] = field(default_factory=list)  # _cost_value captures
-    scp_fire_threshold: float = 0.5      # _ability_fire_threshold at runtime
+    # -- SCP-engine fields (asymmetric Foundation-vs-Insurgency engine; Pokemon path leaves at 0) --
+    # "Fire" in scp = the heuristic AI actually *plays* the card in self-play (CLAUDE.md's
+    # level-3 / AI-dead gate). play_card emits SCP_INSTALL for *every* kind (anomaly / layer /
+    # asset / tool / operative / operation / event) carrying the card's object_id, so matching
+    # that object_id back to the card name is reliable per-card attribution; activate_ability
+    # emits SCP_ACTIVATE the same way. (The old symmetric-SCP ability scorer is gone.)
+    scp_has_ability: bool = False        # card_def carries a callable scp_ability (asset/tool)
+    scp_kind: str = ""                   # the card's scp_kind enum name (ANOMALY / OPERATION / ...)
+    scp_on_battlefield_turns: int = 0    # turns a copy was a deployed permanent (sampled post-turn)
+    scp_times_played: int = 0            # SCP_INSTALL events attributable to this card (deploy / resolve)
+    scp_times_activated: int = 0         # SCP_ACTIVATE events attributable to this card (ability fires)
 
     def primary_scores(self) -> list[float]:
         """Return scorer outputs from the scorer that owns this card's kind."""
@@ -163,11 +169,10 @@ class CardTelemetry:
         self.deck_count_p1 += other.deck_count_p1
         self.deck_count_p2 += other.deck_count_p2
         self.scp_has_ability = self.scp_has_ability or other.scp_has_ability
+        self.scp_kind = self.scp_kind or other.scp_kind
         self.scp_on_battlefield_turns += other.scp_on_battlefield_turns
-        self.scp_times_fired += other.scp_times_fired
-        self.scp_gain.extend(other.scp_gain)
-        self.scp_cost.extend(other.scp_cost)
-        self.scp_fire_threshold = other.scp_fire_threshold or self.scp_fire_threshold
+        self.scp_times_played += other.scp_times_played
+        self.scp_times_activated += other.scp_times_activated
 
 
 # =============================================================================
@@ -534,6 +539,49 @@ async def _run_pokemon_diagnostic_game(
 # SCP-engine probe
 # =============================================================================
 
+def _normalize_scp_difficulty(difficulty: str) -> str:
+    """Normalize a difficulty string for the SCP engine.
+
+    The script-wide default (``--difficulty balanced``) is Pokemon-centric, but
+    ``SCPAIAdapter`` only accepts easy/medium/hard and raises on anything else — so map any
+    value it would reject to ``medium``. Used both to drive the probe and to label the report,
+    so the header shows the difficulty actually run.
+    """
+    with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
+        from src.ai.scp_adapter import validate_scp_difficulty
+    try:
+        return validate_scp_difficulty(difficulty)
+    except ValueError:
+        return "medium"
+
+
+def _resolve_scp_matchup(p1_deck_name: str, p2_deck_name: str) -> tuple[str, str]:
+    """SCP is asymmetric — order the two deck labels into (foundation, insurgency).
+
+    Raises SystemExit with a helpful message if the pair isn't exactly one Foundation
+    deck + one Insurgency deck (the only legal scp matchup).
+    """
+    with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
+        from src.cards.scp import decks as D
+    fdecks, idecks = D.SCP_FOUNDATION_DECKS, D.SCP_INSURGENCY_DECKS
+    pair = (p1_deck_name, p2_deck_name)
+    unknown = [n for n in pair if n not in fdecks and n not in idecks]
+    if unknown:
+        raise SystemExit(
+            f"Unknown SCP deck(s): {unknown}.\n"
+            f"  Foundation decks: {sorted(fdecks)}\n"
+            f"  Insurgency decks: {sorted(idecks)}"
+        )
+    found = [n for n in pair if n in fdecks]
+    insur = [n for n in pair if n in idecks]
+    if len(found) != 1 or len(insur) != 1:
+        raise SystemExit(
+            "SCP is asymmetric — pass exactly one Foundation deck and one Insurgency "
+            f"deck via --p1/--p2 (got Foundation={found}, Insurgency={insur})."
+        )
+    return found[0], insur[0]
+
+
 async def _run_scp_diagnostic_game(
     *,
     card_name: str,
@@ -543,128 +591,114 @@ async def _run_scp_diagnostic_game(
     max_turns: int,
     seed: int,
 ) -> CardTelemetry:
-    """Run one SCP game, instrument the heuristic AI, return telemetry.
+    """Run one asymmetric SCP self-play game and return per-card *fire* telemetry.
 
-    Mirrors the Pokemon probe but for SCP's two fire modes — DEPLOY (play the
-    card onto the battlefield via ``open_dossier``) and ACTIVATE (the AI fires a
-    registered activated/modal ability via ``_consider_activated_abilities``).
-    The six steps map to: drawn / legal (deployed + ability offered) / scored
-    (gain−cost vs threshold) / precondition (conditional value_hint) / cost
-    (``can_pay_scp_cost``) / fired (``SCP_ABILITY_ACTIVATED``).
+    The current SCP engine (Foundation vs Chaos Insurgency, modeled on Netrunner) has no
+    activated-ability *scorer* to instrument — that belonged to the old symmetric engine
+    removed on 2026-05-31. Here "fire" means the heuristic AI actually *plays* the card in
+    self-play (CLAUDE.md's level-3 / AI-dead gate). Attribution is exact: ``play_card`` emits
+    ``SCP_INSTALL`` carrying the card's ``object_id`` for every kind (anomaly/layer/asset/tool/
+    operative/operation/event), and ``activate_ability`` emits ``SCP_ACTIVATE`` likewise — so
+    we match those payloads back to the card name. We also sample battlefield presence each
+    turn (for persistent permanents) and read ``scp_ability`` off the card_def.
     """
-    import random
+    import random as _random
     with open(os.devnull, "w") as devnull, contextlib.redirect_stdout(devnull):
         from src.engine.game import Game
         from src.engine.types import ZoneType
+        from src.engine import scp
+        from src.cards.scp import decks as D
         from src.ai.scp_adapter import SCPAIAdapter
-        from src.engine.scp_abilities import is_scp_ability
-        from scripts.play.scp_tournament import SCP_STARTER_DECKS, _DispatchSCPAIAdapter
 
-    if p1_deck_name not in SCP_STARTER_DECKS or p2_deck_name not in SCP_STARTER_DECKS:
-        raise SystemExit(
-            f"Unknown SCP deck. Known: {sorted(SCP_STARTER_DECKS)}"
-        )
+    difficulty = _normalize_scp_difficulty(difficulty)
+    foundation_label, insurgency_label = _resolve_scp_matchup(p1_deck_name, p2_deck_name)
+    fident, fbuild = D.SCP_FOUNDATION_DECKS[foundation_label]
+    iident, ibuild = D.SCP_INSURGENCY_DECKS[insurgency_label]
+    foundation_deck, insurgency_deck = fbuild(), ibuild()
 
-    random.seed(seed)
-    deck1 = SCP_STARTER_DECKS[p1_deck_name]()
-    deck2 = SCP_STARTER_DECKS[p2_deck_name]()
+    _random.seed(seed)  # in-game choices (HQ pick / discard / damage) read the global rng too,
+    #                     so seeding it makes the probe reproducible across runs.
 
     tele = CardTelemetry(card_name=card_name, games_run=1)
-    tele.deck_count_p1 = sum(1 for cd in deck1 if getattr(cd, "name", "") == card_name)
-    tele.deck_count_p2 = sum(1 for cd in deck2 if getattr(cd, "name", "") == card_name)
+    # Report deck presence in the P1/P2 order the user typed (not foundation/insurgency).
+    p1_deck = foundation_deck if p1_deck_name == foundation_label else insurgency_deck
+    p2_deck = foundation_deck if p2_deck_name == foundation_label else insurgency_deck
+    tele.deck_count_p1 = sum(1 for cd in p1_deck if getattr(cd, "name", "") == card_name)
+    tele.deck_count_p2 = sum(1 for cd in p2_deck if getattr(cd, "name", "") == card_name)
+    # Static facts about the target card (whichever deck holds it).
+    for cd in (*foundation_deck, *insurgency_deck):
+        if getattr(cd, "name", "") == card_name:
+            tele.scp_has_ability = callable(getattr(cd, "scp_ability", None))
+            kind = getattr(cd, "scp_kind", None)
+            tele.scp_kind = kind.name if kind is not None else ""
+            break
 
     game = Game(mode="scp")
-    p1 = game.add_player(f"P1-{p1_deck_name}")
-    p2 = game.add_player(f"P2-{p2_deck_name}")
-    game.setup_scp_player(p1, deck1)
-    game.setup_scp_player(p2, deck2)
-    game.shuffle_library(p1.id)
-    game.shuffle_library(p2.id)
-    a1 = SCPAIAdapter(difficulty=difficulty)
-    a2 = SCPAIAdapter(difficulty=difficulty)
-    tele.scp_fire_threshold = float(getattr(a1, "_ability_fire_threshold", 0.5))
-    game.turn_manager.set_ai_player(p1.id)
-    game.turn_manager.set_ai_player(p2.id)
-    game.turn_manager.set_ai_handler(_DispatchSCPAIAdapter({p1.id: a1, p2.id: a2}))
+    f = game.add_player("Foundation")
+    i = game.add_player("Insurgency")
+    scp.setup_scp_game(game, f, i, foundation_deck=foundation_deck,
+                       insurgency_deck=insurgency_deck, foundation_identity=fident,
+                       insurgency_identity=iident, rng=_random.Random(seed))
+    # One faction-branching adapter drives both seats (matches tests/test_scp_selfplay.py,
+    # the canonical scp fire gate).
+    adapter = SCPAIAdapter(difficulty)
+    game.turn_manager.set_ai_handler(adapter)
+    game.turn_manager.set_ai_player(f.id)
+    game.turn_manager.set_ai_player(i.id)
 
-    # -- INSTRUMENTATION: capture activation gain/cost for the target card -----
-    def _matches(obj) -> bool:
-        return obj is not None and getattr(obj, "name", "") == card_name
-
-    for a in (a1, a2):
-        _orig_est = a._estimate_ability_value
-        _orig_cost = a._cost_value
-
-        def _make_est(orig):
-            def traced(obj, state, player_id, hint):
-                v = orig(obj, state, player_id, hint)
-                if _matches(obj) and hint is not None:
-                    tele.scp_gain.append(float(v))
-                return v
-            return traced
-
-        def _make_cost(orig):
-            def traced(obj, state, player_id, cost):
-                v = orig(obj, state, player_id, cost)
-                if _matches(obj):
-                    tele.scp_cost.append(float(v))
-                return v
-            return traced
-
-        a._estimate_ability_value = _make_est(_orig_est)
-        a._cost_value = _make_cost(_orig_cost)
-
-    # -- RUN GAME -----------------------------------------------------------
-    target_obj_ids: set[str] = set()
-    await game.start_game()
+    # -- RUN GAME ------------------------------------------------------------
+    all_events: list = []
     for _ in range(max_turns * 2):
         if game.is_game_over():
             break
-        await game.run_turn()
-        for pid in (p1.id, p2.id):
-            hand = _get_zone_objects(game.state, f"hand_{pid}")
-            if any(o.name == card_name for o in hand):
+        events = await game.turn_manager.run_turn()
+        all_events.extend(events or [])
+        for pid in (f.id, i.id):
+            hand = [game.state.objects.get(o) for o in scp.hand_ids(game.state, pid)]
+            if any(o is not None and o.name == card_name for o in hand):
                 tele.drawn_count += 1
-            bf = [
-                o for o in game.state.objects.values()
-                if getattr(o, "name", "") == card_name
+            deployed = any(
+                getattr(o, "name", "") == card_name
                 and o.controller == pid and o.zone == ZoneType.BATTLEFIELD
-            ]
-            if not bf:
-                continue
-            tele.scp_on_battlefield_turns += 1
-            obj = bf[0]
-            target_obj_ids.add(obj.id)
-            abilities = [
-                ab for ab in (getattr(obj.state, "activated_abilities", None) or [])
-                if is_scp_ability(ab)
-            ]
-            if abilities:
-                tele.scp_has_ability = True
+                and getattr(o.state, "scp_role", None) != "identity"
+                for o in game.state.objects.values()
+            )
+            if deployed:
+                tele.scp_on_battlefield_turns += 1
 
-    # Count actual fires from the event log (object_id seen on the battlefield).
-    for e in game.state.event_log:
-        if e.type.name == "SCP_ABILITY_ACTIVATED":
-            oid = (e.payload or {}).get("object_id")
-            obj = game.state.objects.get(oid) if oid else None
-            if (oid in target_obj_ids) or (obj is not None and obj.name == card_name):
-                tele.scp_times_fired += 1
-    if tele.scp_on_battlefield_turns > 0:
-        tele.times_played = 1  # reached the battlefield at least once this game
+    # Attribute plays / activations from the event stream via object_id -> card name.
+    for e in all_events:
+        ename = e.type.name
+        if ename not in ("SCP_INSTALL", "SCP_ACTIVATE"):
+            continue
+        oid = (e.payload or {}).get("object_id")
+        obj = game.state.objects.get(oid) if oid else None
+        if obj is None or getattr(obj, "name", "") != card_name:
+            continue
+        if ename == "SCP_INSTALL":
+            tele.scp_times_played += 1
+        else:
+            tele.scp_times_activated += 1
+    tele.times_played = tele.scp_times_played  # feed the generic main() progress line
     return tele
 
 
 def diagnose_scp(tele: CardTelemetry) -> tuple[list["StepResult"], str, str]:
-    """Walk the six-step fire tree against SCP telemetry.
+    """Walk the SCP fire tree against telemetry from the asymmetric engine.
 
-    Returns (steps, verdict, patch). The card "fires" if it activated an ability
-    (``scp_times_fired``) or — for a card with no activated ability — simply got
-    played onto the battlefield.
+    "Fire" = the heuristic AI plays the card in self-play (CLAUDE.md's level-3 / AI-dead
+    gate). The steps are: in a deck → drawn → played (the fire for most cards) → and, for
+    cards that carry an activated ability, also activated. This is the FIRE gate only —
+    a card the AI *plays* whose effect_fn returns ``[]`` is a *level-1* (effect-dead) bug
+    that /test-interceptors catches, not this tool.
+
+    Returns (steps, verdict, patch).
     """
     steps: list[StepResult] = []
     deck_total = tele.deck_count_p1 + tele.deck_count_p2
-    fired = tele.scp_times_fired > 0
-    deployed = tele.scp_on_battlefield_turns > 0
+    played = tele.scp_times_played > 0
+    activated = tele.scp_times_activated > 0
+    kind = tele.scp_kind or "card"
 
     # Step 0 — in a deck.
     if deck_total == 0:
@@ -673,108 +707,68 @@ def diagnose_scp(tele: CardTelemetry) -> tuple[list["StepResult"], str, str]:
         return steps, "FAIL", (
             "Card is not in either deck under test. Add it to a deck builder, or\n"
             "point --p1/--p2 at decks that run it, or fix the --card spelling\n"
-            "(must match the CardDefinition `name` exactly)."
+            "(must match the CardDefinition `name` exactly).\n"
+            "Note: SCP is asymmetric — one --p1/--p2 deck must be Foundation, the other Insurgency."
         )
 
-    # Step 1 — drawn. Reaching play (or firing) implies it was drawn: a card
-    # drawn-and-played in the same turn is never sampled in hand post-turn, so
-    # treat deploy/fire as proof it was drawn.
-    reached_game = (tele.drawn_count > 0 or deployed or fired)
+    # Step 1 — drawn. Reaching play implies it was drawn: a card drawn-and-played in the
+    # same turn is never sampled in hand post-turn, so treat play as proof it was drawn.
+    reached_game = (tele.drawn_count > 0 or played or activated)
     if not reached_game:
         steps.append(StepResult("Step 1: drawn into hand at least once", False,
                                 f"never drawn or played across {tele.games_run} games "
                                 f"(deck count: P1={tele.deck_count_p1}, P2={tele.deck_count_p2})"))
         return steps, "FAIL", (
             "Card never entered the game (not drawn, not played). Likely causes:\n"
-            f"  - Deck count too low (P1={tele.deck_count_p1}, P2={tele.deck_count_p2}) — add copies\n"
-            "  - SCP games are short and breach-dominated; a 1-of payoff can end up\n"
-            "    undrawn before the game ends. Try --max-turns higher / more --games,\n"
-            "    or the deck/format is too fast for this payoff (a deck-speed item)."
+            f"  - Deck count too low (P1={tele.deck_count_p1}, P2={tele.deck_count_p2}) — add copies.\n"
+            "  - SCP games can close fast; a 1-of can stay undrawn. Try --max-turns higher /\n"
+            "    more --games. If it still never appears, the format may be too fast for it."
         )
     steps.append(StepResult("Step 1: drawn into hand at least once", True,
                             f"in hand on {tele.drawn_count} player-turns "
-                            f"(reached play on {tele.scp_on_battlefield_turns} turns) "
+                            f"(deployed on {tele.scp_on_battlefield_turns} turns) "
                             f"across {tele.games_run} games"))
 
-    # Step 2 — reached play (deploy). A card can't fire from hand.
-    if not deployed:
-        steps.append(StepResult("Step 2: deployed to the battlefield", False,
-                                f"drawn on {tele.drawn_count} turns but NEVER played onto the "
-                                f"battlefield"))
+    # Step 2 — the AI actually plays it. This is the fire for every non-ability card.
+    if not played:
+        steps.append(StepResult("Step 2: played by the AI (SCP_INSTALL)", False,
+                                f"drawn on {tele.drawn_count} turns but NEVER played "
+                                f"(kind={kind})"))
         return steps, "FAIL", (
-            "Card is drawn but the AI never deploys it. Likely causes:\n"
-            "  - It loses the per-turn deploy race in scp_adapter.score() — a 1-of\n"
-            "    facility sits at flat rank 2 behind every personnel/procedure.\n"
-            "    Confirm _carries_signature_bomb() promotes payoff cards to rank 0.\n"
-            "  - Its red_tape is high and the open-loop breaks before reaching it.\n"
-            "  - Inspect scp_adapter.score() and the deploy loop in take_turn()."
+            f"Card is drawn but the heuristic AI never plays it (kind={kind}). This is a\n"
+            "level-3 (AI-dead) gap — the effect may be correct but no decision path picks it.\n"
+            "Where to look in src/ai/scp_adapter.py:\n"
+            "  - Foundation cards → _foundation_action (anomalies / layers / ops / assets each\n"
+            "    have a branch; a new op needs a clause that recognises and plays it).\n"
+            "  - Insurgency cards → _insurgency_action (breakers / events / operatives likewise).\n"
+            "  - Confirm scp_cost is affordable in the sampled games — an unaffordable card is\n"
+            "    skipped, and a card the AI has no branch for is invisible even when affordable."
         )
-    steps.append(StepResult("Step 2: deployed to the battlefield", True,
-                            f"on the battlefield for {tele.scp_on_battlefield_turns} turns"))
+    steps.append(StepResult("Step 2: played by the AI (SCP_INSTALL)", True,
+                            f"played {tele.scp_times_played}x across {tele.games_run} games"))
 
-    # No activated ability → "fire" == "got played". Done.
-    if not tele.scp_has_ability:
-        steps.append(StepResult("Step 3-6: no activated ability (fire == deploy)", True,
-                                "card has no SCP activated ability; reaching the battlefield is "
-                                "its fire"))
-        return steps, "PASS", "No patch needed; card reaches play under heuristic AI."
-
-    # Step 3 — did the ability actually fire? (ground truth from the event log)
-    if fired:
-        steps.append(StepResult("Step 3: ability fired in a game", True,
-                                f"fired {tele.scp_times_fired}x across {tele.games_run} games"))
-        return steps, "PASS", "No patch needed; the AI fires this ability under heuristic play."
-    steps.append(StepResult("Step 3: ability fired in a game", False,
-                            f"deployed for {tele.scp_on_battlefield_turns} turns but never fired"))
-
-    # Step 4 — was the ability ever even scored for firing? _estimate_ability_value
-    # / _cost_value are reached only AFTER can_pay + once_per_turn/precondition gates,
-    # so an empty capture means it was gated out before the value check.
-    if not tele.scp_gain:
-        return steps, "FAIL", (
-            "The AI never scored the ability's value — it is gated out before the\n"
-            "value check in _consider_activated_abilities. Causes, in order to check:\n"
-            "  - Cost never affordable (can_pay_scp_cost False): an ethics/briefing\n"
-            "    cost the deck never accrues, OR exhaust_self with no turn-reset (the\n"
-            "    once-per-game bug) — confirm reset_turn_abilities() runs each turn.\n"
-            "  - once_per_turn / precondition_fn permanently true.\n"
-            "  - The object isn't in the controlled-objects list the AI iterates.\n"
-            "  - Inspect scp_adapter._consider_activated_abilities + scp_costs.can_pay_scp_cost."
+    # Step 3 — for cards that carry an activated ability, the meaningful fire is activation.
+    if tele.scp_has_ability:
+        if activated:
+            steps.append(StepResult("Step 3: activated ability fired (SCP_ACTIVATE)", True,
+                                    f"activated {tele.scp_times_activated}x"))
+            return steps, "PASS", "No patch needed; the AI plays and activates this card."
+        steps.append(StepResult("Step 3: activated ability fired (SCP_ACTIVATE)", False,
+                                f"installed {tele.scp_times_played}x but the ability never fired"))
+        return steps, "WARN", (
+            "The card is installed but the AI never activates its ability. Check, in order:\n"
+            "  - scp_adapter calls scp.activate_ability for this asset/tool's class of effect\n"
+            "    (search _foundation_action / _insurgency_action for activate_ability).\n"
+            "  - Its activation cost (scp_ability_ap / scp_ability_cost) is affordable on the\n"
+            "    turns it is installed.\n"
+            "  - Its activation precondition (a target present, exposed>=N, ...) is ever met in\n"
+            "    the sampled games — raise --games / --max-turns if it is a narrow window."
         )
 
-    # Step 4 — does the value estimate clear the fire threshold (gain − cost)?
-    thr = tele.scp_fire_threshold
-    best_gain = max(tele.scp_gain)
-    min_cost = min(tele.scp_cost) if tele.scp_cost else 0.0
-    best_net = best_gain - min_cost
-    avg_gain = sum(tele.scp_gain) / len(tele.scp_gain)
-    if best_net <= thr:
-        steps.append(StepResult("Step 4: value clears the fire threshold", False,
-                                f"best (gain − cost) = {best_gain:.2f} − {min_cost:.2f} = "
-                                f"{best_net:.2f}, never exceeds threshold {thr:.2f}"))
-        return steps, "FAIL", (
-            f"The ability's value never clears the fire bar (best net {best_net:.2f} "
-            f"<= {thr:.2f}).\n"
-            f"  - gain: max={best_gain:.2f} avg={avg_gain:.2f} over {len(tele.scp_gain)} evals; "
-            f"cost~{min_cost:.2f}.\n"
-            "  - If gain is ~0 most turns, the value_hint is a CONDITIONAL cliff —\n"
-            "    credit progress toward the condition (see _public_spectacle_value),\n"
-            "    don't return 0.0 until it's crossed.\n"
-            "  - If gain is decent but cost too high, re-check _cost_value (exhaust_self\n"
-            "    is 0.1 facility / 0.5 personnel) or lower _ability_fire_threshold."
-        )
-    steps.append(StepResult("Step 4: value clears the fire threshold", True,
-                            f"best (gain − cost) = {best_net:.2f} > threshold {thr:.2f}"))
-
-    # Value clears the bar yet it never fired — a timing / single-pass issue.
-    steps.append(StepResult("Step 5: fires despite clearing the bar", False,
-                            "value clears the threshold but the ability still never fired"))
-    return steps, "WARN", (
-        "The value clears the fire bar on some evaluation, yet the ability never\n"
-        "fired — a timing/single-pass issue (e.g. it only clears the bar on a turn\n"
-        "_consider_activated_abilities isn't reached, or a modal-mode race). Increase\n"
-        "--games / --max-turns, then trace the _consider ordering in take_turn."
-    )
+    # No activated ability → played IS the fire. Done.
+    steps.append(StepResult("Step 3: no activated ability (fire == play)", True,
+                            f"{kind} fires by being played; no ability to activate"))
+    return steps, "PASS", "No patch needed; the AI plays this card under heuristic self-play."
 
 
 # =============================================================================
@@ -1171,13 +1165,15 @@ def main() -> int:
 
     if engine == "scp":
         steps, verdict, patch = diagnose_scp(aggregate)
-        bias_label = args.difficulty
+        # Show the difficulty the probe actually ran (it normalizes the Pokemon-centric
+        # default 'balanced' to 'medium'), not the raw flag.
+        bias_label = _normalize_scp_difficulty(args.difficulty)
     else:
         steps, verdict, patch = diagnose(aggregate)
         bias_label = args.p1_bias
     report = format_report(
         args.card, args.p1, args.p2,
-        bias_label, args.p2_bias if engine == "pokemon" else args.difficulty,
+        bias_label, args.p2_bias if engine == "pokemon" else bias_label,
         args.games, args.max_turns, elapsed, steps, verdict, patch, aggregate,
     )
     print(report)

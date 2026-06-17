@@ -263,49 +263,48 @@ check("scp Step 1: never drawn -> FAIL",
       v == "FAIL" and any(st.name.startswith("Step 1") and not st.passed for st in s),
       f"verdict {v}")
 
-# Step 2 — drawn but never deployed (the deploy-race failure).
-s, v, p = diagnose_scp(_scp_tele(deck_count_p1=1, drawn_count=5, scp_on_battlefield_turns=0))
-check("scp Step 2: never deployed -> FAIL", v == "FAIL" and "deploy" in p.lower(),
+# Step 2 — drawn but the AI never plays it (the play-race failure).
+s, v, p = diagnose_scp(_scp_tele(deck_count_p1=1, drawn_count=5, scp_kind="OPERATION",
+                                 scp_times_played=0))
+check("scp Step 2: never played -> FAIL", v == "FAIL" and "never plays" in p.lower(),
       f"verdict {v} patch {p[:60]}")
 
-# Fired — the happy path.
-s, v, p = diagnose_scp(_scp_tele(deck_count_p1=1, drawn_count=5, scp_on_battlefield_turns=4,
-                                 scp_has_ability=True, scp_times_fired=2))
-check("scp fired -> PASS", v == "PASS", f"verdict {v}")
+# Played, no activated ability — playing IS the fire (the common case).
+s, v, p = diagnose_scp(_scp_tele(deck_count_p1=1, drawn_count=5, scp_kind="ANOMALY",
+                                 scp_times_played=3, scp_has_ability=False))
+check("scp played, no ability -> PASS", v == "PASS", f"verdict {v}")
 
-# Value below the fire bar (the calibration failure the inert bombs hit).
-s, v, p = diagnose_scp(_scp_tele(deck_count_p1=1, drawn_count=5, scp_on_battlefield_turns=4,
-                                 scp_has_ability=True, scp_times_fired=0,
-                                 scp_gain=[1.0, 1.0], scp_cost=[0.5], scp_fire_threshold=0.5))
-check("scp value below bar -> FAIL with fire-bar patch",
-      v == "FAIL" and "fire bar" in p.lower(), f"verdict {v} patch {p[:60]}")
+# Played AND its ability activated — the happy path for an asset/tool.
+s, v, p = diagnose_scp(_scp_tele(deck_count_p1=1, drawn_count=5, scp_kind="ASSET",
+                                 scp_times_played=2, scp_has_ability=True,
+                                 scp_times_activated=2))
+check("scp played + activated -> PASS", v == "PASS", f"verdict {v}")
 
-# Ability never scored (gated out before the value check — unaffordable / once_per_turn).
-s, v, p = diagnose_scp(_scp_tele(deck_count_p1=1, drawn_count=5, scp_on_battlefield_turns=4,
-                                 scp_has_ability=True, scp_times_fired=0, scp_gain=[]))
-check("scp gated before scoring -> FAIL", v == "FAIL" and "gated out" in p.lower(),
-      f"verdict {v} patch {p[:60]}")
-
-# No activated ability — deploy IS the fire.
-s, v, p = diagnose_scp(_scp_tele(deck_count_p1=1, drawn_count=5, scp_on_battlefield_turns=4,
-                                 scp_has_ability=False))
-check("scp no-ability deployed -> PASS", v == "PASS", f"verdict {v}")
+# Installed but its ability never activated — WARN with the activation patch
+# (the Site-Director-style narrow/dormant ability the restored probe surfaces).
+s, v, p = diagnose_scp(_scp_tele(deck_count_p1=1, drawn_count=5, scp_kind="ASSET",
+                                 scp_times_played=2, scp_has_ability=True,
+                                 scp_times_activated=0))
+check("scp installed but ability never fired -> WARN",
+      v == "WARN" and "activate" in p.lower(), f"verdict {v} patch {p[:60]}")
 
 
 # =============================================================================
-# Test 5: SCP probe runs end-to-end on a real deck (Public Spectacle)
+# Test 5: SCP probe runs end-to-end on the live asymmetric engine
 # =============================================================================
 
-print("\n=== Test 5: SCP probe on site_zero_masquerade (integration) ===")
+print("\n=== Test 5: SCP probe on the live asymmetric engine (integration) ===")
 
-scp_agg = CardTelemetry(card_name="SZB Public Spectacle Suite")
-for i in range(3):
+# 8 seeds for a comfortable margin: per-game play of the densest (x3) anomaly is lumpy
+# (some seeds install it 0 times), so a tiny sample can ride a thin 1-2 play margin.
+scp_agg = CardTelemetry(card_name="SCP-0863 Anomalous Specimen")
+for i in range(8):
     tele = run(_run_scp_diagnostic_game(
-        card_name="SZB Public Spectacle Suite",
-        p1_deck_name="site_zero_masquerade",
-        p2_deck_name="site_zero_masquerade",
-        difficulty="balanced",
-        max_turns=25,
+        card_name="SCP-0863 Anomalous Specimen",
+        p1_deck_name="SCP_site19_containment",
+        p2_deck_name="SCP_black_queen_cell",
+        difficulty="medium",
+        max_turns=80,
         seed=i,
     ))
     scp_agg.merge(tele)
@@ -314,18 +313,16 @@ if scp_agg.games_run > 0:
     scp_agg.deck_count_p2 //= scp_agg.games_run
 
 scp_steps, scp_verdict, scp_patch = diagnose_scp(scp_agg)
-print(f"  verdict: {scp_verdict}")
+print(f"  verdict: {scp_verdict} (played {scp_agg.scp_times_played}x across {scp_agg.games_run} games)")
 for st in scp_steps:
     print(f"    [{'OK' if st.passed else 'X'}] {st.name}")
 
-check("scp probe ran 3 games", scp_agg.games_run == 3, f"ran {scp_agg.games_run}")
-check("scp deck presence detected (1 copy)", scp_agg.deck_count_p1 == 1,
+check("scp probe ran 8 games", scp_agg.games_run == 8, f"ran {scp_agg.games_run}")
+check("scp deck presence detected (3 copies in site19)", scp_agg.deck_count_p1 == 3,
       f"deck count {scp_agg.deck_count_p1}")
-check("scp bomb reached the battlefield", scp_agg.scp_on_battlefield_turns > 0,
-      f"bf turns {scp_agg.scp_on_battlefield_turns}")
-check("scp bomb's activated ability detected", scp_agg.scp_has_ability)
-check("scp probe yields a real verdict", scp_verdict in ("PASS", "WARN", "FAIL"),
-      f"got {scp_verdict}")
+check("scp core anomaly was played by the AI", scp_agg.scp_times_played > 0,
+      f"played {scp_agg.scp_times_played}")
+check("scp core anomaly fires (PASS)", scp_verdict == "PASS", f"got {scp_verdict}")
 
 
 # =============================================================================
@@ -336,9 +333,9 @@ print("\n=== Test 6: missing SCP card — Step 0 ===")
 
 miss_tele = run(_run_scp_diagnostic_game(
     card_name="Totally Made Up SCP 999",
-    p1_deck_name="site_zero_masquerade",
-    p2_deck_name="site_zero_masquerade",
-    difficulty="balanced",
+    p1_deck_name="SCP_site19_containment",
+    p2_deck_name="SCP_black_queen_cell",
+    difficulty="medium",
     max_turns=8,
     seed=0,
 ))
@@ -346,6 +343,29 @@ miss_steps, miss_verdict, miss_patch = diagnose_scp(miss_tele)
 check("scp missing card -> FAIL", miss_verdict == "FAIL", f"got {miss_verdict}")
 check("scp missing card -> Step 0 fails",
       miss_steps and miss_steps[0].name.startswith("Step 0") and not miss_steps[0].passed)
+
+
+# =============================================================================
+# Test 7: SCP is asymmetric — two same-faction decks must be rejected
+# =============================================================================
+
+print("\n=== Test 7: SCP asymmetry guard ===")
+
+raised, msg = False, ""
+try:
+    run(_run_scp_diagnostic_game(
+        card_name="Whatever",
+        p1_deck_name="SCP_site19_containment",
+        p2_deck_name="SCP_dr_light",  # two Foundation decks — illegal matchup
+        difficulty="medium",
+        max_turns=4,
+        seed=0,
+    ))
+except SystemExit as exc:
+    raised, msg = True, str(exc)
+check("scp two-Foundation matchup raises SystemExit", raised)
+check("scp asymmetry error explains the rule", raised and "asymmetric" in msg.lower(),
+      f"msg: {msg[:80]}")
 
 
 # =============================================================================

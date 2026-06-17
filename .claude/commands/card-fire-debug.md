@@ -81,8 +81,10 @@ Arguments:
 - `--games` (default 5) — how many games to sample. More games = lower
   variance but slower.
 - `--max-turns` (default 40) — turn cap per game.
-- `--engine` (default `pokemon`) — engine to use. Reserved for future
-  cross-engine support.
+- `--engine` (`pokemon` | `scp`) — engine to use. Auto-inferred from the `--p1`
+  deck name when omitted (an SCP deck → `scp`); set it explicitly to be sure.
+- `--difficulty` (SCP only) — `easy` | `medium` | `hard` (default `medium`; the
+  Pokemon-centric default `balanced` is normalized to `medium` for SCP).
 
 ## Output
 
@@ -165,53 +167,52 @@ Adding a further engine means:
 The decision tree itself (Step 1 through Step 6) is engine-agnostic —
 only the per-engine probe needs to be added.
 
-### SCP support (implemented 2026-05-29)
+### SCP support
 
 ```
-python -m scripts.play.diagnose_card_fire \
-  --card "SZB Public Spectacle Suite" \
-  --p1 site_zero_masquerade --p2 site_zero_masquerade \
-  --games 4 --max-turns 25 --engine scp
+python scripts/play/diagnose_card_fire.py \
+  --card "SCP-0863 Anomalous Specimen" \
+  --p1 SCP_site19_containment --p2 SCP_black_queen_cell \
+  --games 5 --max-turns 80 --engine scp
 ```
 
-`_run_scp_diagnostic_game` wraps `_estimate_ability_value`/`_cost_value` to
-capture the value math at consideration time, samples hand + battlefield
-presence each turn, and counts `SCP_ABILITY_ACTIVATED`. `diagnose_scp` leads
-with the ground-truth fire count, then explains a non-fire via the six steps
-below. The original "inert bombs" diagnosis (walked by hand) IS this probe:
+SCP is the **asymmetric** Foundation-vs-Chaos-Insurgency engine (`src/engine/scp.py`),
+not the old symmetric "SCP-1" — so it has no activated-ability *scorer* to instrument.
+"Fire" here is simpler and stricter: **the heuristic AI actually plays the card in
+self-play** (CLAUDE.md's level-3 / AI-dead gate). The probe is asymmetry-aware:
 
-1. **Drawn** — hand membership across the playtest. SCP twist: games are short
-   and breach-dominated (a self-mirror can end in 4-6 turns), so a 1-of
-   signature card may never be drawn at all (Apollyon Convergence Array: 0
-   hand-instances in 3×50-turn eldrazi games). FAIL → bump deck count, add a
-   tutor, or the deck/format is too fast for the payoff (a deck-speed item).
-2. **Legal action** — for an activated ability: does `legal_scp_actions` emit
-   `SCP_ACTIVATE_ABILITY` (one per modal mode) when the card is on the
-   battlefield, un-exhausted, and affordable? For deployment: does the card get
-   played from hand via `open_dossier` (works for every SCP card type)?
-3. **Scorer positive** — SCP has TWO scorers, check both: deployment is
-   `scp_adapter.score()` (a bomb must out-rank generic rank-2 facilities — see
-   `_carries_signature_bomb`); activation is `_consider_activated_abilities`,
-   which fires iff `_estimate_ability_value(value_hint) − _cost_value(cost) >
-   _ability_fire_threshold`. The flat 0.5 `exhaust_self` cost-weight lived here
-   (put gain~1.0 facility bombs below the bar).
-4. **Precondition met** — `precondition_fn` AND a conditional
-   `value_hint`/`custom_value_fn` that returns 0.0 until the condition is met
-   (the "win-more cliff": Containment Singularity scored 0 below 2 contained).
-   SCP analog of the evolution-prereq step. Credit *progress toward* the
-   condition, not only the turn it's crossed.
-5. **Cost payable** — `can_pay_scp_cost` (ethics is INVERTED — paying reduces
-   debt; `exhaust_self` requires un-exhausted). CRITICAL: facility exhaustion +
-   `once_per_turn` counters must reset each turn (`reset_turn_abilities`) or the
-   ability is silently once-per-GAME — a fire-path bug that looks like a value
-   bug.
-6. **Ranked competitively** — deployment: the bomb's `score()` rank vs the rest
-   of hand (a 1-of at flat rank 2 loses every deploy race); activation: does its
-   value clear the threshold, or does it lose to "do nothing"? (Public Spectacle
-   net 0.50, not > 0.50 — missed by epsilon.)
+- Pass **one Foundation deck and one Insurgency deck** to `--p1`/`--p2` in either order
+  (the probe orders them; two same-faction decks is a hard error). Deck names are keys of
+  `src.cards.scp.decks.SCP_FOUNDATION_DECKS` / `SCP_INSURGENCY_DECKS`.
+- `--difficulty` is `easy` / `medium` / `hard` (the script-wide default `balanced` is
+  normalized to `medium`).
 
-Wrap `scp_adapter.score()`, `_consider_activated_abilities`,
-`_estimate_ability_value`, `_cost_value`; sample `legal_scp_actions` membership
-and `can_pay_scp_cost`; drive games via the `scp_tournament.run_one_game` wiring.
-Until this is coded, the cheap stand-in is to instrument `SCP_ABILITY_ACTIVATED`
-in the event log across a tournament (what the re-validation probe did).
+`_run_scp_diagnostic_game` runs the real `scp.setup_scp_game` + `SCPAIAdapter` self-play
+(the same wiring as `tests/test_scp_selfplay.py`, the canonical SCP fire gate), then
+attributes plays by matching the `object_id` in `SCP_INSTALL` / `SCP_ACTIVATE` events back
+to the card name — exact per-card attribution, since `play_card` emits `SCP_INSTALL` for
+every kind (anomaly/layer/asset/tool/operative/operation/event). `diagnose_scp` walks a
+short tree:
+
+0. **In a deck** — counted against the `--p1`/`--p2` builders.
+1. **Drawn** — hand membership across the games (a play implies it was drawn). SCP games
+   can close fast, so a 1-of payoff may stay undrawn — bump copies or `--games`/`--max-turns`.
+2. **Played by the AI** (`SCP_INSTALL`) — the fire for every card. A drawn-but-never-played
+   card is a **level-3 (AI-dead)** gap: the effect may be correct but no decision path in
+   `src/ai/scp_adapter.py` picks it. Look at `_foundation_action` (anomalies / layers / ops /
+   assets) or `_insurgency_action` (breakers / events / operatives) for a branch that
+   recognises and affords the card.
+3. **Activated** (`SCP_ACTIVATE`) — only for assets/tools that carry an `scp_ability`. Played
+   but never activated → `WARN`: check that the adapter calls `scp.activate_ability` for that
+   effect class, that `scp_ability_ap` / `scp_ability_cost` are affordable while it is
+   installed, and that the activation precondition is ever met (e.g. Site Director's draw fires
+   only on a thin Foundation hand — a real but narrow window, ~1 fire / 48-game matrix).
+
+This is the FIRE gate only. A card the AI *plays* whose `effect_fn` returns `[]` is a
+**level-1 (effect-dead)** bug — that is `/test-interceptors` (and `tests/test_scp_cards.py`),
+not this tool. A correct effect wired to a win-condition hook with no engine caller is
+**level-2 (mechanism-dead)** — grep the `apply_*` / `_fire_*` hooks for a real caller.
+
+The regression guard for this whole path is `tests/test_scp_card_fire.py` (pytest-collected,
+so the live-engine wiring can't silently rot the way it did when the symmetric engine was
+deleted on 2026-05-31 and the probe kept importing `src.engine.scp_abilities`).
