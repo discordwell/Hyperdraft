@@ -165,6 +165,74 @@ def test_foundation_collapse_reason_serializes_to_client():
     asyncio.run(_run())
 
 
+def test_all_win_reasons_match_engine_and_serializer():
+    """Anti-rot guard: the client's ``win_reason`` must equal the engine's declared reason for EVERY
+    win axis — not just collapse (already covered above). The arbiter (check_scp_win) and the
+    serializer both read ``scp.evaluate_scp_win`` now, so a reorder of the §7 ladder can no longer
+    make the UI disagree with the engine. Drives all five axes through one session and pins, per axis,
+    the SCP_WIN event's winner/reason == the serialized winner/win_reason."""
+    async def _run():
+        response = await create_match(
+            request=CreateMatchRequest(
+                mode="human_vs_bot", game_mode="scp", ai_difficulty="medium",
+                player_name="TestHuman"),
+            background_tasks=BackgroundTasks())
+        session = session_manager.get_session(response.match_id)
+        random.seed(5)
+        await session.mode_adapter.setup_game(session)
+        session.is_started = True
+
+        from src.engine import scp
+        from src.engine.types import ZoneType
+        game = session.game
+        state = game.state
+        fid, iid = scp.foundation_id(state), scp.insurgency_id(state)
+        f = scp.ensure_scp_state(state, fid)
+        i = scp.ensure_scp_state(state, iid)
+
+        def _reset():
+            f["containment_points"] = 0; f["total_breach"] = 0
+            i["liberation_points"] = 0; i["burned_out"] = False
+            state.players[fid].has_lost = False
+            state.players[iid].has_lost = False
+
+        def _empty_foundation_supply():
+            f["cells"] = []
+            for ztype in (ZoneType.LIBRARY, ZoneType.HAND):
+                z = state.zones.get(scp._zkey(ztype, fid))
+                if z:
+                    z.objects[:] = []
+
+        # The Insurgency keeps its dealt opening hand (>= 2) throughout, so the collapse guard holds.
+        cases = [
+            ("containment",  lambda: f.__setitem__("containment_points", scp.CONTAINMENT_TARGET)),
+            ("burnout",      lambda: i.__setitem__("burned_out", True)),
+            ("liberation",   lambda: i.__setitem__("liberation_points", scp.LIBERATION_TARGET)),
+            ("total_breach", lambda: f.__setitem__("total_breach", scp.BREACH_CATASTROPHE)),
+            ("foundation_collapse", lambda: (_empty_foundation_supply(),
+                                             f.__setitem__("containment_points",
+                                                           scp.CONTAINMENT_TARGET - 1))),
+        ]
+        for reason, setup in cases:
+            _reset()
+            setup()
+            evs = scp.check_scp_win(game)
+            win = next((e.payload for e in evs if e.type.name == "SCP_WIN"), None)
+            assert win is not None and win["reason"] == reason, \
+                f"engine declared {win and win['reason']!r}, expected {reason!r}"
+            # win_reason / winner are viewer-independent; serialize from the Foundation's seat.
+            view = session._serialize_scp_state(state, fid)
+            assert view["game_over"] is True
+            assert view["win_reason"] == reason, \
+                f"serializer showed {view['win_reason']!r}, expected {reason!r}"
+            assert view["win_reason"] == win["reason"], "serializer win_reason drifted from the engine"
+            assert view["winner"] == win["winner"], "serializer winner drifted from the engine"
+
+        await session_manager.remove_session(response.match_id)
+
+    asyncio.run(_run())
+
+
 def test_collapse_telegraph_is_foundation_only_and_tracks_the_supply():
     """The collapse telegraph (`foundation_reachable`) must reach the FOUNDATION viewer as a live
     number but be None for the Insurgency — it counts the Foundation's hidden hand/deck, so

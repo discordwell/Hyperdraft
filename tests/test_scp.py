@@ -470,6 +470,72 @@ def test_no_collapse_at_game_start_with_a_stocked_deck():
     assert not g.state.players[f.id].has_lost, "a stocked deck is not a collapse"
 
 
+# --------------------------------------------------------------------------- evaluate_scp_win (the single win evaluator)
+# evaluate_scp_win is the pure §7 ladder that BOTH the engine arbiter (check_scp_win) and the client
+# serializer read, so neither can drift from the spec table. These pin every rung, the live-game
+# None, and the load-bearing priority order.
+def test_evaluate_scp_win_is_none_for_a_live_game():
+    g, f, i = _setup()
+    assert scp.evaluate_scp_win(g.state) is None
+
+
+def test_evaluate_scp_win_returns_winner_loser_reason_for_each_axis():
+    g, f, i = _setup()
+    fr = scp.ensure_scp_state(g.state, f.id)
+    ir = scp.ensure_scp_state(g.state, i.id)
+
+    def _reset():
+        fr["containment_points"] = 0; fr["total_breach"] = 0
+        ir["liberation_points"] = 0; ir["burned_out"] = False
+
+    _reset(); fr["containment_points"] = scp.CONTAINMENT_TARGET
+    assert scp.evaluate_scp_win(g.state) == (f.id, i.id, "containment")
+
+    _reset(); ir["burned_out"] = True
+    assert scp.evaluate_scp_win(g.state) == (f.id, i.id, "burnout")
+
+    _reset(); ir["liberation_points"] = scp.LIBERATION_TARGET
+    assert scp.evaluate_scp_win(g.state) == (i.id, f.id, "liberation")
+
+    _reset(); fr["total_breach"] = scp.BREACH_CATASTROPHE
+    assert scp.evaluate_scp_win(g.state) == (i.id, f.id, "total_breach")
+
+    # collapse: one point short, no anomaly supply anywhere, Insurgency still holding cards (>= 2)
+    _reset(); fr["containment_points"] = scp.CONTAINMENT_TARGET - 1
+    _hand(g, i.id, scp.make_event("c1")); _hand(g, i.id, scp.make_event("c2"))
+    assert scp.evaluate_scp_win(g.state) == (i.id, f.id, "foundation_collapse")
+
+
+def test_evaluate_scp_win_priority_order_is_stable():
+    # When two conditions are simultaneously true the ladder order decides — and the order is
+    # load-bearing, so pin both a same-faction tie (reason) and a cross-faction tie (the winner).
+    g, f, i = _setup()
+    fr = scp.ensure_scp_state(g.state, f.id)
+    ir = scp.ensure_scp_state(g.state, i.id)
+
+    # Same faction: liberation (rung 3) outranks total_breach (rung 4) — reason is "liberation".
+    ir["liberation_points"] = scp.LIBERATION_TARGET
+    fr["total_breach"] = scp.BREACH_CATASTROPHE
+    assert scp.evaluate_scp_win(g.state) == (i.id, f.id, "liberation")
+
+    # Cross faction (the winner-flipping case): containment (rung 1) outranks liberation (rung 3),
+    # so a board where BOTH sides have met their primary win goes to the Foundation.
+    fr["containment_points"] = scp.CONTAINMENT_TARGET
+    assert scp.evaluate_scp_win(g.state) == (f.id, i.id, "containment")
+
+
+def test_check_scp_win_declares_the_evaluators_verdict():
+    # check_scp_win is just evaluate_scp_win behind the has-lost gate — the SCP_WIN event it emits
+    # must carry exactly the winner/loser/reason the evaluator returns from the same state.
+    g, f, i = _setup()
+    scp.ensure_scp_state(g.state, i.id)["liberation_points"] = scp.LIBERATION_TARGET
+    verdict = scp.evaluate_scp_win(g.state)
+    evs = scp.check_scp_win(g)
+    win = next((e.payload for e in evs if e.type.name == "SCP_WIN"), None)
+    assert verdict == (i.id, f.id, "liberation")
+    assert win and (win["winner"], win["loser"], win["reason"]) == verdict
+
+
 # --------------------------------------------------------------------------- AI difficulty (onboarding)
 def test_easy_insurgency_leaves_defended_anomalies_for_the_player():
     # Difficulty was cosmetic on the Insurgency seat (easy == medium == hard), so a human Foundation

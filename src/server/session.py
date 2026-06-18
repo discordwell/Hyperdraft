@@ -2554,21 +2554,14 @@ class GameSession:
         game_over = bool(losers)
         winner = reason = None
         if game_over and fid and iid:
-            winner = fid if losers[0] == iid else iid
-            f = scp.ensure_scp_state(game_state, fid)
-            i = scp.ensure_scp_state(game_state, iid)
-            if f["containment_points"] >= scp.CONTAINMENT_TARGET:
-                reason = "containment"
-            elif i.get("burned_out"):
-                reason = "burnout"
-            elif i["liberation_points"] >= scp.LIBERATION_TARGET:
-                reason = "liberation"
-            elif f["total_breach"] >= scp.BREACH_CATASTROPHE:
-                reason = "total_breach"
-            elif scp._foundation_reachable_containment(game_state, fid) < scp.CONTAINMENT_TARGET:
-                # The Foundation can no longer reach Containment (anomaly supply spent) → it lost by
-                # collapse; mirrors the engine's check_scp_win so the client shows the real reason.
-                reason = "foundation_collapse"
+            winner = fid if losers[0] == iid else iid  # ground truth: the non-loser won
+            # The *reason* comes from the engine's single win evaluator — not a hand-mirrored ladder
+            # that can silently drift from check_scp_win (the win counters are sticky once a side has
+            # lost, so this returns exactly the reason the engine declared). Pinned across all five
+            # axes by test_scp_server.test_all_win_reasons_match_engine_and_serializer.
+            verdict = scp.evaluate_scp_win(game_state)
+            if verdict is not None:
+                reason = verdict[2]
 
         return {
             "foundation_id": fid, "insurgency_id": iid,

@@ -12,7 +12,7 @@ import pytest
 
 from scripts.play.scp_tournament import run_tournament, summarize
 
-GAMES_PER_PAIRING = 12  # 4 pairings → 48 games; deterministic seeds
+GAMES_PER_PAIRING = 12  # 6 Foundation × 4 Insurgency = 24 pairings → 288 games; deterministic seeds
 
 
 @pytest.fixture(scope="module")

@@ -952,24 +952,32 @@ def _foundation_reachable_containment(state: GameState, fid: str) -> int:
     return total
 
 
-def check_scp_win(game) -> list[Event]:
-    state = game.state
+def evaluate_scp_win(state: GameState) -> Optional[tuple[str, str, str]]:
+    """Pure win evaluation — the single source of truth for *who wins and why* (spec §7).
+
+    Returns ``(winner_id, loser_id, reason)`` for the first met win condition under the canonical
+    priority order, or ``None`` while the game is still live. It reads only the win counters — it
+    does NOT consult ``has_lost`` and emits no events — so two callers can share one ladder without
+    drift: the engine arbiter (``check_scp_win`` wraps this with the has-lost gate + event emission)
+    and the client serializer (``_serialize_scp_state`` needs the *reason* to display, and used to
+    hand-mirror this ladder — exactly the silent drift the repo's anti-rot tests guard against).
+    Keep this ladder and the §7 table in lockstep; ``test_scp.py`` pins both, and the serializer↔
+    engine agreement is pinned in ``test_scp_server.py``.
+    """
     fid = foundation_id(state)
     iid = insurgency_id(state)
     if fid is None or iid is None:
-        return []
-    if state.players[fid].has_lost or state.players[iid].has_lost:
-        return []
+        return None
     f = ensure_scp_state(state, fid)
     i = ensure_scp_state(state, iid)
     if f["containment_points"] >= CONTAINMENT_TARGET:
-        return _declare_win(game, fid, iid, "containment")
+        return (fid, iid, "containment")
     if i.get("burned_out"):
-        return _declare_win(game, fid, iid, "burnout")
+        return (fid, iid, "burnout")
     if i["liberation_points"] >= LIBERATION_TARGET:
-        return _declare_win(game, iid, fid, "liberation")
+        return (iid, fid, "liberation")
     if f["total_breach"] >= BREACH_CATASTROPHE:
-        return _declare_win(game, iid, fid, "total_breach")
+        return (iid, fid, "total_breach")
     # Foundation collapse — the decisive resolution of mutual exhaustion (the game has no draw).
     # The Foundation's mandate is Containment; once it can no longer reach the target — its remaining
     # anomaly Value spent by the Insurgency's frees (see _foundation_reachable_containment) — it has
@@ -981,8 +989,24 @@ def check_scp_win(game) -> list[Event]:
     # if the hand is nearly empty we defer, leaving a genuine burnout window to resolve on its own.
     if (_foundation_reachable_containment(state, fid) < CONTAINMENT_TARGET
             and len(hand_ids(state, iid)) >= 2):
-        return _declare_win(game, iid, fid, "foundation_collapse")
-    return []
+        return (iid, fid, "foundation_collapse")
+    return None
+
+
+def check_scp_win(game) -> list[Event]:
+    """The single arbiter, run as a state-based action. Gates ``evaluate_scp_win`` behind the
+    has-lost check (a decided game stays decided) and emits the win/loss events for the verdict."""
+    state = game.state
+    fid = foundation_id(state)
+    iid = insurgency_id(state)
+    if fid is None or iid is None:
+        return []
+    if state.players[fid].has_lost or state.players[iid].has_lost:
+        return []
+    result = evaluate_scp_win(state)
+    if result is None:
+        return []
+    return _declare_win(game, *result)
 
 
 # ---------------------------------------------------------------------------
