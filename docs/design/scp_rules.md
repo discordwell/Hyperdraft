@@ -184,52 +184,73 @@ condition, exactly as it recognizes a met one.
 
 ## 8. Card-type taxonomy & example cards
 
-New `CardType.SCP_*` members (Phase 1). ~10 examples per type below; reuse existing SCP **art and
-lore** (`frontend/public/scp-art/`, the FBN/GOI card names) re-skinned onto these roles.
+The `CardType.SCP_*` members. A representative slice of the **shipped** pool below — every card
+named here is real (`src/cards/scp/foundation.py`, `insurgency.py`) with its actual stat line and
+effect; `tests/test_scp_docs.py` pins this section to the code so it can't silently drift again.
+(This list isn't exhaustive; the full pool is ~50 cards. Art/lore reuse the existing SCP card names
+in `frontend/public/scp-art/`.)
 
-**Foundation — Anomalies** (Threshold/Value · on-lock / on-free):
-- *Sentient Lockbox* — Safe 3/1 · on-lock: +2 Funding.
-- *Reality Bender* — Euclid 4/2 · while installed: layers on this cell get +1 strength.
-- *Worldspine Wurm* — Keter 5/3 · on-free: Total Breach +2 (extra dangerous loose).
-- *Memetic Archive* — Euclid 4/2 · on-lock: Insurgency reveals hand.
-- *Reliquary of Bad Ideas* (TRAP) — looks advanceable · on-access: deal 2 damage.
-- *Cerebral Relay* (TRAP) — on-access: expose the Insurgency + trash 1 tool.
+**Foundation — Anomalies** (Class Threshold/Value · effect):
+- *Sentient Lockbox* — Safe 3/1 · on-contain: gain 2 Funding.
+- *Sealed Vault* — Safe 3/1 · on-contain: draw a card.
+- *Euclid Subject* — Euclid 4/2 · on-contain: reduce Total Breach by 2 (re-secure loose material).
+- *Memetic Archive* — Euclid 4/2 · on-contain: expose the Insurgency.
+- *Worldspine Wurm* — Keter 5/3 · on-free: Total Breach +5 (catastrophic if loose).
+- *Keter Horror* — Keter 5/3 · on-free: Total Breach +5 · on-contain: deal 2 damage.
+- *Containment Leviathan* — Keter 5/3 · on-contain: gain 3 Funding.
+- *Reliquary of Bad Ideas* (TRAP) — 3/0, looks advanceable · on-access: deal 2 damage.
+- *Cerebral Relay* (TRAP) — 3/0 · on-access: expose the Insurgency + trash 1 tool.
+- *Honeypot Cell* (TRAP) — 4/0, dressed as a fat Euclid · on-access: deal 3 damage.
 
-**Foundation — Layers** (type · strength / rez):
+**Foundation — Layers** (type · strength/rez · subroutine):
+- *Containment Field* — Barrier 3/2 · end the infiltration.
 - *Blast Door* — Barrier 4/4 · end the infiltration.
 - *Reinforced Bulkhead* — Barrier 6/6 · end the infiltration.
-- *Response Team* — Sentry 3/3 · neutralize 1 operative.
+- *Sniper Nest* — Sentry 2/2 · neutralize 1 operative (else 1 damage).
+- *MTF Response Team* — Sentry 3/3 · neutralize 1 operative (else 1 damage).
 - *Kill-on-Sight Order* — Sentry 5/5 · deal 2 damage.
-- *Surveillance Grid* — Sensor 2/2 · trace → expose.
-- *Amnestic Mist* — Sensor 3/4 · Insurgency discards 1 random card.
+- *Tripwire Sensor* — Sensor 1/1 · expose the Insurgency.
+- *Surveillance Grid* — Sensor 2/2 · expose the Insurgency.
+- *Amnestic Mist* — Sensor 3/4 · the Insurgency discards a random card.
 
 **Foundation — Assets / Operations:**
 - *Containment Budget* (asset) — start of turn: +1 Funding.
-- *Mobile Task Force* (asset) — 1 AP: trace the Insurgency.
-- *Emergency Lockdown* (operation) — this run, a cell's layers get +2 strength.
-- *Redaction Order* (operation) — if Insurgency is exposed: trash one of their tools.
+- *Mobile Task Force* (asset) — 1 AP, 1 Funding: expose the Insurgency (trace).
+- *Site Director* (asset) — 1 AP, 1 Funding: draw a card.
+- *Emergency Lockdown* (operation) — permanently reinforce all your layers (+1 strength each).
+- *Redaction Order* (operation) — if the Insurgency is exposed, trash one of their tools; else expose them.
+- *Enhanced Interrogation* (operation) — deal damage equal to how exposed they are (min 1) — the burnout finisher.
+- *Containment Recovery* (operation) — re-secure your highest-Value discarded anomaly onto a cell, 1 advance from locking.
+- *Containment Sweep* (operation) — reduce Total Breach by 5 (the Foundation's answer to the breach axis).
 
-**Insurgency — Operatives** (breaks · power/boost): the three breakers in §5, plus:
-- *Skeleton Key* — breaks any one subroutine once (then trashed); expensive.
-- *Field Medic* — body: prevents the first neutralize each turn.
+**Insurgency — Operatives** (breaks · power / boost):
+- *Field Infiltrator* — breaks Barriers · power 2; +1 power per 1 Cell.
+- *Master Infiltrator* — breaks Barriers · power 3; +1 power per 1 Cell.
+- *Saboteur* — breaks Sentries · power 2; +1 power per 2 Cells.
+- *Veteran Saboteur* — breaks Sentries · power 3; +1 power per 1 Cell.
+- *Ghost* — breaks Sensors · power 1; +1 power per 1 Cell.
 
 **Insurgency — Tools:**
-- *Black Budget* — 1 AP: +3 Cells.
-- *Mole* (connection) — accessing HQ reveals 2 cards.
-- *EMP Charge* (one-shot) — bypass one layer this run.
-- *Forged Credentials* — 1 AP: expose (peek) one face-down card without running.
+- *Black Budget* — 1 AP: gain 3 Cells.
+- *Safehouse* — 1 AP, 1 Cell: draw a card.
+- *Stolen Credentials* — when installed: gain 2 Cells.
 
 **Insurgency — Events:**
-- *Smash & Grab* — infiltrate a cell; if you free an anomaly, +1 Liberation.
-- *Sabotage* — infiltrate Research; trash top 3 (mill).
+- *Black Market* — gain 2 Cells.
+- *Sabotage* — trash the top 3 cards of the Foundation's deck (mill).
+- *Data Heist* — trash the top 2 of the Foundation's deck, then draw a card.
 - *Leak to the Press* — Total Breach +2.
-- *Extraction* — if you freed an anomaly this turn, draw 2.
+- *Wetwork* — Total Breach +3.
+- *Anonymous Tip* — Total Breach +1, then draw a card.
+- *Extraction* — draw 2 cards.
 
-**Identities (optional, give archetypes a base).** *As shipped (v0.1) — the sketched bonus actions
-were dropped in favour of simpler passives that don't distort the AP economy:*
-- Foundation *Site-19 Command* — maximum hand size 6 (a bigger ops room).
-- Insurgency *Black Queen Cell* — begin with +2 Cells; each anomaly you free banks **+1 bonus
-  Liberation** (the steal-engine identity that makes the liberation axis a real win path).
+**Identities (give archetypes a base).** Simple passives that don't distort the AP economy; each
+archetype runs the one aligned with its win axis (see §9):
+- *Site-19 Command* (Foundation) — maximum hand size 6 (a bigger ops room).
+- *Overseer Council* (Foundation) — while the Insurgency is exposed, your damage to them is +1 (soft-kill).
+- *Black Queen Cell* (Insurgency) — begin with +2 Cells; each anomaly you free banks +1 bonus Liberation (steal-engine).
+- *Sarkic Cult* (Insurgency) — begin with +1 Cell; your Total Breach events add +1 Breach each (breach-doctrine).
+- *Black Lodge Cell* (Insurgency) — begin with +1 Cell; your mill effects trash +1 card each (denial-doctrine).
 
 ---
 
