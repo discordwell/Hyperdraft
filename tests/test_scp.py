@@ -470,6 +470,56 @@ def test_no_collapse_at_game_start_with_a_stocked_deck():
     assert not g.state.players[f.id].has_lost, "a stocked deck is not a collapse"
 
 
+# --------------------------------------------------------------------------- direct point-grant vocabulary
+# add_liberation / add_containment are the flat-grant siblings of add_breach: a card that moves a win
+# counter without freeing/containing an anomaly. They MUST emit their event (so the client animates)
+# and run the win check (so a crossed threshold resolves at once) — never a silent counter bump. These
+# guard exactly that invariant; the silent-bump versions they replaced would fail the win-check pins.
+def test_add_liberation_credits_insurgency_and_emits_free():
+    g, f, i = _setup()
+    events = scp.add_liberation(g, 3)
+    assert scp.ensure_scp_state(g.state, i.id)["liberation_points"] == 3
+    assert scp.ensure_scp_state(g.state, f.id)["liberation_points"] == 0, "liberation is the Insurgency counter only"
+    free = [e for e in events if e.type.name == "SCP_FREE"]
+    assert len(free) == 1 and free[0].payload["liberation_points"] == 3 and free[0].payload["value"] == 3
+
+
+def test_add_containment_credits_foundation_and_emits_contain():
+    g, f, i = _setup()
+    events = scp.add_containment(g, 2)
+    assert scp.ensure_scp_state(g.state, f.id)["containment_points"] == 2
+    assert scp.ensure_scp_state(g.state, i.id)["containment_points"] == 0, "containment is the Foundation counter only"
+    contain = [e for e in events if e.type.name == "SCP_CONTAIN"]
+    assert len(contain) == 1 and contain[0].payload["containment_points"] == 2 and contain[0].payload["value"] == 2
+
+
+def test_add_liberation_runs_win_check_when_it_crosses_the_target():
+    # The load-bearing guard: a direct grant that reaches LIBERATION_TARGET must win NOW, not on the
+    # next natural check. The old silent-bump add_liberation would leave both sides alive here.
+    g, f, i = _setup()
+    scp.ensure_scp_state(g.state, i.id)["liberation_points"] = scp.LIBERATION_TARGET - 1
+    events = scp.add_liberation(g, 1)
+    assert g.state.players[f.id].has_lost and not g.state.players[i.id].has_lost
+    assert any(e.type.name == "SCP_WIN" and e.payload.get("reason") == "liberation" for e in events)
+
+
+def test_add_containment_runs_win_check_when_it_crosses_the_target():
+    g, f, i = _setup()
+    scp.ensure_scp_state(g.state, f.id)["containment_points"] = scp.CONTAINMENT_TARGET - 1
+    events = scp.add_containment(g, 1)
+    assert g.state.players[i.id].has_lost and not g.state.players[f.id].has_lost
+    assert any(e.type.name == "SCP_WIN" and e.payload.get("reason") == "containment" for e in events)
+
+
+def test_direct_grant_below_target_does_not_win():
+    # No false positive: a grant that stays under the target leaves the game live and emits no SCP_WIN.
+    g, f, i = _setup()
+    lib_events = scp.add_liberation(g, scp.LIBERATION_TARGET - 1)
+    con_events = scp.add_containment(g, scp.CONTAINMENT_TARGET - 1)
+    assert not g.state.players[f.id].has_lost and not g.state.players[i.id].has_lost
+    assert not any(e.type.name == "SCP_WIN" for e in lib_events + con_events)
+
+
 # --------------------------------------------------------------------------- evaluate_scp_win (the single win evaluator)
 # evaluate_scp_win is the pure §7 ladder that BOTH the engine arbiter (check_scp_win) and the client
 # serializer read, so neither can drift from the spec table. These pin every rung, the live-game

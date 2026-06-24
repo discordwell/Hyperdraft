@@ -329,22 +329,54 @@ def _spend_credits(r: dict, n: int) -> bool:
 # ---------------------------------------------------------------------------
 # Card-effect helpers — the vocabulary card closures call. Each is a thin,
 # directly-callable function (no AP/credit gate; the playing verb already paid
-# that). They mutate the per-player record and emit the matching event so the
-# log/frontend observe the effect. Used by card on_*/effect/ability closures.
+# that). A helper that moves a *win counter* (liberation / containment / breach)
+# emits its matching event AND runs check_scp_win, so the change animates on the
+# client and a crossed threshold resolves the game immediately — never a silent
+# counter bump (the class of bug the repo's anti-rot tests exist to prevent).
+# Helpers that touch a state-read field (credits, layer strength) just mutate it
+# and return [] — the frontend reads those straight from the serialized record,
+# so no event is needed. Used by card on_*/effect/ability closures.
 # ---------------------------------------------------------------------------
 def add_credits(state: GameState, player_id: str, n: int) -> list[Event]:
     ensure_scp_state(state, player_id)["credits"] = max(0, ensure_scp_state(state, player_id)["credits"] + n)
     return []
 
 
-def add_liberation(state: GameState, player_id: str, n: int) -> list[Event]:
-    ensure_scp_state(state, player_id)["liberation_points"] += n
-    return []
+def add_liberation(game, n: int) -> list[Event]:
+    """Grant the Insurgency ``n`` Liberation directly — a flat bonus not tied to freeing an anomaly
+    (e.g. a card that simply advances the cause). Liberation is *always* the Insurgency's counter, so
+    the faction is derived here rather than passed (no wrong-faction footgun, matching add_breach).
+    Emits ``SCP_FREE`` carrying the new total (``object_id=None`` — no specific anomaly) so the log/
+    frontend observe it, then runs the win check so crossing ``LIBERATION_TARGET`` resolves at once.
+    Unlike ``_free_anomaly`` this does NOT add the steal-engine ``free_bonus_lib`` — that bonus rides
+    the freeing *action*, not a flat grant."""
+    state = game.state
+    iid = insurgency_id(state)
+    if iid is None:
+        return []
+    ir = ensure_scp_state(state, iid)
+    ir["liberation_points"] += n
+    events = _emit(game, EventType.SCP_FREE, controller=iid, player=iid,
+                   object_id=None, value=n, liberation_points=ir["liberation_points"])
+    events.extend(check_scp_win(game))
+    return events
 
 
-def add_containment(state: GameState, player_id: str, n: int) -> list[Event]:
-    ensure_scp_state(state, player_id)["containment_points"] += n
-    return []
+def add_containment(game, n: int) -> list[Event]:
+    """Grant the Foundation ``n`` Containment directly — a flat bonus not tied to containing an
+    anomaly. Containment is *always* the Foundation's counter, so the faction is derived here.
+    Emits ``SCP_CONTAIN`` carrying the new total (``object_id=None``) so the log/frontend observe it,
+    then runs the win check so crossing ``CONTAINMENT_TARGET`` resolves at once."""
+    state = game.state
+    fid = foundation_id(state)
+    if fid is None:
+        return []
+    fr = ensure_scp_state(state, fid)
+    fr["containment_points"] += n
+    events = _emit(game, EventType.SCP_CONTAIN, controller=fid, player=fid,
+                   object_id=None, value=n, containment_points=fr["containment_points"])
+    events.extend(check_scp_win(game))
+    return events
 
 
 def add_breach(game, n: int) -> list[Event]:
