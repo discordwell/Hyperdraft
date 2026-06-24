@@ -110,6 +110,44 @@ def test_contain_below_threshold_fails():
     assert not ok and "advancement" in msg.lower()
 
 
+# --------------------------------------------------------------------------- contain is one-shot
+# Regression: contain() only checked threshold (which stays met once an anomaly locks) and the
+# anomaly's role — it did NOT check that the anomaly is still a live agenda on a cell. advance() has
+# always rejected a non-live anomaly, but contain() didn't, so the REST/human SCP_CONTAIN path could
+# re-submit it to DOUBLE-SCORE a Value (and re-fire on_contain), or score a freed anomaly straight out
+# of the discard. The cell binding (not the sticky scp_status) is the source of truth for "advanceable".
+def test_cannot_recontain_an_already_contained_anomaly():
+    g, f, i = _setup()
+    obj, cell = _install_anomaly(g, f.id, threshold=1, value=2)
+    scp.advance(g, f.id, obj.id)
+    fr = scp.ensure_scp_state(g.state, f.id)
+    ok, _m, _ = scp.contain(g, f.id, obj.id)
+    assert ok and fr["containment_points"] == 2, "first contain scores the Value"
+    ok2, msg2, _ = scp.contain(g, f.id, obj.id)
+    assert not ok2 and "advanceable" in msg2.lower(), "re-containing is rejected — no double-score"
+    assert fr["containment_points"] == 2, "the Value is banked exactly once"
+    oka, _ma, _ = scp.advance(g, f.id, obj.id)
+    assert not oka, "a contained anomaly is off its cell → not advanceable"
+
+
+def test_cannot_contain_or_advance_a_freed_anomaly_from_the_discard():
+    # Sibling hole: _free_anomaly leaves a freed anomaly's status as "advancing", so a threshold-only
+    # check would let the Foundation contain an anomaly the Insurgency already stole. Free one that had
+    # met its threshold (containable but not yet contained), then prove neither verb touches it.
+    g, f, i = _setup()
+    obj, cell = _install_anomaly(g, f.id, threshold=2, value=2)
+    scp.advance(g, f.id, obj.id); scp.advance(g, f.id, obj.id)  # met threshold, not yet contained
+    _ready(g, i.id, ap=3, credits=10)
+    scp.infiltrate(g, i.id, ("cell", cell["id"]))  # undefended → the Insurgency frees it
+    assert obj.zone == ZoneType.GRAVEYARD and cell["anomaly"] is None, "the anomaly was stolen"
+    fr = scp.ensure_scp_state(g.state, f.id)
+    ok, msg, _ = scp.contain(g, f.id, obj.id)
+    assert not ok and "advanceable" in msg.lower(), "cannot contain a stolen anomaly out of the discard"
+    assert fr["containment_points"] == 0, "the freed anomaly scores the Foundation nothing"
+    oka, _ma, _ = scp.advance(g, f.id, obj.id)
+    assert not oka, "nor can it be advanced in the discard"
+
+
 # --------------------------------------------------------------------------- infiltration
 def test_infiltrate_undefended_cell_frees_anomaly():
     g, f, i = _setup()

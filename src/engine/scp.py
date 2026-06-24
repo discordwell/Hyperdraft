@@ -575,6 +575,18 @@ def _find_cell(r: dict, cell_id: Optional[int]) -> Optional[dict]:
     return None
 
 
+def _anomaly_cell(r: dict, anomaly_id: str) -> Optional[dict]:
+    """The cell an anomaly is currently installed on, or None — the single 'is this a live,
+    advanceable agenda?' test for advance/contain. An anomaly that was contained (its cell slot is
+    cleared) or freed by the Insurgency (relocated to the discard) is on no cell, so both verbs must
+    reject it. Note ``scp_status`` alone is NOT sufficient: ``_free_anomaly`` leaves a freed anomaly's
+    status as ``"advancing"``, so only the cell binding distinguishes a live agenda from a stolen one."""
+    for cell in r["cells"]:
+        if cell.get("anomaly") == anomaly_id:
+            return cell
+    return None
+
+
 def _install_anomaly(game, player_id: str, obj: GameObject, cell_id: Optional[int]) -> list[Event]:
     r = ensure_scp_state(game.state, player_id)
     cell = _find_cell(r, cell_id)
@@ -660,7 +672,10 @@ def advance(game, player_id: str, anomaly_id: str) -> tuple[bool, str, list[Even
     obj = state.objects.get(anomaly_id)
     if not obj or obj.controller != player_id or getattr(obj.state, "scp_role", None) != "anomaly":
         return False, "Not your anomaly", []
-    if getattr(obj.state, "scp_status", None) != "advancing":
+    if _anomaly_cell(r, anomaly_id) is None:
+        # Only a live agenda still installed on one of your cells can be advanced — not a contained
+        # one (slot cleared) nor one the Insurgency already freed to the discard (which keeps its
+        # stale "advancing" status). The cell binding is the source of truth, not scp_status.
         return False, "Anomaly is not advanceable", []
     if r["ap"] < 1:
         return False, "No actions left", []
@@ -681,6 +696,15 @@ def contain(game, player_id: str, anomaly_id: str) -> tuple[bool, str, list[Even
     obj = state.objects.get(anomaly_id)
     if not obj or obj.controller != player_id or getattr(obj.state, "scp_role", None) != "anomaly":
         return False, "Not your anomaly", []
+    # Guard: only a live agenda still installed on one of your cells can be contained. advance() has
+    # always rejected a non-live anomaly; contain() did not, and the threshold check below passes for
+    # an already-contained anomaly (advancement is sticky) or a freed one in the discard (status stays
+    # "advancing"). Without this the REST/human SCP_CONTAIN path could re-submit contain to DOUBLE-SCORE
+    # a Value (and re-fire on_contain), or score a stolen anomaly straight out of the graveyard. Pin the
+    # cell here and reuse it to clear the slot on success (an anomaly is installed on exactly one cell).
+    cell = _anomaly_cell(r, anomaly_id)
+    if cell is None:
+        return False, "Anomaly is not advanceable", []
     cd = obj.card_def
     threshold = int(getattr(cd, "scp_threshold", 0) or 0)
     if int(getattr(obj.state, "scp_advancement", 0)) < threshold:
@@ -691,10 +715,7 @@ def contain(game, player_id: str, anomaly_id: str) -> tuple[bool, str, list[Even
     value = int(getattr(cd, "scp_value", 0) or 0)
     obj.state.scp_status = "contained"
     obj.state.scp_facedown = False
-    # remove from its cell's anomaly slot (the cell may keep its layers)
-    for cell in r["cells"]:
-        if cell.get("anomaly") == anomaly_id:
-            cell["anomaly"] = None
+    cell["anomaly"] = None  # vacate the slot (the cell may keep its layers)
     r["containment_points"] += value
     events = _emit(game, EventType.SCP_CONTAIN, controller=player_id,
                    player=player_id, object_id=anomaly_id, value=value,
