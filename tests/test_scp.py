@@ -509,10 +509,12 @@ def test_no_collapse_at_game_start_with_a_stocked_deck():
 
 
 # --------------------------------------------------------------------------- direct point-grant vocabulary
-# add_liberation / add_containment are the flat-grant siblings of add_breach: a card that moves a win
-# counter without freeing/containing an anomaly. They MUST emit their event (so the client animates)
-# and run the win check (so a crossed threshold resolves at once) — never a silent counter bump. These
-# guard exactly that invariant; the silent-bump versions they replaced would fail the win-check pins.
+# add_liberation / add_containment / add_breach are the flat-grant vocabulary: a card that moves a win
+# counter without freeing/containing an anomaly. All three MUST emit their event (so the client
+# animates) and run the win check (so a crossed threshold resolves at once) — never a silent counter
+# bump. These guard exactly that invariant; the silent-bump versions they replaced would fail the
+# win-check pins. add_breach was the odd one out (win-checked only transitively via play_card's
+# trailing check) until it was made self-sufficient like its siblings — its pin is below.
 def test_add_liberation_credits_insurgency_and_emits_free():
     g, f, i = _setup()
     events = scp.add_liberation(g, 3)
@@ -549,13 +551,27 @@ def test_add_containment_runs_win_check_when_it_crosses_the_target():
     assert any(e.type.name == "SCP_WIN" and e.payload.get("reason") == "containment" for e in events)
 
 
+def test_add_breach_runs_win_check_when_it_crosses_catastrophe():
+    # The missing third pin: a breach bump that reaches BREACH_CATASTROPHE must win NOW, self-
+    # sufficiently — not lazily wait for play_card's trailing check (the only reason the pre-fix
+    # silent bump wasn't a live bug). A future non-play_card caller (an on-contain closure, a tool
+    # ability) would otherwise leave the Insurgency's "unleash" win un-declared with the counter
+    # sitting over the line. This asserts add_breach itself declares the win, no wrapper needed.
+    g, f, i = _setup()
+    scp.ensure_scp_state(g.state, f.id)["total_breach"] = scp.BREACH_CATASTROPHE - 1
+    events = scp.add_breach(g, 1)
+    assert g.state.players[f.id].has_lost and not g.state.players[i.id].has_lost
+    assert any(e.type.name == "SCP_WIN" and e.payload.get("reason") == "total_breach" for e in events)
+
+
 def test_direct_grant_below_target_does_not_win():
     # No false positive: a grant that stays under the target leaves the game live and emits no SCP_WIN.
     g, f, i = _setup()
     lib_events = scp.add_liberation(g, scp.LIBERATION_TARGET - 1)
     con_events = scp.add_containment(g, scp.CONTAINMENT_TARGET - 1)
+    brk_events = scp.add_breach(g, scp.BREACH_CATASTROPHE - 1)
     assert not g.state.players[f.id].has_lost and not g.state.players[i.id].has_lost
-    assert not any(e.type.name == "SCP_WIN" for e in lib_events + con_events)
+    assert not any(e.type.name == "SCP_WIN" for e in lib_events + con_events + brk_events)
 
 
 # --------------------------------------------------------------------------- evaluate_scp_win (the single win evaluator)

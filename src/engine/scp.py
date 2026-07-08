@@ -382,7 +382,17 @@ def add_containment(game, n: int) -> list[Event]:
 def add_breach(game, n: int) -> list[Event]:
     """Raise the shared Total Breach clock (kept on the Foundation record). A breach-doctrine
     Insurgency identity (Sarkic Cult) adds ``breach_event_bonus`` to every breach event — this is
-    the only path breach events take, so the bonus lands exactly on Leak/Wetwork/Anonymous Tip."""
+    the only path breach events take, so the bonus lands exactly on Leak/Wetwork/Anonymous Tip.
+
+    Like its flat-grant siblings ``add_liberation`` / ``add_containment`` (and per this section's
+    win-counter contract above), it emits ``SCP_BREACH`` AND runs the win check, so a bump that
+    reaches ``BREACH_CATASTROPHE`` resolves the Insurgency's secondary "unleash" win *now* rather
+    than lingering as a silent over-threshold counter until the next natural check. Every breach
+    bump today already routes through ``play_card`` (which also checks), so this is defense-in-depth
+    that keeps the helper self-sufficient — a future non-``play_card`` caller (an on-contain closure,
+    a tool ability, a new card) can't reintroduce the silent-bump footgun f983bb16 closed for the
+    other two win counters, and a catastrophe crossed mid-effect no longer emits its win *after* a
+    trailing draw (e.g. Anonymous Tip's breach-then-draw)."""
     state = game.state
     fid = foundation_id(state)
     if fid is None:
@@ -392,7 +402,9 @@ def add_breach(game, n: int) -> list[Event]:
         n += int(ensure_scp_state(state, iid).get("breach_event_bonus", 0))
     fr = ensure_scp_state(state, fid)
     fr["total_breach"] += n
-    return _emit(game, EventType.SCP_BREACH, amount=n, total_breach=fr["total_breach"])
+    events = _emit(game, EventType.SCP_BREACH, amount=n, total_breach=fr["total_breach"])
+    events.extend(check_scp_win(game))
+    return events
 
 
 def reduce_breach(game, n: int) -> list[Event]:
