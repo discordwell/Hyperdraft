@@ -192,17 +192,24 @@ def make_asset(name: str, *, cost: int = 0, text: str = "",
                on_install: Optional[Callable] = None,
                on_turn_start: Optional[Callable] = None,
                ability: Optional[Callable] = None,
-               ability_cost: int = 0, ability_ap: int = 1) -> CardDefinition:
+               ability_cost: int = 0, ability_ap: int = 1,
+               recovers: bool = False) -> CardDefinition:
     """Foundation persistent. ``ability(game, pid, obj, target)`` is an activated ability
-    costing ``ability_ap`` AP + ``ability_cost`` Funding (fired via ``activate_ability``)."""
+    costing ``ability_ap`` AP + ``ability_cost`` Funding (fired via ``activate_ability``).
+    ``recovers=True`` marks an asset that reclaims anomalies from the discard (a *repeatable*
+    recovery source), which the collapse arbiter reads via ``_recoverable_discard_containment``."""
     return _card(name, CardType.SCP_ASSET, text, cost=cost, on_install=on_install,
                  on_turn_start=on_turn_start, ability=ability,
-                 ability_cost=ability_cost, ability_ap=ability_ap)
+                 ability_cost=ability_cost, ability_ap=ability_ap, recovers=recovers)
 
 
 def make_operation(name: str, *, cost: int = 0, text: str = "",
-                   effect: Optional[Callable] = None) -> CardDefinition:
-    return _card(name, CardType.SCP_OPERATION, text, cost=cost, effect=effect)
+                   effect: Optional[Callable] = None,
+                   recovers: bool = False) -> CardDefinition:
+    """Foundation/Insurgency one-shot. ``recovers=True`` marks a card that reclaims an anomaly
+    from the discard (recontainment) — read by ``_recoverable_discard_containment`` so those
+    still-reachable anomalies keep the ``foundation_collapse`` loss honest (see §7)."""
+    return _card(name, CardType.SCP_OPERATION, text, cost=cost, effect=effect, recovers=recovers)
 
 
 def make_operative(name: str, breaks: str, power: int, *, boost: int = 1,
@@ -998,12 +1005,51 @@ def _declare_win(game, winner: str, loser: str, reason: str) -> list[Event]:
     ))
 
 
+def _recoverable_discard_containment(state: GameState, fid: str) -> int:
+    """Value of discard anomalies the Foundation can still pull back — its recontainment reserve.
+
+    A milled or freed anomaly lands in the discard and normally stops counting toward reachable
+    Containment. But a recovery card (``scp_recovers`` — Containment Recovery) re-secures one straight
+    onto a cell, so those anomalies are NOT lost while the Foundation still holds the means to reclaim
+    them. Counting them keeps the ``foundation_collapse`` loss honest: a recovery deck whose anomalies
+    are all in the discard is only 'mathematically dead' once it can no longer recover them — not the
+    instant the last one is milled while a Recovery still sits in hand (the premature-collapse bug).
+
+    Bound (this must stay a true UPPER bound on reachable Containment): each one-shot recovery card
+    reachable in hand/deck reclaims exactly one anomaly (highest-Value first, matching
+    ``recover_anomaly``), so credit the top-K discard anomaly Values for K such cards. An installed
+    *repeatable* recovery source (``scp_recovers`` on an asset) lifts the cap — every discard anomaly is
+    then reachable. Traps (Value 0) never count. A recovery card in the discard can't be replayed, so
+    only hand/deck copies count."""
+    f = ensure_scp_state(state, fid)
+    disc_vals = sorted(
+        (int(getattr(o.card_def, "scp_value", 0) or 0)
+         for o in (state.objects.get(oid) for oid in discard_ids(state, fid))
+         if o is not None and getattr(o.card_def, "scp_kind", None) == CardType.SCP_ANOMALY),
+        reverse=True)
+    disc_vals = [v for v in disc_vals if v > 0]
+    if not disc_vals:
+        return 0
+    for oid in f["assets"]:
+        o = state.objects.get(oid)
+        if o is not None and bool(getattr(o.card_def, "scp_recovers", False)):
+            return sum(disc_vals)  # repeatable recovery → all of it is reachable
+    k = 0
+    for oid in hand_ids(state, fid) + deck_ids(state, fid):
+        o = state.objects.get(oid)
+        if o is not None and bool(getattr(o.card_def, "scp_recovers", False)):
+            k += 1
+    return sum(disc_vals[:k])
+
+
 def _foundation_reachable_containment(state: GameState, fid: str) -> int:
     """The most Containment the Foundation could still reach: current points plus the Value of every
     anomaly it can still contain — uncontained-and-unfreed, in its library, hand, or installed on a
-    cell. Traps (Value 0) add nothing. When this falls below CONTAINMENT_TARGET the Foundation's
-    primary win is mathematically dead — the Insurgency has loosed too many anomalies for it to ever
-    reach the target."""
+    cell, PLUS anomalies in the discard it can still recover (see ``_recoverable_discard_containment``).
+    Traps (Value 0) add nothing. When this falls below CONTAINMENT_TARGET the Foundation's primary win
+    is mathematically dead — the Insurgency has loosed too many anomalies for it to ever reach the
+    target. The discard term is what stops a recontainment deck (whose freed/milled anomalies are all
+    reclaimable) from being wrongly declared collapsed while it still holds a Containment Recovery."""
     f = ensure_scp_state(state, fid)
     total = f["containment_points"]
     for oid in hand_ids(state, fid) + deck_ids(state, fid):
@@ -1014,6 +1060,7 @@ def _foundation_reachable_containment(state: GameState, fid: str) -> int:
         anomaly = state.objects.get(cell.get("anomaly")) if cell.get("anomaly") else None
         if anomaly is not None and getattr(anomaly.state, "scp_status", None) != "contained":
             total += int(getattr(anomaly.card_def, "scp_value", 0) or 0)
+    total += _recoverable_discard_containment(state, fid)
     return total
 
 

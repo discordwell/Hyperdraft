@@ -170,7 +170,7 @@ under-defend a real anomaly and dare the Insurgency to commit. Hidden installs +
 | Insurgency burned out (damage vs empty hand) | **Foundation wins** (soft kill, secondary) |
 | Insurgency Liberation points ≥ **7** | **Insurgency wins** (primary) |
 | Total Breach ≥ **24** | **Insurgency wins** (secondary — "unleash") |
-| Foundation can **no longer reach Containment 6** — its current points plus the Value of every anomaly it can still contain (uncontained-and-unfreed, in library/hand/on a cell) fall short | **Insurgency wins** (**collapse** — the Foundation failed its mandate) |
+| Foundation can **no longer reach Containment 6** — its current points plus the Value of every anomaly it can still contain (uncontained-and-unfreed, in library/hand/on a cell, **or in the discard while it still holds a Containment Recovery to reclaim it**) fall short | **Insurgency wins** (**collapse** — the Foundation failed its mandate) |
 
 No self-inflicted loss exists. Checked after every state-changing action (a single
 `check_scp_win(game)` analogous to `check_scp_victory`, but symmetric across the two win axes).
@@ -178,7 +178,12 @@ The **collapse** clause makes the game decisive: when the Insurgency has loosed 
 that the Foundation's quota is mathematically out of reach (and the Insurgency isn't itself one
 damage from a soft-kill — guarded by Insurgency hand ≥ 2), it wins by default rather than the game
 spinning to a no-contest. This is *not* a self-inflicted loss: the arbiter recognizes a failed win
-condition, exactly as it recognizes a met one.
+condition, exactly as it recognizes a met one. "Out of reach" is a true *upper* bound: an anomaly
+milled or freed into the discard is only lost once the Foundation can no longer recover it, so a
+recontainment deck (Containment Recovery ×N) counts its discarded anomalies as still-reachable —
+capped at the top-N Values it could actually reclaim — and is not collapsed while that reserve is
+live. Without this the collapse would fire the instant a recovery deck's last board anomaly left,
+robbing a genuinely winnable game.
 
 ---
 

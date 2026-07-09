@@ -508,6 +508,73 @@ def test_no_collapse_at_game_start_with_a_stocked_deck():
     assert not g.state.players[f.id].has_lost, "a stocked deck is not a collapse"
 
 
+# --- collapse vs the recontainment reserve: discard anomalies a Recovery can reclaim are reachable ---
+# The reachable-Containment metric excluded the discard entirely, so a recontainment deck whose
+# anomalies were all milled/freed to the discard was declared 'mathematically dead' and lost by
+# collapse the instant its last board anomaly left — even while it held a Containment Recovery that
+# could re-secure one and win. These pin the fix (scp_recovers marks the recovery vector) and, just as
+# importantly, that the bound stays a true UPPER bound so a genuine mill-out is still a collapse.
+def _gy(g, pid, cd):
+    return g.create_object(name=cd.name, owner_id=pid, zone=ZoneType.GRAVEYARD,
+                           characteristics=cd.characteristics, card_def=cd)
+
+
+def test_no_premature_collapse_while_a_recovery_can_reclaim_the_discard():
+    g, f, i = _setup()
+    scp.ensure_scp_state(g.state, f.id)["containment_points"] = 0
+    _gy(g, f.id, scp.make_anomaly("Lost-A", threshold=5, value=3))  # 3 + 3 = target, all in discard
+    _gy(g, f.id, scp.make_anomaly("Lost-B", threshold=5, value=3))
+    rec = scp.make_operation("Recontain", recovers=True)
+    _hand(g, f.id, rec); _hand(g, f.id, rec)  # two recoveries → reclaim both (one anomaly each)
+    _hand(g, i.id, scp.make_event("c1")); _hand(g, i.id, scp.make_event("c2"))  # Insurgency hand >= 2
+    assert scp._foundation_reachable_containment(g.state, f.id) == 6, "both value-3 anomalies are reclaimable"
+    scp.check_scp_win(g)
+    assert not g.state.players[f.id].has_lost, "a live recontainment reserve is not a collapse"
+    assert scp.evaluate_scp_win(g.state) is None
+
+
+def test_collapse_still_fires_when_recovery_cannot_cover_the_gap():
+    # One Recovery reclaims exactly ONE anomaly (highest-Value first), so two value-3 in the discard
+    # with a single Recovery reach only 3 < target → still a collapse. The bound never over-credits.
+    g, f, i = _setup()
+    scp.ensure_scp_state(g.state, f.id)["containment_points"] = 0
+    _gy(g, f.id, scp.make_anomaly("Lost-A", threshold=5, value=3))
+    _gy(g, f.id, scp.make_anomaly("Lost-B", threshold=5, value=3))
+    _hand(g, f.id, scp.make_operation("Recontain", recovers=True))  # only ONE recovery
+    _hand(g, i.id, scp.make_event("c1")); _hand(g, i.id, scp.make_event("c2"))
+    assert scp._foundation_reachable_containment(g.state, f.id) == 3, "one Recovery → top-1 Value only"
+    assert scp.evaluate_scp_win(g.state) == (i.id, f.id, "foundation_collapse")
+
+
+def test_a_spent_recovery_in_the_discard_does_not_keep_anomalies_reachable():
+    # A one-shot Recovery already spent (sitting in the discard) can't be replayed, so it does NOT
+    # count — only hand/deck copies do. Guards the bound against crediting a dead card.
+    g, f, i = _setup()
+    scp.ensure_scp_state(g.state, f.id)["containment_points"] = 0
+    _gy(g, f.id, scp.make_anomaly("Lost", threshold=5, value=3))
+    _gy(g, f.id, scp.make_operation("Spent-Recontain", recovers=True))  # in DISCARD, not hand/deck
+    _hand(g, i.id, scp.make_event("c1")); _hand(g, i.id, scp.make_event("c2"))
+    assert scp._foundation_reachable_containment(g.state, f.id) == 0, "a discarded Recovery is dead"
+    assert scp.evaluate_scp_win(g.state) == (i.id, f.id, "foundation_collapse")
+
+
+def test_an_installed_repeatable_recovery_asset_makes_all_discard_reachable():
+    # A repeatable recovery *asset* (scp_recovers on an installed asset) lifts the top-K cap — it can
+    # re-secure turn after turn, so every discard anomaly is reachable and no collapse fires.
+    g, f, i = _setup()
+    fr = scp.ensure_scp_state(g.state, f.id)
+    fr["containment_points"] = 0
+    for n in range(3):  # 9 pts — only reachable if recovery is repeatable, not one-shot-capped
+        _gy(g, f.id, scp.make_anomaly(f"Lost-{n}", threshold=5, value=3))
+    asset = scp.make_asset("Recovery Bay", recovers=True)
+    ao = g.create_object(name=asset.name, owner_id=f.id, zone=ZoneType.BATTLEFIELD,
+                         characteristics=asset.characteristics, card_def=asset)
+    fr["assets"].append(ao.id)
+    _hand(g, i.id, scp.make_event("c1")); _hand(g, i.id, scp.make_event("c2"))
+    assert scp._foundation_reachable_containment(g.state, f.id) == 9, "repeatable recovery → all discard counts"
+    assert scp.evaluate_scp_win(g.state) is None
+
+
 # --------------------------------------------------------------------------- direct point-grant vocabulary
 # add_liberation / add_containment / add_breach are the flat-grant vocabulary: a card that moves a win
 # counter without freeing/containing an anomaly. All three MUST emit their event (so the client

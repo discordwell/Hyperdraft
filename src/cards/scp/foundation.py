@@ -326,7 +326,7 @@ CONTAINMENT_RECOVERY = make_operation(
     "Containment Recovery", cost=3,
     text="Re-secure the highest-Value anomaly from your discard onto a cell, 1 advance from "
          "locking (behind your walls where one was freed). If your discard holds none, draw a card.",
-    effect=_op_recovery)
+    effect=_op_recovery, recovers=True)  # marks discard anomalies reachable → no premature collapse
 
 
 # ===========================================================================

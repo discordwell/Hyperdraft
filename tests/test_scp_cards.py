@@ -557,6 +557,25 @@ def test_containment_recovery_draws_when_discard_has_no_anomaly():
     assert len(scp.deck_ids(g.state, f.id)) == before - 1, "no anomaly to recover → draw a card"
 
 
+def test_containment_recovery_keeps_a_milled_out_recontainment_deck_from_collapsing():
+    # End-to-end guard tying the real card to the collapse arbiter: with its anomalies all in the
+    # discard and 0 on board, the Foundation is NOT collapsed while it holds enough real Containment
+    # Recovery to reclaim them (the card is marked scp_recovers, so its discard anomalies stay
+    # reachable). Removing the marker — or the discard term in _foundation_reachable_containment —
+    # would make this a wrongful collapse loss for the whole recontainment archetype.
+    assert getattr(F.CONTAINMENT_RECOVERY, "scp_recovers", False), \
+        "Containment Recovery must be marked scp_recovers (recontainment win-con substrate)"
+    g, f, i = _setup()
+    scp.ensure_scp_state(g.state, f.id)["containment_points"] = 0
+    for cd in (F.CONTAINMENT_LEVIATHAN, F.KETER_HORROR):  # 3 + 3 = 6 (target) sitting in the discard
+        g.create_object(name=cd.name, owner_id=f.id, zone=ZoneType.GRAVEYARD,
+                        characteristics=cd.characteristics, card_def=cd)
+    _hand(g, f.id, F.CONTAINMENT_RECOVERY); _hand(g, f.id, F.CONTAINMENT_RECOVERY)  # reclaim both
+    _hand(g, i.id, I.BLACK_MARKET); _hand(g, i.id, I.BLACK_MARKET)  # Insurgency hand >= 2
+    scp.check_scp_win(g)
+    assert not g.state.players[f.id].has_lost, "a recoverable discard is not a collapse"
+
+
 # =========================================================================== decks
 def test_all_decks_are_legal():
     for label, (ident, builder) in D.SCP_DECKS.items():
